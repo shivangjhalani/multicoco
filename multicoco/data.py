@@ -49,18 +49,21 @@ class DataCollatorForMultiCoCo:
                 if turn['from'] == 'human':
                     # Check if this turn has an image
                     if 'image' in item and item['image'] is not None:
-                        # Use single <img> token - let model handle internal mapping
-                        text += f"<img>\n{turn['value']}\n"
+                        # Format with proper image tokens: <img> + 255 <IMG_CONTEXT> tokens
+                        img_context_tokens = "<IMG_CONTEXT>" * 255
+                        image_placeholder = f"<img>{img_context_tokens}"
+                        text += f"<|im_start|>user\n{image_placeholder}{turn['value']}<|im_end|>\n"
                         images.append(item['image'])
                     else:
-                        text += f"{turn['value']}\n"
+                        text += f"<|im_start|>user\n{turn['value']}<|im_end|>\n"
                 elif turn['from'] == 'gpt':
-                    text += f"{turn['value']}\n"
+                    text += f"<|im_start|>assistant\n{turn['value']}<|im_end|>\n"
             
-            texts.append(text.strip())
+            texts.append(text)
         
-        # If no images in batch, pad with None
-        while len(images) < len(texts):
+        # Ensure all batches have the same number of images (pad with None if needed)
+        max_images = max(len([img for img in images if img is not None]), 1)
+        while len(images) < len(batch):
             images.append(None)
         
         # Tokenize texts
@@ -77,24 +80,29 @@ class DataCollatorForMultiCoCo:
         
         # Process images
         pixel_values = []
-        for image in images:
-            if image is not None:
-                pixel_values.append(image)
+        for img in images:
+            if img is not None:
+                # Load and preprocess image
+                processed_img = load_image(img, max_num=1)
+                pixel_values.append(processed_img)
             else:
-                # Create dummy image for text-only samples
-                pixel_values.append(torch.zeros(3, 448, 448))
+                # Create dummy image if None
+                dummy_img = torch.zeros((3, 448, 448))
+                pixel_values.append(dummy_img)
         
-        pixel_values = torch.stack(pixel_values)
+        if pixel_values:
+            pixel_values = torch.stack(pixel_values)
+        else:
+            pixel_values = torch.zeros((len(batch), 3, 448, 448))
         
-        # Create labels for training
+        # Create labels for training (shift input_ids by one position)
         if self.training:
             labels = input_ids.clone()
-            # Mask non-assistant tokens (simple approach - mask everything except assistant responses)
             labels[labels == self.tokenizer.pad_token_id] = -100
         else:
             labels = None
 
-        # Image flags: simple batch-level flag indicating presence of images
+        # Create image_flags to indicate presence of images
         image_flags = torch.ones(input_ids.size(0), 1, dtype=torch.long)
 
         return {
