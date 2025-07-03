@@ -89,6 +89,7 @@ class DataCollatorForMultiCoCo:
                 pixel_values.append(torch.zeros(3, 448, 448))
         
         pixel_values = torch.stack(pixel_values)
+        pixel_values = pixel_values.squeeze(1)
         
         # Create labels for training
         if self.training:
