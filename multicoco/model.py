@@ -30,11 +30,12 @@ class MultiCoCo(nn.Module):
 
     def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list):
         
+        # num_patches_list is not used in the forward pass for training,
+        # it's primarily for the chat/generation methods.
         output = self.model(
             pixel_values=pixel_values.to(self.model.dtype),
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
-            num_patches_list=num_patches_list
         )
         return output
