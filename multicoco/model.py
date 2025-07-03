@@ -24,7 +24,7 @@ class MultiCoCo(nn.Module):
         # Add special tokens for latent thoughts
         special_tokens_to_add = ["<|start-latent|>", "<|end-latent|>", "<|latent|>"]
         self.tokenizer.add_tokens(special_tokens_to_add)
-        self.model.resize_token_embeddings(len(self.tokenizer))
+        self.model.language_model.resize_token_embeddings(len(self.tokenizer))
 
     def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list):
         
