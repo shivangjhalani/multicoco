@@ -39,7 +39,9 @@ class DataCollatorForMultiCoCo:
         is_coconut = self.train_config.get('coconut', False)
         c_thought = self.train_config.get('c_thought', 0)
         
-        pixel_values_list = [load_image(f['image_path']) for f in features]
+        # By setting max_num=1, we ensure each image is processed into a single tile.
+        # This resolves the shape mismatch error during training.
+        pixel_values_list = [load_image(f['image_path'], max_num=1) for f in features]
         pixel_values = torch.cat(pixel_values_list)
         num_patches_list = [p.size(0) for p in pixel_values_list]
 
