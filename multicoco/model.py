@@ -7,10 +7,12 @@ class MultiCoCo(nn.Module):
         super().__init__()
         self.args = args
         self.model_id = args.get('model_id', 'OpenGVLab/InternVL3-1B')
+        
+        torch_dtype = torch.bfloat16 if args.get('bf16', True) else torch.float32
 
         self.model = AutoModel.from_pretrained(
             self.model_id,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch_dtype,
             low_cpu_mem_usage=True,
             trust_remote_code=True
         )
@@ -29,7 +31,7 @@ class MultiCoCo(nn.Module):
     def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list):
         
         output = self.model(
-            pixel_values=pixel_values.to(torch.bfloat16),
+            pixel_values=pixel_values.to(self.model.dtype),
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,

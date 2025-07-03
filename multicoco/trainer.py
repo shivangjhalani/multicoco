@@ -23,49 +23,56 @@ class Trainer:
     def train(self):
         """Main training loop that handles staged training."""
         max_stages = self.args.get('max_latent_stage', 0) + 1 # 0 is CoT stage
+        grad_accumulation_steps = self.args.get('gradient_accumulation_steps', 1)
 
         for stage in range(max_stages):
             print(f"--- Starting Stage {stage} ---")
             
+            # Reset optimizer if specified
+            if stage > 0 and self.args.get('reset_optimizer', False):
+                print("Resetting optimizer for new stage.")
+                self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.args['lr'], weight_decay=self.args['weight_decay'])
+
             # Update data collator with the correct config for the current stage
             train_config = self._get_train_config_for_stage(stage)
             self.train_loader.collate_fn.train_config = train_config
             self.val_loader.collate_fn.train_config = {'is_train': False} # Eval is always inference mode
 
-            epochs_per_stage = self.args.get('epochs_per_stage', [self.args.get('num_epochs', 3)])
-            num_epochs = epochs_per_stage[stage] if stage < len(epochs_per_stage) else epochs_per_stage[-1]
+            num_epochs = self.args.get('epochs_per_stage', 1)
 
             for epoch in range(num_epochs):
                 self.model.train()
                 total_loss = 0
+                self.optimizer.zero_grad()
                 
                 # Use tqdm for progress bar
-                pbar = tqdm(self.train_loader, desc=f"Stage {stage}/Epoch {epoch+1}", disable=(dist.is_initialized() and dist.get_rank() != 0))
+                pbar = tqdm(enumerate(self.train_loader), total=len(self.train_loader), desc=f"Stage {stage}/Epoch {epoch+1}", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
-                for batch in pbar:
-                    self.optimizer.zero_grad()
-                    
+                for i, batch in pbar:
                     # Move batch to device
                     for k, v in batch.items():
                         if isinstance(v, torch.Tensor):
                             batch[k] = v.to(self.device)
                 
                     output = self.model(**batch)
-                    loss = output.loss
+                    loss = output.loss / grad_accumulation_steps
                     
                     loss.backward()
-                    self.optimizer.step()
+
+                    if (i + 1) % grad_accumulation_steps == 0 or (i + 1) == len(self.train_loader):
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
                     
-                    total_loss += loss.item()
-                    pbar.set_postfix({"loss": loss.item()})
+                    total_loss += loss.item() * grad_accumulation_steps
+                    pbar.set_postfix({"loss": loss.item() * grad_accumulation_steps})
                 
                 avg_loss = total_loss / len(self.train_loader)
-                if dist.is_initialized() and dist.get_rank() == 0:
+                if not dist.is_initialized() or dist.get_rank() == 0:
                     print(f"Stage {stage}, Epoch {epoch+1}: Average Training Loss: {avg_loss:.4f}")
                 
                 # Evaluate after each epoch
                 val_acc = self.evaluate()
-                if dist.is_initialized() and dist.get_rank() == 0:
+                if not dist.is_initialized() or dist.get_rank() == 0:
                     print(f"Stage {stage}, Epoch {epoch+1}: Validation Accuracy: {val_acc:.4f}")
                     self.save_checkpoint(stage, epoch, val_acc)
 
@@ -75,7 +82,7 @@ class Trainer:
         total_correct = 0
         total_samples = 0
         
-        pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
+        pbar = tqdm(self.val_loader, desc="Evaluating", disable=(not dist.is_initialized() or dist.get_rank() != 0))
 
         with torch.no_grad():
             for batch in pbar:
@@ -113,8 +120,9 @@ class Trainer:
         self.best_val_acc = val_acc
         
         # In DDP, only the main process should save the model
-        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-        
-        checkpoint_path = os.path.join(save_dir, f"epoch_{epoch+1}_acc_{val_acc:.4f}.pt")
-        torch.save(model_to_save.state_dict(), checkpoint_path)
-        print(f"Checkpoint saved to {checkpoint_path}")
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+            
+            checkpoint_path = os.path.join(save_dir, f"epoch_{epoch+1}_acc_{val_acc:.4f}.pt")
+            torch.save(model_to_save.state_dict(), checkpoint_path)
+            print(f"Checkpoint saved to {checkpoint_path}")
