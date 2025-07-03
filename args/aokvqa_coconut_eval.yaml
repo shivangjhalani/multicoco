@@ -1,34 +1,31 @@
-# need 4 gpus
+# Main configuration for evaluating a trained Coconut model.
 
 project: multicoco
-save_path: checkpoints
 name: aokvqa-coconut-eval
+save_path: checkpoints
+model_id: OpenGVLab/InternVL3-1B
+load_model_path: "checkpoints/stage_3/YOUR_FINAL_COCONUT_CHECKPOINT.pt" # IMPORTANT: Update this path
 
-only_eval: True
-
-coconut: True
+# Staging
 cot: False
-no_thoughts: False
-no_cot: False
-
+coconut: True
 c_thought: 2
-epochs_per_stage: 3
-max_latent_stage: 3
-pad_latent_to_max: True
+max_latent_stage: 3 # Does not affect eval, but kept for consistency
+epochs_per_stage: 1 # Does not affect eval
 
-save_only_improve: False
-uniform_prob: 0.0
-model_id: OpenGVLab/InternVL3-1B-Pretrained
-load_model_path: YOUR_PATH_TO_COCONUT_CHECKPOINT
-seed: 0
-resume: 15
-bf16: True
-train_path: data/aokvqa_train.json
+# Data
+data_dir: data/
+train_path: null # Not used in eval
 val_path: data/aokvqa_test.json
-reset_optimizer: True
+
+# Training
 batch_size_training: 8
+gradient_accumulation_steps: 1 # Does not affect eval
+lr: !!float 5e-5 # Does not affect eval
+weight_decay: 0.01 # Does not affect eval
+bf16: True
+save_only_improve: False # Does not affect eval
+reset_optimizer: True # Does not affect eval
+seed: 42
 debug: False
-gradient_accumulation_steps: 1
-num_epochs: 20
-lr: !!float "5e-5"
-weight_decay: 0.01 
+only_eval: True 

@@ -76,8 +76,14 @@ def main():
         args=args
     )
 
-    # Start training
-    trainer.train()
+    # Start training or evaluation
+    if args.get('only_eval', False):
+        print("--- Starting Evaluation Only ---")
+        val_acc = trainer.evaluate()
+        if rank == 0:
+            print(f"Final Validation Accuracy: {val_acc:.4f}")
+    else:
+        trainer.train()
 
     if world_size > 1:
         cleanup()
