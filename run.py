@@ -42,6 +42,26 @@ def main():
 
     # Model
     model = MultiCoCo(args).to(device)
+
+    # --- INVESTIGATION ---
+    if rank == 0:
+        print("--- Model Investigation ---")
+        try:
+            image_token_id = model.tokenizer.convert_tokens_to_ids('<image>')
+            img_context_token_id = model.model.img_context_token_id
+            num_image_tokens = model.model.num_image_token
+            print(f"Tokenizer's ID for '<image>': {image_token_id}")
+            print(f"Model's internal 'img_context_token_id': {img_context_token_id}")
+            print(f"Model's 'num_image_token': {num_image_tokens}")
+        except AttributeError as e:
+            print(f"Could not find an attribute: {e}")
+        print("--------------------------")
+    # --- END INVESTIGATION ---
+
+    # Load checkpoint if provided
+    if args.get('load_model_path') and os.path.exists(args['load_model_path']):
+        print(f"Loading model checkpoint from: {args['load_model_path']}")
+    
     if world_size > 1:
         model = DDP(model, device_ids=[rank])
     
