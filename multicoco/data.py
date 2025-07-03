@@ -99,13 +99,9 @@ class DataCollatorForMultiCoCo:
         else:
             labels = None
 
-        # Image flags: simple batch-level flag indicating presence of images
-        image_flags = torch.ones(input_ids.size(0), 1, dtype=torch.long)
-
         return {
             'pixel_values': pixel_values,
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'labels': labels,
-            'image_flags': image_flags,
         }
