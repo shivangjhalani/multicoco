@@ -1,0 +1,7 @@
+torch
+transformers
+datasets
+pyyaml
+Pillow
+tqdm
+decord 
