@@ -61,7 +61,8 @@ class DataCollatorForMultiCoCo:
             
             # Format text with image token if image exists
             if image is not None:
-                text = f"<img>\nQuestion: {question}\nAnswer: {answer}"
+                image_placeholder = '<img>' + '<IMG_CONTEXT>' * 255
+                text = f"{image_placeholder}\nQuestion: {question}\nAnswer: {answer}"
             else:
                 text = f"Question: {question}\nAnswer: {answer}"
                 
