@@ -41,27 +41,31 @@ class DataCollatorForMultiCoCo:
         images = []
         
         for item in batch:
-            # Process the conversation to create proper image token format
-            conversation = item['conversations']
-            text = ""
+            # Load image if present
+            image = None
+            if 'image_path' in item and item['image_path']:
+                try:
+                    image = load_image(item['image_path'], max_num=1)
+                    images.append(image)
+                except Exception as e:
+                    print(f"Warning: Could not load image {item['image_path']}: {e}")
+                    image = None
+                    images.append(None)
+            else:
+                images.append(None)
             
-            for turn in conversation:
-                if turn['from'] == 'human':
-                    # Check if this turn has an image
-                    if 'image' in item and item['image'] is not None:
-                        # Use single <img> token - let model handle internal mapping
-                        text += f"<img>\n{turn['value']}\n"
-                        images.append(item['image'])
-                    else:
-                        text += f"{turn['value']}\n"
-                elif turn['from'] == 'gpt':
-                    text += f"{turn['value']}\n"
+            # Create text prompt
+            question = item.get('question', '')
+            steps = item.get('steps', [])
+            answer = item.get('answer', '')
             
-            texts.append(text.strip())
-        
-        # If no images in batch, pad with None
-        while len(images) < len(texts):
-            images.append(None)
+            # Format text with image token if image exists
+            if image is not None:
+                text = f"<img>\nQuestion: {question}\nAnswer: {answer}"
+            else:
+                text = f"Question: {question}\nAnswer: {answer}"
+                
+            texts.append(text)
         
         # Tokenize texts
         tokenized = self.tokenizer(
@@ -75,7 +79,7 @@ class DataCollatorForMultiCoCo:
         input_ids = tokenized['input_ids']
         attention_mask = tokenized['attention_mask']
         
-        # Process images
+        # Process images - ensure we have same batch size
         pixel_values = []
         for image in images:
             if image is not None:
