@@ -1,0 +1,34 @@
+# need 4 gpus
+
+project: multicoco
+save_path: checkpoints
+name: aokvqa-cot
+
+only_eval: False
+
+coconut: False
+cot: True
+no_thoughts: False
+no_cot: False
+
+c_thought: 0
+epochs_per_stage: 1
+max_latent_stage: 0
+pad_latent_to_max: True
+
+save_only_improve: True
+uniform_prob: 0.0
+model_id: OpenGVLab/InternVL3-1B-Pretrained
+load_model_path: None
+seed: 0
+resume: 0
+bf16: True
+train_path: data/aokvqa_train.json
+val_path: data/aokvqa_validation.json
+reset_optimizer: False
+batch_size_training: 8
+debug: True
+gradient_accumulation_steps: 1
+num_epochs: 20
+lr: !!float "5e-5"
+weight_decay: 0.01 
