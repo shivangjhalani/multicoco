@@ -41,7 +41,15 @@ def main():
     device = torch.device(f"cuda:{rank}")
 
     # Model
-    model = MultiCoCo(args).to(device)
+    model_id = args.get('model_id', 'OpenGVLab/InternVL3-1B')
+    latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
+    special_tokens = list(latent_tokens.values())
+
+    model = MultiCoCo(
+        model_id=model_id,
+        latent_tokens=latent_tokens,
+        special_tokens=special_tokens
+    ).to(device)
 
     # --- INVESTIGATION ---
     if rank == 0:
