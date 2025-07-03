@@ -93,14 +93,7 @@ class DataCollatorForMultiCoCo:
         else:
             labels = None
 
-        # Create image_flags that indicate which tokens are image placeholders
-        batch_size = input_ids.size(0)
-        image_flags = torch.zeros_like(input_ids, dtype=torch.long)
-        
-        # Find <img> token positions and mark them
-        img_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-        if img_token_id is not None:
-            image_flags = (input_ids == img_token_id).long()
+        image_flags = torch.ones(input_ids.size(0), 1, dtype=torch.long)
 
         return {
             'pixel_values': pixel_values,
