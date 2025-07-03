@@ -91,10 +91,13 @@ class DataCollatorForMultiCoCo:
         else:
             labels = None
 
+        image_flags = torch.ones(input_ids.size(0), 1, dtype=torch.long)
+
         return {
             'pixel_values': pixel_values,
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'labels': labels,
-            'num_patches_list': num_patches_list
+            'num_patches_list': num_patches_list,
+            'image_flags': image_flags,
         }

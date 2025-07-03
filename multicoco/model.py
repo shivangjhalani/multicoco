@@ -28,7 +28,7 @@ class MultiCoCo(nn.Module):
         self.tokenizer.add_tokens(special_tokens_to_add)
         self.model.language_model.resize_token_embeddings(len(self.tokenizer))
 
-    def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list):
+    def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list, image_flags):
         
         # num_patches_list is not used in the forward pass for training,
         # it's primarily for the chat/generation methods.
@@ -37,5 +37,6 @@ class MultiCoCo(nn.Module):
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
+            image_flags=image_flags,
         )
         return output
