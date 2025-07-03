@@ -28,71 +28,73 @@ class MultiCoCoDataset(Dataset):
         }
 
 class DataCollatorForMultiCoCo:
-    def __init__(self, tokenizer_path, train_config=None):
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True, use_fast=False)
+    def __init__(self, tokenizer, train_config=None):
+        self.tokenizer = tokenizer
         self.train_config = train_config or {}
+        self.max_length = self.train_config.get('max_length', 2048)
+        self.training = self.train_config.get('is_train', False)
         self.image_token = "<img>"
         self.latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
 
-    def __call__(self, features):
-        is_train = self.train_config.get('is_train', False)
-        is_coconut = self.train_config.get('coconut', False)
-        c_thought = self.train_config.get('c_thought', 0)
+    def __call__(self, batch):
+        texts = []
+        images = []
         
-        # By setting max_num=1, we ensure each image is processed into a single tile.
-        # This resolves the shape mismatch error during training.
-        pixel_values_list = [load_image(f['image_path'], max_num=1) for f in features]
-        pixel_values = torch.cat(pixel_values_list)
-        num_patches_list = [p.size(0) for p in pixel_values_list]
-
-        full_prompts = []
-        for feature in features:
-            question = f"{self.image_token}\n{feature['question']}"
+        for item in batch:
+            # Process the conversation to create proper image token format
+            conversation = item['conversations']
+            text = ""
             
-            if is_train:
-                # Chain of Thought or Coconut format
-                answer_steps = feature['steps'] + [feature['answer']]
-                if is_coconut and c_thought > 0:
-                    # Add latent thoughts between steps
-                    latent_thought_str = f"{self.latent_tokens['start']}{self.latent_tokens['latent'] * c_thought}{self.latent_tokens['end']}"
-                    reasoning = latent_thought_str + latent_thought_str.join(answer_steps)
-                else:
-                    # Standard CoT
-                    reasoning = "".join(answer_steps)
-                
-                full_prompt = f"Question: {question}\nAnswer: {reasoning}{self.tokenizer.eos_token}"
+            for turn in conversation:
+                if turn['from'] == 'human':
+                    # Check if this turn has an image
+                    if 'image' in item and item['image'] is not None:
+                        # Use single <img> token - let model handle internal mapping
+                        text += f"<img>\n{turn['value']}\n"
+                        images.append(item['image'])
+                    else:
+                        text += f"{turn['value']}\n"
+                elif turn['from'] == 'gpt':
+                    text += f"{turn['value']}\n"
+            
+            texts.append(text.strip())
+        
+        # If no images in batch, pad with None
+        while len(images) < len(texts):
+            images.append(None)
+        
+        # Tokenize texts
+        tokenized = self.tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt"
+        )
+        
+        input_ids = tokenized['input_ids']
+        attention_mask = tokenized['attention_mask']
+        
+        # Process images
+        pixel_values = []
+        for image in images:
+            if image is not None:
+                pixel_values.append(image)
             else:
-                # For validation/inference, just the question
-                full_prompt = f"Question: {question}\nAnswer: "
-            
-            full_prompts.append(full_prompt)
-
-        # Tokenize prompts
-        self.tokenizer.padding_side = 'left'
-        prompt_inputs = self.tokenizer(full_prompts, return_tensors="pt", padding=True)
+                # Create dummy image for text-only samples
+                pixel_values.append(torch.zeros(3, 448, 448))
         
-        input_ids = prompt_inputs.input_ids
-        attention_mask = prompt_inputs.attention_mask
-
-        # Create labels, masking out the prompt part
-        if is_train:
+        pixel_values = torch.stack(pixel_values)
+        
+        # Create labels for training
+        if self.training:
             labels = input_ids.clone()
-            # Find where the answer starts for each item in the batch
-            for i, prompt in enumerate(full_prompts):
-                answer_marker = "Answer: "
-                answer_start_index = prompt.find(answer_marker)
-                if answer_start_index != -1:
-                    # Tokenize the prompt part to find its length
-                    prompt_part = prompt[:answer_start_index + len(answer_marker)]
-                    prompt_token_len = len(self.tokenizer(prompt_part, add_special_tokens=False).input_ids)
-                    # Mask out the prompt tokens
-                    labels[i, :prompt_token_len] = -100
-            
-            # Mask out padding tokens
+            # Mask non-assistant tokens (simple approach - mask everything except assistant responses)
             labels[labels == self.tokenizer.pad_token_id] = -100
         else:
             labels = None
 
+        # Image flags: simple batch-level flag indicating presence of images
         image_flags = torch.ones(input_ids.size(0), 1, dtype=torch.long)
 
         return {
@@ -100,6 +102,5 @@ class DataCollatorForMultiCoCo:
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'labels': labels,
-            'num_patches_list': num_patches_list,
             'image_flags': image_flags,
         }

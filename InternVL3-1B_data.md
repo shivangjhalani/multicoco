@@ -643,3 +643,93 @@ Qwen2Tokenizer(name_or_path='OpenGVLab/InternVL3-1B', vocab_size=151643, model_m
 	151673: AddedToken("</box>", rstrip=False, lstrip=False, single_word=False, normalized=False, special=True),
 }
 )
+
+
+```python
+# Inspect model attributes for image input format information
+print("Model attributes potentially related to image input:")
+for attr_name in dir(model.config.vision_config):
+    if "image" in attr_name or "patch" in attr_name or "size" in attr_name:
+        try:
+            print(f"{attr_name}: {getattr(model.config.vision_config, attr_name)}")
+        except:
+            pass
+```
+
+Model attributes potentially related to image input:
+__sizeof__: <built-in method __sizeof__ of InternVisionConfig object at 0x7803f86bc250>
+chunk_size_feed_forward: 0
+cross_attention_hidden_size: None
+encoder_no_repeat_ngram_size: 0
+hidden_size: 1024
+image_size: 448
+intermediate_size: 4096
+moe_intermediate_size: 768
+no_repeat_ngram_size: 0
+patch_size: 14
+shared_expert_intermediate_size: 3072
+
+
+
+```python
+import torch
+
+# Create dummy inputs based on the model configuration
+image_size = model.config.vision_config.image_size
+patch_size = model.config.vision_config.patch_size
+hidden_size = model.config.vision_config.hidden_size
+llm_hidden_size = model.config.llm_config.hidden_size
+max_position_embeddings = model.config.llm_config.max_position_embeddings
+vocab_size = model.config.llm_config.vocab_size
+
+# Dummy image input (batch_size, num_channels, height, width)
+# Cast to bfloat16 to match model's expected type
+dummy_image_input = torch.randn(1, 3, image_size, image_size).to(torch.bfloat16)
+print(f"Dummy image input shape: {dummy_image_input.shape}")
+print(f"Dummy image input dtype: {dummy_image_input.dtype}")
+
+
+# Dummy text input (batch_size, sequence_length)
+dummy_text_input = torch.randint(0, vocab_size, (1, 10))
+print(f"Dummy text input shape: {dummy_text_input.shape}")
+
+# Dummy attention mask (batch_size, sequence_length)
+dummy_attention_mask = torch.ones(1, 10)
+print(f"Dummy attention mask shape: {dummy_attention_mask.shape}")
+
+# You can also create dummy inputs for other potential arguments like token_type_ids if needed,
+# but these are the most common for this type of model.
+
+# To see intermediate tensor shapes, you would need to forward the dummy inputs through the model
+# and potentially add hooks or inspect the model's forward method. This can be complex and depends
+# on the specific model architecture.
+
+# Example of forwarding through the vision model to see the output shape
+with torch.no_grad():
+    vision_output = model.vision_model(dummy_image_input)
+    print(f"Vision model output shape (last hidden state): {vision_output.last_hidden_state.shape}")
+
+# Example of forwarding through the language model to see the output shape
+# Note: This requires matching the dimensions and types correctly based on the model's forward method
+# and the output of the vision model if you want to combine them.
+# This is a simplified example and might need adjustments based on the exact model implementation.
+with torch.no_grad():
+    # In a multimodal model, the text input might be combined with the vision output
+    # Let's create a dummy combined input shape based on potential concatenation
+    # This is a simplification - the actual combination depends on the model's forward method
+    dummy_combined_input = torch.randn(1, vision_output.last_hidden_state.shape[1] + dummy_text_input.shape[1], llm_hidden_size)
+    print(f"Dummy combined input shape (example): {dummy_combined_input.shape}")
+
+    # To get the language model output, you'd typically pass the combined input and attention mask
+    # The exact method call depends on the model.
+    # For demonstration, let's assume a method like 'generate' or 'forward' that takes inputs
+    # print(f"Language model output shape: ...") # This would require calling the model's forward method with correctly formatted inputs
+```
+
+Dummy image input shape: torch.Size([1, 3, 448, 448])
+Dummy image input dtype: torch.bfloat16
+Dummy text input shape: torch.Size([1, 10])
+Dummy attention mask shape: torch.Size([1, 10])
+Vision model output shape (last hidden state): torch.Size([1, 1025, 1024])
+Dummy combined input shape (example): torch.Size([1, 1035, 896])
+

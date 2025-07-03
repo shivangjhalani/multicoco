@@ -67,7 +67,7 @@ def main():
     if world_size > 1:
         model = DDP(model, device_ids=[rank])
     
-    tokenizer_path = model.module.tokenizer.name_or_path if hasattr(model, 'module') else model.tokenizer.name_or_path
+    tokenizer = model.module.tokenizer if hasattr(model, 'module') else model.tokenizer
 
     # Data
     train_dataset = MultiCoCoDataset(data_path=args['train_path'], data_dir=args['data_dir'])
@@ -75,7 +75,7 @@ def main():
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
     
-    collator = DataCollatorForMultiCoCo(tokenizer_path=tokenizer_path)
+    collator = DataCollatorForMultiCoCo(tokenizer=tokenizer, train_config=args)
 
     train_loader = DataLoader(
         train_dataset, 
