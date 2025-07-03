@@ -48,9 +48,11 @@ def main():
         print("--- Model Investigation ---")
         try:
             image_token_id = model.tokenizer.convert_tokens_to_ids('<image>')
-            img_context_token_id = model.model.img_context_token_id
-            num_image_tokens = model.model.num_image_token
+            img_token_id = model.tokenizer.convert_tokens_to_ids('<img>')
+            img_context_token_id = getattr(model.model, 'img_context_token_id', None)
+            num_image_tokens = getattr(model.model, 'num_image_token', None)
             print(f"Tokenizer's ID for '<image>': {image_token_id}")
+            print(f"Tokenizer's ID for '<img>': {img_token_id}")
             print(f"Model's internal 'img_context_token_id': {img_context_token_id}")
             print(f"Model's 'num_image_token': {num_image_tokens}")
         except AttributeError as e:

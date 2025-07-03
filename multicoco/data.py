@@ -31,7 +31,7 @@ class DataCollatorForMultiCoCo:
     def __init__(self, tokenizer_path, train_config=None):
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True, use_fast=False)
         self.train_config = train_config or {}
-        self.image_token = "<image>"
+        self.image_token = "<img>"
         self.latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
 
     def __call__(self, features):
