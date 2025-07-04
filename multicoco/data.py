@@ -61,13 +61,14 @@ class DataCollatorForInternVL(object):
         for i, ins in enumerate(instances):
             # 1. Load and process image
             image = Image.open(ins['image_path']).convert('RGB')
-            pixel_values, num_patches = dynamic_preprocess(
+            pixel_values = dynamic_preprocess(
                 image,
                 min_num=self.model.config.min_dynamic_patch,
                 max_num=self.model.config.max_dynamic_patch,
                 image_size=self.model.config.force_image_size,
                 use_thumbnail=self.model.config.use_thumbnail
             )
+            num_patches = pixel_values.shape[0]
             all_pixel_values.append(pixel_values)
             all_num_patches.append(num_patches)
             
@@ -120,7 +121,7 @@ class DataCollatorForInternVL(object):
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
 
         return {
-            'pixel_values': torch.stack(all_pixel_values),
+            'pixel_values': torch.cat(all_pixel_values, dim=0),
             'input_ids': padded_input_ids,
             'labels': padded_labels,
             'attention_mask': attention_mask,
