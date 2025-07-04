@@ -14,15 +14,14 @@ class MultiCoCo(nn.Module):
 
         self.latent_tokens = latent_tokens
 
-    def forward(self, pixel_values, input_ids, attention_mask, labels, image_flags=None):
-        # The underlying model's forward method for training does not expect num_patches_list.
-        # It should identify images based on the <img> token in the input_ids.
+    def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list):
+        # The underlying model's forward method for training expects num_patches_list.
         output = self.model(
             pixel_values=pixel_values,
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
-            image_flags=image_flags,
+            num_patches_list=num_patches_list,
             return_dict=True
         )
         return output

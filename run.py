@@ -8,7 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from multicoco.data import MultiCoCoDataset, DataCollatorForMultiCoCo
+from multicoco.data import MultiCoCoDataset, DataCollatorForInternVL
 from multicoco.model import MultiCoCo
 from multicoco.trainer import Trainer
 
@@ -83,7 +83,7 @@ def main():
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
     
-    collator = DataCollatorForMultiCoCo(tokenizer=tokenizer, train_config=args)
+    collator = DataCollatorForInternVL(tokenizer=tokenizer, model=model.module if hasattr(model, 'module') else model)
 
     train_loader = DataLoader(
         train_dataset, 

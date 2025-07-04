@@ -1,7 +1,7 @@
+Pillow
 torch
 transformers
-datasets
-pyyaml
-Pillow
+tokenizers
 tqdm
-decord 
+accelerate
+datasets 
