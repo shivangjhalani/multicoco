@@ -22,7 +22,7 @@ val_path: data/aokvqa_validation.json
 batch_size_training: 8
 gradient_accumulation_steps: 2
 lr: !!float 5e-5
-weight_decay: 0.01
+weight_decay: 0.01 
 bf16: True
 save_only_improve: True
 reset_optimizer: False
