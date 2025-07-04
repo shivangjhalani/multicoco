@@ -80,6 +80,14 @@ class DataCollatorForMultiCoCo:
         input_ids = tokenized['input_ids']
         attention_mask = tokenized['attention_mask']
         
+        # Create image_flags
+        image_flags = torch.zeros_like(input_ids, dtype=torch.bool)
+        img_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+        img_context_token_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+        
+        for i in range(input_ids.shape[0]):
+            image_flags[i] = (input_ids[i] == img_token_id) | (input_ids[i] == img_context_token_id)
+
         # Process images - ensure we have same batch size
         pixel_values = []
         for image in images:
@@ -105,4 +113,5 @@ class DataCollatorForMultiCoCo:
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'labels': labels,
+            'image_flags': image_flags,
         }
