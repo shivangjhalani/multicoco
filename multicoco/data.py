@@ -35,22 +35,31 @@ class MultiCoCoDataset(Dataset):
             "answer": answer
         }
 
-class DataCollatorForInternVL:
+class DataCollatorForInternVL(object):
     def __init__(self, tokenizer, model):
         self.tokenizer = tokenizer
         self.model = model
-        self.conv_style = model.config.conv_style
-        self.img_context_token_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
-        self.image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+        self.conv_template = model.conv_template
+        self.ignore_label_token_id = -100
+        self.image_token_id = tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+        self.image_token = '<IMG_CONTEXT>'
         self.img_start_token_id = self.tokenizer.eos_token_id # InternVL uses eos_token_id as a start token for images
         self.img_end_token_id = self.tokenizer.eos_token_id # and for the end token as well
 
-    def __call__(self, batch):
-        pixel_values_list, input_ids_list, labels_list, num_patches_list = [], [], [], []
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        
+        # Get the conversation template from the model
+        conv = self.conv_template.copy()
+        
+        # Prepare lists for batching
+        all_input_ids = []
+        all_labels = []
+        all_pixel_values = []
+        all_num_patches = []
 
-        for item in batch:
+        for i, ins in enumerate(instances):
             # 1. Load and process image
-            image = Image.open(item['image_path']).convert('RGB')
+            image = Image.open(ins['image_path']).convert('RGB')
             pixel_values, num_patches = dynamic_preprocess(
                 image,
                 min_num=self.model.config.min_dynamic_patch,
@@ -58,52 +67,61 @@ class DataCollatorForInternVL:
                 image_size=self.model.config.force_image_size,
                 use_thumbnail=self.model.config.use_thumbnail
             )
-            pixel_values_list.append(pixel_values)
-            num_patches_list.append(num_patches)
+            all_pixel_values.append(pixel_values)
+            all_num_patches.append(num_patches)
             
             # 2. Construct conversation and tokenize
-            question = item['question']
-            steps = ' '.join(item['steps'])
-            answer = item['answer']
+            question = ins['question']
+            steps = ' '.join(ins['steps'])
+            answer = ins['answer']
             
-            conv = get_conv_template(self.conv_style)
-            conv.append_message(conv.roles[0], question + '\\n<image>')
-            conv.append_message(conv.roles[1], steps + ' ' + answer)
-            
-            # Tokenize conversation turns
-            human_prompt = conv.messages[0][1]
-            gpt_response = conv.messages[1][1]
-            
-            human_token_ids = self.tokenizer(human_prompt, add_special_tokens=False).input_ids
-            gpt_token_ids = self.tokenizer(gpt_response, add_special_tokens=False).input_ids
+            # Format the conversation
+            conv.messages = []
+            conv.append_message(conv.roles[0], question)  # User's turn
+            conv.append_message(conv.roles[1], None) # Assistant's turn (will be filled with answer)
+            prompt = conv.get_prompt()
 
-            # Find and replace the image placeholder token
-            image_placeholder_index = human_token_ids.index(self.image_token_id)
-            
-            # Create the image token sequence
-            image_tokens = [self.img_start_token_id] + [self.img_context_token_id] * num_patches + [self.img_end_token_id]
+            # Prepend the beginning-of-sequence token if necessary
+            if not prompt.startswith(self.tokenizer.bos_token):
+                prompt = self.tokenizer.bos_token + prompt
 
-            # Replace the placeholder with the actual image tokens
-            input_ids = human_token_ids[:image_placeholder_index] + image_tokens + human_token_ids[image_placeholder_index+1:] + gpt_token_ids
+            # Tokenize the prompt
+            prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
+
+            # --- Handle Answer and Labels ---
+            # Now, let's prepare the full sequence with the answer for label creation
+            full_conv = self.conv_template.copy()
+            full_conv.messages = []
+            full_conv.append_message(full_conv.roles[0], question)
+            full_conv.append_message(full_conv.roles[1], answer)
+            full_text = full_conv.get_prompt()
+            if not full_text.startswith(self.tokenizer.bos_token):
+                full_text = self.tokenizer.bos_token + full_text
+
+            full_input_ids = self.tokenizer.encode(full_text, add_special_tokens=False)
             
-            # Create labels, masking out the human prompt and image tokens
-            labels = ([-100] * len(human_token_ids[:image_placeholder_index] + image_tokens + human_token_ids[image_placeholder_index+1:])) + gpt_token_ids
+            # Create labels: mask out the prompt part
+            labels = [self.ignore_label_token_id] * len(prompt_ids) + full_input_ids[len(prompt_ids):]
             
-            input_ids_list.append(torch.tensor(input_ids, dtype=torch.long))
-            labels_list.append(torch.tensor(labels, dtype=torch.long))
+            # The final input_ids for the model is the full sequence
+            input_ids = torch.tensor(full_input_ids, dtype=torch.long)
+            labels = torch.tensor(labels, dtype=torch.long)
+            
+            all_input_ids.append(input_ids)
+            all_labels.append(labels)
 
         # 3. Pad the batch
         padded_input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids_list, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+            all_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         padded_labels = torch.nn.utils.rnn.pad_sequence(
-            labels_list, batch_first=True, padding_value=-100)
+            all_labels, batch_first=True, padding_value=self.ignore_label_token_id)
 
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
 
         return {
-            'pixel_values': torch.stack(pixel_values_list),
+            'pixel_values': torch.stack(all_pixel_values),
             'input_ids': padded_input_ids,
             'labels': padded_labels,
             'attention_mask': attention_mask,
-            'num_patches_list': num_patches_list
+            'num_patches_list': all_num_patches
         } 
