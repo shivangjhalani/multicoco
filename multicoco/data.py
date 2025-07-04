@@ -110,12 +110,14 @@ class DataCollatorForInternVL(object):
         padded_labels = torch.nn.utils.rnn.pad_sequence(
             all_labels, batch_first=True, padding_value=self.ignore_label_token_id)
 
+        # 4. Create attention mask and image flags
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
+        image_flags = (padded_input_ids == self.image_token_id).long()
 
         return {
             'pixel_values': torch.cat(all_pixel_values, dim=0),
             'input_ids': padded_input_ids,
-            'labels': padded_labels,
             'attention_mask': attention_mask,
-            'num_patches_list': all_num_patches
+            'labels': padded_labels,
+            'image_flags': image_flags,
         } 
