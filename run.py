@@ -83,7 +83,8 @@ def main():
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
     
-    collator = DataCollatorForInternVL(tokenizer=tokenizer, model=model.module if hasattr(model, 'module') else model)
+    hf_model = (model.module if hasattr(model, 'module') else model).model
+    collator = DataCollatorForInternVL(tokenizer=tokenizer, model=hf_model)
 
     train_loader = DataLoader(
         train_dataset, 
