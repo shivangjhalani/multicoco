@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from typing import Sequence, Dict
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
