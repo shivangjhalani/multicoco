@@ -48,11 +48,7 @@ class DataCollatorForInternVL(object):
         self.img_end_token_id = self.tokenizer.eos_token_id # and for the end token as well
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        
-        # Get the conversation template from the model
-        conv = self.conv_template.copy()
-        
-        # Prepare lists for batching
+
         all_input_ids = []
         all_labels = []
         all_pixel_values = []
@@ -72,46 +68,38 @@ class DataCollatorForInternVL(object):
             transform = build_transform(is_train=True, input_size=self.model.config.force_image_size)
             pixel_values = [transform(img) for img in processed_images]
             pixel_values = torch.stack(pixel_values)
-            
+
             all_pixel_values.append(pixel_values)
             all_num_patches.append(num_patches)
             
             # 2. Construct conversation and tokenize
             question = ins['question']
-            steps = ' '.join(ins['steps'])
             answer = ins['answer']
+
+            # Get the prompt for the user turn to calculate its length for masking
+            conv_user = self.conv_template.copy()
+            conv_user.append_message(conv_user.roles[0], question)
+            conv_user.append_message(conv_user.roles[1], None)
+            prompt = conv_user.get_prompt()
             
-            # Format the conversation
-            conv.messages = []
-            conv.append_message(conv.roles[0], question)  # User's turn
-            conv.append_message(conv.roles[1], None) # Assistant's turn (will be filled with answer)
-            prompt = conv.get_prompt()
-
-            # Prepend the beginning-of-sequence token if necessary
-            if not prompt.startswith(self.tokenizer.bos_token):
-                prompt = self.tokenizer.bos_token + prompt
-
-            # Tokenize the prompt
             prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
+            answer_ids = self.tokenizer.encode(answer, add_special_tokens=False)
 
-            # --- Handle Answer and Labels ---
-            # Now, let's prepare the full sequence with the answer for label creation
-            full_conv = self.conv_template.copy()
-            full_conv.messages = []
-            full_conv.append_message(full_conv.roles[0], question)
-            full_conv.append_message(full_conv.roles[1], answer)
-            full_text = full_conv.get_prompt()
-            if not full_text.startswith(self.tokenizer.bos_token):
-                full_text = self.tokenizer.bos_token + full_text
+            # Find the placeholder token and replace it with the actual image tokens
+            img_placeholder_id = self.tokenizer.convert_tokens_to_ids('<img>')
+            try:
+                placeholder_idx = prompt_ids.index(img_placeholder_id)
+            except ValueError:
+                raise ValueError("The '<img>' token was not found in the question.")
 
-            full_input_ids = self.tokenizer.encode(full_text, add_special_tokens=False)
+            image_tokens_with_boundaries = [self.img_start_token_id] + [self.image_token_id] * num_patches + [self.img_end_token_id]
             
-            # Create labels: mask out the prompt part
-            labels = [self.ignore_label_token_id] * len(prompt_ids) + full_input_ids[len(prompt_ids):]
-            
-            # The final input_ids for the model is the full sequence
-            input_ids = torch.tensor(full_input_ids, dtype=torch.long)
-            labels = torch.tensor(labels, dtype=torch.long)
+            # Replace placeholder in prompt_ids
+            prompt_ids_with_image = prompt_ids[:placeholder_idx] + image_tokens_with_boundaries + prompt_ids[placeholder_idx+1:]
+
+            # Create final input_ids and labels
+            input_ids = torch.tensor(prompt_ids_with_image + answer_ids, dtype=torch.long)
+            labels = torch.tensor([self.ignore_label_token_id] * len(prompt_ids_with_image) + answer_ids, dtype=torch.long)
             
             all_input_ids.append(input_ids)
             all_labels.append(labels)
