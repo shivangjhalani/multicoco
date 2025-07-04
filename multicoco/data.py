@@ -11,7 +11,7 @@ sys.path.append('InternVL/internvl_chat')
 
 from .utils import load_image
 from internvl.conversation import get_conv_template
-from internvl.train.dataset import dynamic_preprocess
+from internvl.train.dataset import dynamic_preprocess, build_transform
 from PIL import Image
 
 class MultiCoCoDataset(Dataset):
@@ -61,14 +61,18 @@ class DataCollatorForInternVL(object):
         for i, ins in enumerate(instances):
             # 1. Load and process image
             image = Image.open(ins['image_path']).convert('RGB')
-            pixel_values = dynamic_preprocess(
+            processed_images = dynamic_preprocess(
                 image,
                 min_num=self.model.config.min_dynamic_patch,
                 max_num=self.model.config.max_dynamic_patch,
                 image_size=self.model.config.force_image_size,
                 use_thumbnail=self.model.config.use_thumbnail
             )
-            num_patches = pixel_values.shape[0]
+            num_patches = len(processed_images)
+            transform = build_transform(is_train=True, input_size=self.model.config.force_image_size)
+            pixel_values = [transform(img) for img in processed_images]
+            pixel_values = torch.stack(pixel_values)
+            
             all_pixel_values.append(pixel_values)
             all_num_patches.append(num_patches)
             
