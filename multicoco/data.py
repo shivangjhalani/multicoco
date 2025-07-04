@@ -73,8 +73,8 @@ class DataCollatorForInternVL(object):
             all_num_patches.append(num_patches)
             
             # 2. Construct conversation and tokenize
-            question = ins['question']
-            answer = ins['answer']
+            question = '<img>\n' + ins['question']
+            answer = ' '.join(ins['steps']) + ' ' + ins['answer'] if ins.get('steps') else ins['answer']
 
             # Get the prompt for the user turn to calculate its length for masking
             conv_user = self.conv_template.copy()
