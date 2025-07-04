@@ -14,14 +14,13 @@ class MultiCoCo(nn.Module):
 
         self.latent_tokens = latent_tokens
 
-    def forward(self, pixel_values, input_ids, attention_mask, labels, num_patches_list):
-        # The underlying model's forward method for training expects num_patches_list.
+    def forward(self, pixel_values, input_ids, attention_mask, labels, image_flags):
         output = self.model(
             pixel_values=pixel_values,
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
-            num_patches_list=num_patches_list,
+            image_flags=image_flags,
             return_dict=True
         )
         return output
