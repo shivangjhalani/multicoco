@@ -153,11 +153,17 @@ class Trainer:
             # Get the model to use for preprocessing
             model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
             
+            # Access the underlying model that has the dynamic_preprocess method
+            if hasattr(model_to_eval, 'model'):
+                underlying_model = model_to_eval.model
+            else:
+                underlying_model = model_to_eval
+            
             # Use the model's dynamic preprocessing if available
-            if hasattr(model_to_eval, 'dynamic_preprocess'):
-                pixel_values_list, _ = model_to_eval.dynamic_preprocess(
+            if hasattr(underlying_model, 'dynamic_preprocess'):
+                pixel_values_list, _ = underlying_model.dynamic_preprocess(
                     [image], 
-                    image_size=model_to_eval.config.image_size
+                    image_size=underlying_model.config.image_size
                 )
                 pixel_values = torch.cat(pixel_values_list, dim=0)
                 # Ensure bfloat16 dtype and correct device to match model
@@ -165,7 +171,7 @@ class Trainer:
                 return pixel_values
             else:
                 # Fallback to manual dynamic preprocessing
-                return self._manual_dynamic_preprocess(image, model_to_eval)
+                return self._manual_dynamic_preprocess(image, underlying_model)
             
         except Exception as e:
             print(f"Error loading/preprocessing image {image_path}: {e}")
@@ -260,10 +266,17 @@ class Trainer:
         try:
             # Get the model and tokenizer
             model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
+            
+            # Access the underlying model that has the chat method
+            if hasattr(model_to_eval, 'model'):
+                underlying_model = model_to_eval.model
+            else:
+                underlying_model = model_to_eval
+            
             tokenizer = self.val_loader.collate_fn.tokenizer
             
             # Check if model and tokenizer are available
-            if model_to_eval is None or tokenizer is None:
+            if underlying_model is None or tokenizer is None:
                 raise ValueError("Model and tokenizer must be loaded before generating answers")
             
             # Use the model's chat method for inference with same config as standalone script
@@ -274,12 +287,12 @@ class Trainer:
             )
             
             # Ensure pixel_values are on the same device as model
-            model_device = next(model_to_eval.parameters()).device
+            model_device = next(underlying_model.parameters()).device
             if pixel_values.device != model_device:
                 pixel_values = pixel_values.to(model_device)
             
             # Use the model's chat method with preprocessed pixel values
-            response = model_to_eval.chat(
+            response = underlying_model.chat(
                 tokenizer,
                 pixel_values,
                 question,
