@@ -91,7 +91,7 @@ class DataCollatorForInternVL(object):
                 )
                 question_part = f"Question: {ins['question']}"
 
-            full_prompt = f"<img> * {self.num_image_tokens}\n{system_instruction}\n\n---\n{question_part}\n---\n\nReasoning:"
+            full_prompt = f"{'<img>' * self.num_image_tokens}\n{system_instruction}\n\n---\n{question_part}\n---\n\nReasoning:"
 
             conv.messages = []
             conv.append_message(roles["human"], full_prompt)
