@@ -8,11 +8,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-# Add the project's root directory (multicoco) to the system path.
-# This ensures that the 'internvl' module can be found.
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# Add the correct path for the internvl package to the system path.
+# This ensures that imports within the Hugging Face cached scripts can find the local modules.
+internvl_chat_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'internvl', 'internvl_chat'))
+if internvl_chat_path not in sys.path:
+    sys.path.insert(0, internvl_chat_path)
 
 from multicoco.data import MultiCoCoDataset, DataCollatorForInternVL
 from multicoco.model import MultiCoCo
