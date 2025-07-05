@@ -437,11 +437,10 @@ class InternVLChatModel(PreTrainedModel):
 
             input_embeds = input_embeds.reshape(B, N, C)
         else:
-            input_embeds = None
+            input_embeds = self.language_model.get_input_embeddings()(input_ids)
 
         outputs = self.language_model.generate(
             inputs_embeds=input_embeds,
-            input_ids=input_ids,
             attention_mask=attention_mask,
             generation_config=generation_config,
             output_hidden_states=output_hidden_states,
