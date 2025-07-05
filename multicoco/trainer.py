@@ -38,7 +38,7 @@ class Trainer:
             # Move all tensor data to the device
             for k, v in batch.items():
                 if isinstance(v, torch.Tensor):
-                    batch[k] = v.to(self.args.device)
+                    batch[k] = v.to(self.args['device'])
             
             self.optimizer.zero_grad()
             outputs = self.model(**batch)
@@ -70,7 +70,7 @@ class Trainer:
                 
                 for k, v in batch.items():
                     if isinstance(v, torch.Tensor):
-                        batch[k] = v.to(self.args.device)
+                        batch[k] = v.to(self.args['device'])
 
                 generate_kwargs = {
                     'pixel_values': batch['pixel_values'],
@@ -118,8 +118,8 @@ class Trainer:
                 total_predictions += len(batch['original_questions'])
 
         if dist.is_initialized():
-            total_correct_tensor = torch.tensor(correct_predictions).to(self.args.device)
-            total_preds_tensor = torch.tensor(total_predictions).to(self.args.device)
+            total_correct_tensor = torch.tensor(correct_predictions).to(self.args['device'])
+            total_preds_tensor = torch.tensor(total_predictions).to(self.args['device'])
             dist.all_reduce(total_correct_tensor, op=dist.ReduceOp.SUM)
             dist.all_reduce(total_preds_tensor, op=dist.ReduceOp.SUM)
             correct_predictions = total_correct_tensor.item()
