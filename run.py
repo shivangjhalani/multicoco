@@ -41,12 +41,12 @@ def main():
     device = torch.device(f"cuda:{rank}")
 
     # Model
-    model_id = 'multicoco/InternVL/internvl_chat'
+    model_path = os.path.abspath('multicoco/InternVL/internvl_chat')
     latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
     special_tokens = list(latent_tokens.values())
 
     model = MultiCoCo(
-        model_id=model_id,
+        model_id=model_path,
         latent_tokens=latent_tokens,
         special_tokens=special_tokens
     ).to(device)
