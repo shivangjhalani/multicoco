@@ -83,7 +83,7 @@ class Trainer:
         total_samples = torch.tensor([0.0]).to(self.device)
         
         # The collator needs access to the tokenizer for decoding
-        tokenizer = self.train_loader.collate_fn.tokenizer
+        tokenizer = self.val_loader.collate_fn.tokenizer
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
