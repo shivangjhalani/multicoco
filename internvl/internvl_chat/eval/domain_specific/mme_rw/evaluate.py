@@ -82,9 +82,9 @@ class MMERealworldDataset(torch.utils.data.Dataset):
         pixel_values = torch.stack(pixel_values)
 
         if self.language == 'cn':
-            question = question + 'The choices are listed below:\n' + '\n'.join(choices) + '\n' + self.prompt['cn']
+            question = question + '选项如下所示:\n' + '\n'.join(choices) + '\n' + self.prompt['cn']
         else:
-            question = question + '选项如下所示:\n' + '\n'.join(choices) + '\n' + self.prompt['en']
+            question = question + 'The choices are listed below:\n' + '\n'.join(choices) + '\n' + self.prompt['en']
 
         return {
             'question': question,
@@ -222,14 +222,18 @@ def evaluate_chat_model():
                 do_sample=True if args.temperature > 0 else False,
                 temperature=args.temperature,
             )
-            out = model.chat(
-                tokenizer=tokenizer,
-                pixel_values=pixel_values,
-                question=questions[0],
-                generation_config=generation_config
-            )
-            outs = [out]
-            preds = [post_process(out, options[0])]
+
+            preds = []
+            outs = []
+            for i in range(len(questions)):
+                out = model.chat(
+                    tokenizer=tokenizer,
+                    pixel_values=pixel_values[i].unsqueeze(0),
+                    question=questions[i],
+                    generation_config=generation_config
+                )
+                outs.append(out)
+                preds.append(post_process(out, options[i]))
 
             for question, pred, answer, index, out, category, task in zip(questions, preds, answers, indexes, outs,
                                                                           categorys, tasks):
