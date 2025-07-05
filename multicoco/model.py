@@ -38,3 +38,6 @@ class MultiCoCo(nn.Module):
             return_dict=True
         )
         return output
+
+    def generate(self, **kwargs):
+        return self.model.generate(**kwargs)
