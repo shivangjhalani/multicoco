@@ -117,7 +117,13 @@ class DataCollatorForEval(object):
         prompts = []
         for ins in instances:
             question = '<img>' * self.num_image_tokens + '\n' + ins['question']
-            prompts.append(question)
+            
+            # Use the conversation template for proper formatting
+            conv = get_conv_template('internvl_v1.1')
+            conv.append_message(conv.roles[0], question) # Human
+            conv.append_message(conv.roles[1], None) # Bot
+            prompt = conv.get_prompt()
+            prompts.append(prompt)
         
         # Tokenization will happen inside the evaluation loop
         # to handle variable length prompts without excessive padding.

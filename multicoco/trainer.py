@@ -163,9 +163,20 @@ class Trainer:
                 generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
                 for i, gen_text in enumerate(generated_texts):
-                    # Clean up the generated text by removing the prompt part
-                    prompt_part = prompts[i].replace('<img>' * self.val_loader.collate_fn.num_image_tokens + '\n', '').strip()
-                    answer_text = gen_text.replace(prompt_part, '').strip()
+                    # Clean up the generated text by removing the prompt part.
+                    # The prompt now includes conversational tokens, so we find the bot's turn.
+                    prompt_part = prompts[i]
+                    bot_turn_marker = "<bot>"
+                    bot_turn_start_index = prompt_part.find(bot_turn_marker)
+                    
+                    # We remove everything up to and including the bot marker
+                    if bot_turn_start_index != -1:
+                        clean_prompt = prompt_part[bot_turn_start_index + len(bot_turn_marker):].strip()
+                    else:
+                        # Fallback if the marker isn't found for some reason
+                        clean_prompt = prompts[i].replace('<img>' * self.val_loader.collate_fn.num_image_tokens + '\n', '').strip()
+
+                    answer_text = gen_text.replace(clean_prompt, '').strip()
 
                     # Extract choices from the original question to help with parsing
                     choices = parse_choices(original_questions[i])
