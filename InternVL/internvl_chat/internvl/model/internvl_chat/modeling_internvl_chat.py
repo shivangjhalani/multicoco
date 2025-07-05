@@ -178,7 +178,11 @@ class InternVLChatModel(PreTrainedModel):
         input_ids = input_ids.reshape(B * N)
         selected = (input_ids == self.img_context_token_id)
         try:
-            input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds.reshape(-1, C)
+            # vit_embeds shape: [num_image_views, embed_dim]
+            # selected shape: [B*N], a boolean mask
+            # input_embeds shape: [B*N, embed_dim]
+            # Ensure vit_embeds is correctly broadcasted.
+            input_embeds[selected] = vit_embeds.reshape(-1, C).contiguous()
             ignore_flag = False
         except Exception as e:
             vit_embeds = vit_embeds.reshape(-1, C)
