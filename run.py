@@ -41,7 +41,7 @@ def main():
     device = torch.device(f"cuda:{rank}")
 
     # Model
-    model_path = os.path.abspath('multicoco/InternVL/internvl_chat')
+    model_path = os.path.abspath('local_internvl_model')
     latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
     special_tokens = list(latent_tokens.values())
 
