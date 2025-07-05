@@ -4,6 +4,7 @@ from tqdm import tqdm
 import torch.distributed as dist
 import inspect
 import re
+from multicoco.conversation import get_conv_template
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
