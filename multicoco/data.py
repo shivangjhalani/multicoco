@@ -38,6 +38,7 @@ class DataCollatorForInternVL(object):
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
         answers = [ins.pop('answers') for ins in instances]
+        original_questions = [ins['question'] for ins in instances]
 
         if hasattr(self.model, 'dynamic_preprocess'):
             pixel_values_list, _ = self.model.dynamic_preprocess(images, image_size=self.model.config.image_size)
@@ -84,5 +85,6 @@ class DataCollatorForInternVL(object):
             'attention_mask': attention_mask,
             'labels': padded_labels,
             'image_flags': image_flags,
-            'answers': answers
+            'answers': answers,
+            'original_questions': original_questions
         }

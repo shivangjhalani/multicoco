@@ -83,6 +83,9 @@ class Trainer:
         total_correct = torch.tensor([0.0]).to(self.device)
         total_samples = torch.tensor([0.0]).to(self.device)
         
+        all_results = []
+        is_main_process = not dist.is_initialized() or dist.get_rank() == 0
+
         # The collator needs access to the tokenizer for decoding
         tokenizer = self.val_loader.collate_fn.tokenizer
         num_image_tokens = self.val_loader.collate_fn.num_image_tokens
@@ -93,6 +96,7 @@ class Trainer:
             for batch in pbar:
                 # We need the original answers for comparison, which are not part of the model's input
                 original_answers = batch.pop("answers")
+                original_questions = batch.pop("original_questions")
 
                 # Move batch to device
                 for k, v in batch.items():
@@ -133,12 +137,39 @@ class Trainer:
                     
                     answer_text = gen_text.replace(question_part, '').strip()
 
-                    if any(ans.lower() in answer_text.lower() for ans in original_answers[i]):
+                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
+                    if is_correct:
                         total_correct += 1
+
+                    all_results.append({
+                        "question": original_questions[i],
+                        "generated_answer": answer_text,
+                        "ground_truth": original_answers[i],
+                        "correct": is_correct
+                    })
                 
                 total_samples += len(original_answers)
 
-        # Aggregate results from all processes in DDP
+        # In DDP, gather results from all processes to the main process
+        if dist.is_initialized():
+            gathered_results = [None] * dist.get_world_size()
+            dist.all_gather_object(gathered_results, all_results)
+            if is_main_process:
+                # Flatten the list of lists
+                all_results = [item for sublist in gathered_results for item in sublist]
+
+        # Log results on the main process
+        if is_main_process:
+            with open('evaluation.log', 'w') as f:
+                for res in all_results:
+                    f.write("----------------------------------------\n")
+                    f.write(f"Question: {res['question']}\n")
+                    f.write(f"Generated Answer: {res['generated_answer']}\n")
+                    f.write(f"Ground Truth Answers: {res['ground_truth']}\n")
+                    f.write(f"Correct: {'Yes' if res['correct'] else 'No'}\n")
+                    f.write("----------------------------------------\n\n")
+
+        # Aggregate results from all processes in DDP for accuracy calculation
         if dist.is_initialized():
             dist.all_reduce(total_correct, op=dist.ReduceOp.SUM)
             dist.all_reduce(total_samples, op=dist.ReduceOp.SUM)
