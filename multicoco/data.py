@@ -16,9 +16,6 @@ class MultiCoCoDataset(Dataset):
                 self.data = [item for item in loaded_data if 'choices' in item and item['choices']]
         else:
             self.data = []
-        
-        if is_eval: # Apply only to validation/test set for quick evaluation
-            self.data = self.data[:20]
 
         self.data_dir = data_dir
 
