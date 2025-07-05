@@ -70,16 +70,25 @@ class Trainer:
             for key, value in batch.items():
                 if isinstance(value, torch.Tensor):
                     batch[key] = value.to(self.device)
+            
+            # Separate model inputs from evaluation metadata
+            model_inputs = {
+                "input_ids": batch.get("input_ids"),
+                "attention_mask": batch.get("attention_mask"),
+                "pixel_values": batch.get("pixel_values"),
+            }
+            # The patched model expects image_flags, the vanilla one does not.
+            if 'image_flags' in batch:
+                if self.config.get('cot') or self.config.get('coconut'):
+                    model_inputs['image_flags'] = batch['image_flags']
+
+            ground_truth_answers = batch.get("direct_answers", [])
 
             with torch.no_grad():
                 model_to_generate = self.model.module if hasattr(self.model, 'module') else self.model
-                
-                # For vanilla evaluation, the model does not have the custom `image_flags` argument.
-                if not self.config.get('cot') and not self.config.get('coconut'):
-                    batch.pop('image_flags', None)
 
                 outputs = model_to_generate.generate(
-                    **batch,
+                    **model_inputs,
                     max_new_tokens=2,
                     eos_token_id=self.tokenizer.eos_token_id,
                     pad_token_id=self.tokenizer.pad_token_id,
@@ -90,8 +99,6 @@ class Trainer:
             input_ids_len = batch["input_ids"].shape[1]
             generated_texts = self.tokenizer.batch_decode(outputs[:, input_ids_len:], skip_special_tokens=True)
             
-            ground_truth_answers = batch.pop("direct_answers")
-
             for j, (gt_ans, gen_text) in enumerate(zip(ground_truth_answers, generated_texts)):
                 question = self.tokenizer.decode(batch['input_ids'][j], skip_special_tokens=True)
                 is_correct = gen_text.strip() in gt_ans
