@@ -14,9 +14,14 @@ class MultiCoCo(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
         self.image_processor = AutoImageProcessor.from_pretrained(model_id, trust_remote_code=True)
 
+        # Manually set the image context token ID for the model.
+        # This is required for the vanilla model's generate function.
+        self.model.img_context_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+
         if special_tokens:
             num_added_tokens = self.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-            self.model.language_model.resize_token_embeddings(len(self.tokenizer))
+            if num_added_tokens > 0:
+                self.model.language_model.resize_token_embeddings(len(self.tokenizer))
 
         self.latent_tokens = latent_tokens
 
