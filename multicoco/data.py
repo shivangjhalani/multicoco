@@ -8,18 +8,16 @@ from multicoco.conversation import get_conv_template
 
 class MultiCoCoDataset(Dataset):
     def __init__(self, data_path, data_dir):
-        if data_path:
+        self.data = []
+        self.data_dir = data_dir
+        if data_path and os.path.exists(data_path):
             with open(data_path, 'r') as f:
                 self.data = json.load(f)
-        else:
-            self.data = []
-        self.data_dir = data_dir
-
-        # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
-        # Remove this line to use the full dataset again.
-        if "val" in data_path: # Apply only to validation set
-            self.data = self.data[:30]
         
+        # # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
+        # # Remove this line to use the full dataset again.
+        # if data_path and "val" in data_path: # Apply only to validation set
+        #     self.data = self.data[:20]
 
     def __len__(self):
         return len(self.data)

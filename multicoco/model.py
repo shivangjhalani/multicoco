@@ -38,7 +38,11 @@ class MultiCoCo(nn.Module):
         
         if special_tokens:
             self.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-            self.model.resize_token_embeddings(len(self.tokenizer))
+            # The attribute might be nested differently depending on the model architecture
+            if hasattr(self.model, 'language_model'):
+                self.model.language_model.resize_token_embeddings(len(self.tokenizer))
+            else:
+                self.model.resize_token_embeddings(len(self.tokenizer))
 
         self.thought_token_id = self.tokenizer.convert_tokens_to_ids('<thought>')
         self.eos_token_id = self.tokenizer.eos_token_id
