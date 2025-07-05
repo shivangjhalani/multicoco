@@ -121,9 +121,8 @@ def main():
     # Start training or evaluation
     if args.get('only_eval', False):
         print("--- Starting Evaluation Only ---")
-        val_loader.collate_fn.train_config = {'is_train': False}
         val_acc = trainer.evaluate()
-        if not dist.is_initialized() or dist.get_rank() == 0:
+        if rank == 0:
             print(f"Final Validation Accuracy: {val_acc:.4f}")
     else:
         trainer.train()

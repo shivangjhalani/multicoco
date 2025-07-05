@@ -34,7 +34,6 @@ class DataCollatorForInternVL(object):
         self.image_processor = image_processor
         self.image_token_id = tokenizer.convert_tokens_to_ids('<img>')
         self.num_image_tokens = model.config.num_image_token
-        self.train_config = {}
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
@@ -50,40 +49,28 @@ class DataCollatorForInternVL(object):
         all_input_ids = []
         all_labels = []
 
-        is_eval = not self.train_config.get('is_train', True)
-
         for ins in instances:
             question = '<img>' * self.num_image_tokens + '\n' + ins['question']
-            if is_eval:
-                question += "\n\nAnswer with the option number only."
-            
+            question += "\nAnswer with the option number only."
             answer = ins['answer']
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
             conv.append_message(roles["human"], question)
-            
-            if not is_eval:
-                conv.append_message(roles["gpt"], answer)
-            else:
-                conv.append_message(roles["gpt"], None)
-
+            conv.append_message(roles["gpt"], answer)
             conversation = conv.get_prompt()
 
             input_ids = self.tokenizer(conversation, return_tensors="pt", padding="longest", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
             labels = input_ids.clone()
 
-            if not is_eval:
-                sep = conv.sep + conv.roles[1] + ": "
-                parts = conversation.split(sep)
-                if len(parts) > 1:
-                    parts[0] += sep
-                    round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
-                    instruction_len = len(self.tokenizer(parts[0] + parts[1], add_special_tokens=False).input_ids)
-                    labels[:round_len] = -100
-                    if len(labels) > instruction_len:
-                        labels[instruction_len:] = -100
-            else:
-                labels[:] = -100
+            sep = conv.sep + conv.roles[1] + ": "
+            parts = conversation.split(sep)
+            if len(parts) > 1:
+                parts[0] += sep
+                round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
+                instruction_len = len(self.tokenizer(parts[0] + parts[1], add_special_tokens=False).input_ids)
+                labels[:round_len] = -100
+                if len(labels) > instruction_len:
+                    labels[instruction_len:] = -100
             
             all_input_ids.append(input_ids)
             all_labels.append(labels)
