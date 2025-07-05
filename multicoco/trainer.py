@@ -79,30 +79,59 @@ class Trainer:
     def evaluate(self):
         """Evaluation loop."""
         self.model.eval()
-        total_correct = 0
-        total_samples = 0
+        total_correct = torch.tensor([0.0]).to(self.device)
+        total_samples = torch.tensor([0.0]).to(self.device)
         
-        pbar = tqdm(self.val_loader, desc="Evaluating", disable=(not dist.is_initialized() or dist.get_rank() != 0))
+        # The collator needs access to the tokenizer for decoding
+        tokenizer = self.train_loader.collate_fn.tokenizer
+
+        pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
         with torch.no_grad():
             for batch in pbar:
+                # We need the original answers for comparison, which are not part of the model's input
+                original_answers = batch.pop("answers")
+
                 # Move batch to device
                 for k, v in batch.items():
                     if isinstance(v, torch.Tensor):
                         batch[k] = v.to(self.device)
                 
-                # The generation part is complex and depends on the exact model API
-                # For now, we simulate a dummy accuracy.
-                # A proper implementation would call model.generate() and compare outputs.
-                # Here we'll just check if the validation loss runs
-                output = self.model(**batch)
-                
-                # Dummy accuracy calculation
-                total_correct += 1 # Assume one correct per batch for now
-                total_samples += batch['input_ids'].size(0)
+                model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
 
-        # In a real scenario, you'd calculate accuracy based on generated text vs ground truth
-        return total_correct / total_samples if total_samples > 0 else 0.0
+                # Generate outputs
+                outputs = model_to_eval.model.generate(
+                    **batch,
+                    do_sample=False,
+                    max_new_tokens=100,
+                    num_beams=1,
+                    min_length=1,
+                    top_p=0.9,
+                    repetition_penalty=1.0,
+                    length_penalty=1.0,
+                    temperature=1.0,
+                )
+                
+                # Decode and compare
+                generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=True)
+
+                for i, gen_text in enumerate(generated_texts):
+                    # Clean up generated text
+                    question_part = input_texts[i].replace('<image>\n', '').replace(tokenizer.bos_token, '')
+                    answer_text = gen_text.replace(question_part, '').strip()
+
+                    if any(ans.lower() in answer_text.lower() for ans in original_answers[i]):
+                        total_correct += 1
+                
+                total_samples += len(original_answers)
+
+        # Aggregate results from all processes in DDP
+        if dist.is_initialized():
+            dist.all_reduce(total_correct, op=dist.ReduceOp.SUM)
+            dist.all_reduce(total_samples, op=dist.ReduceOp.SUM)
+
+        return (total_correct / total_samples).item() if total_samples > 0 else 0.0
 
     def save_checkpoint(self, stage, epoch, val_acc):
         """Saves a model checkpoint."""

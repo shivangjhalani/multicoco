@@ -74,7 +74,13 @@ def main():
 
     # Always create val_loader
     val_dataset = MultiCoCoDataset(data_path=args['val_path'], data_dir=args['data_dir'])
-    val_loader = DataLoader(val_dataset, batch_size=args['batch_size_training'], collate_fn=collator)
+    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args['batch_size_training'],
+        sampler=val_sampler,
+        collate_fn=collator
+    )
 
     # Conditionally create train_loader
     train_loader = None
