@@ -84,7 +84,7 @@ class Trainer:
 
     def format_question(self, question: str) -> str:
         """
-        Format the question for the model to encourage single digit answers.
+        Format the question for the model.
         
         Args:
             question: The original question with choices
@@ -92,8 +92,12 @@ class Trainer:
         Returns:
             Formatted question string
         """
+        # The question already contains the choices in the format:
+        # "What is in the motorcyclist's mouth? The choices are 0 : toothpick, 1 : food, 2 : popsicle stick, 3 : cigarette"
+        
         # Add instruction to make it clear we want a single number
         formatted_question = f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
+        
         return formatted_question
 
     def extract_answer_choice(self, response: str) -> str:
@@ -130,12 +134,169 @@ class Trainer:
         # If no clear answer found, return empty string
         return ""
 
-    def evaluate(self):
-        """Evaluation loop."""
-        self.model.eval()
+    def preprocess_image_for_eval(self, image_path: str):
+        """
+        Preprocess image for evaluation using the same logic as the standalone script.
         
-        # Ensure the data collator is in evaluation mode
-        self.val_loader.collate_fn.train_config = {'is_train': False}
+        Args:
+            image_path: Path to the image file
+            
+        Returns:
+            Preprocessed pixel values tensor or None if image can't be loaded
+        """
+        try:
+            from PIL import Image
+            
+            # Load image and convert to RGB
+            image = Image.open(image_path).convert('RGB')
+            
+            # Get the model to use for preprocessing
+            model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
+            
+            # Use the model's dynamic preprocessing if available
+            if hasattr(model_to_eval, 'dynamic_preprocess'):
+                pixel_values_list, _ = model_to_eval.dynamic_preprocess(
+                    [image], 
+                    image_size=model_to_eval.config.image_size
+                )
+                pixel_values = torch.cat(pixel_values_list, dim=0)
+                # Ensure bfloat16 dtype and correct device to match model
+                pixel_values = pixel_values.to(device=self.device, dtype=torch.bfloat16)
+                return pixel_values
+            else:
+                # Fallback to manual dynamic preprocessing
+                return self._manual_dynamic_preprocess(image, model_to_eval)
+            
+        except Exception as e:
+            print(f"Error loading/preprocessing image {image_path}: {e}")
+            return None
+
+    def _manual_dynamic_preprocess(self, image, model, input_size: int = 448, max_num: int = 12):
+        """
+        Manual dynamic preprocessing for InternVL3 model.
+        """
+        import torchvision.transforms as T
+        from torchvision.transforms.functional import InterpolationMode
+        
+        # Build transform
+        IMAGENET_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_STD = (0.229, 0.224, 0.225)
+        
+        transform = T.Compose([
+            T.Lambda(lambda img: img.convert('RGB') if img.mode != 'RGB' else img),
+            T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
+            T.ToTensor(),
+            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+        ])
+        
+        # Dynamic preprocessing logic
+        orig_width, orig_height = image.size
+        aspect_ratio = orig_width / orig_height
+        
+        # Generate target ratios
+        target_ratios = set(
+            (i, j) for n in range(1, max_num + 1) for i in range(1, n + 1) for j in range(1, n + 1) if
+            i * j <= max_num and i * j >= 1)
+        target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
+        
+        # Find closest aspect ratio
+        best_ratio_diff = float('inf')
+        best_ratio = (1, 1)
+        area = orig_width * orig_height
+        
+        for ratio in target_ratios:
+            target_aspect_ratio = ratio[0] / ratio[1]
+            ratio_diff = abs(aspect_ratio - target_aspect_ratio)
+            if ratio_diff < best_ratio_diff:
+                best_ratio_diff = ratio_diff
+                best_ratio = ratio
+            elif ratio_diff == best_ratio_diff:
+                if area > 0.5 * input_size * input_size * ratio[0] * ratio[1]:
+                    best_ratio = ratio
+        
+        # Resize and split image
+        target_width = input_size * best_ratio[0]
+        target_height = input_size * best_ratio[1]
+        blocks = best_ratio[0] * best_ratio[1]
+        
+        resized_img = image.resize((target_width, target_height))
+        processed_images = []
+        
+        for i in range(blocks):
+            box = (
+                (i % (target_width // input_size)) * input_size,
+                (i // (target_width // input_size)) * input_size,
+                ((i % (target_width // input_size)) + 1) * input_size,
+                ((i // (target_width // input_size)) + 1) * input_size
+            )
+            split_img = resized_img.crop(box)
+            processed_images.append(split_img)
+        
+        # Add thumbnail if multiple blocks
+        if len(processed_images) != 1:
+            thumbnail_img = image.resize((input_size, input_size))
+            processed_images.append(thumbnail_img)
+        
+        # Apply transforms and stack
+        pixel_values = [transform(img) for img in processed_images]
+        pixel_values = torch.stack(pixel_values)
+        
+        # Convert to bfloat16 and move to correct device to match model
+        pixel_values = pixel_values.to(device=self.device, dtype=torch.bfloat16)
+        
+        return pixel_values
+
+    def generate_answer(self, pixel_values: torch.Tensor, question: str) -> str:
+        """
+        Generate answer using model.chat() exactly like the standalone script.
+        
+        Args:
+            pixel_values: Preprocessed pixel values tensor
+            question: Formatted question string
+            
+        Returns:
+            Generated answer string
+        """
+        try:
+            # Get the model and tokenizer
+            model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
+            tokenizer = self.val_loader.collate_fn.tokenizer
+            
+            # Check if model and tokenizer are available
+            if model_to_eval is None or tokenizer is None:
+                raise ValueError("Model and tokenizer must be loaded before generating answers")
+            
+            # Use the model's chat method for inference with same config as standalone script
+            generation_config = dict(
+                max_new_tokens=100, 
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id
+            )
+            
+            # Ensure pixel_values are on the same device as model
+            model_device = next(model_to_eval.parameters()).device
+            if pixel_values.device != model_device:
+                pixel_values = pixel_values.to(model_device)
+            
+            # Use the model's chat method with preprocessed pixel values
+            response = model_to_eval.chat(
+                tokenizer,
+                pixel_values,
+                question,
+                generation_config,
+                history=None,
+                return_history=False
+            )
+            
+            return response.strip()
+            
+        except Exception as e:
+            print(f"Error generating answer: {e}")
+            return ""
+
+    def evaluate(self):
+        """Evaluation loop using the same logic as the standalone script."""
+        self.model.eval()
         
         total_correct = torch.tensor([0.0]).to(self.device)
         total_samples = torch.tensor([0.0]).to(self.device)
@@ -143,80 +304,64 @@ class Trainer:
         all_results = []
         is_main_process = not dist.is_initialized() or dist.get_rank() == 0
 
-        # The collator needs access to the tokenizer for decoding
-        tokenizer = self.val_loader.collate_fn.tokenizer
-        num_image_tokens = self.val_loader.collate_fn.num_image_tokens
-
-        pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
+        # Create a simple dataset from the validation loader
+        # We need to iterate through the raw data, not the processed batches
+        dataset = self.val_loader.dataset
+        
+        pbar = tqdm(range(len(dataset)), desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
         with torch.no_grad():
-            for batch in pbar:
-                # We need the original answers for comparison, which are not part of the model's input
-                original_answers = batch.pop("answers")
-                original_questions = batch.pop("original_questions")
-
-                # Move batch to device
-                for k, v in batch.items():
-                    if isinstance(v, torch.Tensor):
-                        batch[k] = v.to(self.device)
+            for idx in pbar:
+                # Get raw sample data
+                sample = dataset[idx]
                 
-                model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
-
-                # Inspect the model's generate function to see if it accepts `image_flags`.
-                # The vanilla model doesn't, so we remove it to prevent a ValueError.
-                generate_args = inspect.signature(model_to_eval.model.generate).parameters
-                if 'image_flags' not in generate_args:
-                    batch.pop('image_flags', None)
-
-                # Generate outputs with limited tokens for cleaner answers
-                outputs = model_to_eval.model.generate(
-                    **batch,
-                    do_sample=False,
-                    max_new_tokens=20,  # Increased slightly to allow for complete answers
-                    num_beams=1,
-                    min_length=1,
-                    repetition_penalty=1.0,
-                    length_penalty=1.0,
-                    temperature=1.0,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id
-                )
+                # Extract information
+                image_path = sample['image'] if isinstance(sample['image'], str) else sample['image']
+                question = sample['question']
                 
-                # Decode and compare
-                generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=False) # Keep special tokens for cleanup
-
-                for i, gen_text in enumerate(generated_texts):
-                    # Clean up generated text to isolate the answer
-                    question_part = input_texts[i]
-                    if tokenizer.bos_token:
-                        question_part = question_part.replace(tokenizer.bos_token, '')
-                    question_part = question_part.replace('<img>' * num_image_tokens + '\n', '').strip()
-                    
-                    # Extract the raw answer (everything after the question)
-                    raw_answer = gen_text.replace(question_part, '').strip()
-
-                    # Extract the choice number using the same logic as the evaluation script
-                    extracted_answer = self.extract_answer_choice(raw_answer)
-                    
-                    # Get the ground truth answer (should be a single digit string)
-                    ground_truth = str(original_answers[i][0]) if isinstance(original_answers[i], list) else str(original_answers[i])
-
-                    # Check correctness
-                    is_correct = extracted_answer == ground_truth
-
-                    if is_correct:
-                        total_correct += 1
-
+                # Handle different answer formats
+                if 'answers' in sample:
+                    correct_answer = str(sample['answers'][0]) if isinstance(sample['answers'], list) else str(sample['answers'])
+                else:
+                    correct_answer = str(sample['answer'])
+                
+                # Preprocess image using the same logic as standalone script
+                pixel_values = self.preprocess_image_for_eval(image_path)
+                if pixel_values is None:
                     all_results.append({
-                        "question": original_questions[i],
-                        "generated_answer": raw_answer,
-                        "extracted_answer": extracted_answer,
-                        "ground_truth": ground_truth,
-                        "correct": is_correct
+                        "question": question,
+                        "generated_answer": "",
+                        "extracted_answer": "",
+                        "ground_truth": correct_answer,
+                        "correct": False
                     })
+                    total_samples += 1
+                    continue
                 
-                total_samples += len(original_answers)
+                # Format question using the same logic as standalone script
+                formatted_question = self.format_question(question)
+                
+                # Generate answer using model.chat()
+                raw_response = self.generate_answer(pixel_values, formatted_question)
+                
+                # Extract answer choice using the same logic as standalone script
+                extracted_answer = self.extract_answer_choice(raw_response)
+                
+                # Check correctness
+                is_correct = extracted_answer == correct_answer
+
+                if is_correct:
+                    total_correct += 1
+
+                all_results.append({
+                    "question": question,
+                    "generated_answer": raw_response,
+                    "extracted_answer": extracted_answer,
+                    "ground_truth": correct_answer,
+                    "correct": is_correct
+                })
+                
+                total_samples += 1
 
         # In DDP, gather results from all processes to the main process
         if dist.is_initialized():
@@ -226,7 +371,7 @@ class Trainer:
                 # Flatten the list of lists
                 all_results = [item for sublist in gathered_results for item in sublist]
 
-        # Log results on the main process with the same format as the evaluation script
+        # Log results on the main process with the same format as the standalone script
         if is_main_process:
             with open('evaluation.log', 'w') as f:
                 f.write("InternVL3-1B A-OKVQA Evaluation Log\n")
