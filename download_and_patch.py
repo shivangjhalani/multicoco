@@ -39,19 +39,45 @@ def download_and_patch_model():
     ).cuda()
     tokenizer = AutoTokenizer.from_pretrained(hub_model_id, trust_remote_code=True)
 
-    # 2. Find and patch the model's source file in the cache
+    # 2. Find and patch the model's source files in the cache
     try:
-        # Get the path of the model's source file
-        model_file_path = inspect.getfile(model.__class__)
-        destination_path = model_file_path
+        # --- Patch modeling file ---
+        modeling_class = model.__class__
+        modeling_file_path = inspect.getfile(modeling_class)
+        patched_modeling_file_path = os.path.join(script_dir, "InternVL", "internvl_chat", "internvl", "model", "internvl_chat", "modeling_internvl_chat.py")
         
-        # Apply the patch
-        print(f"Patching file at: {destination_path}")
-        shutil.copyfile(patched_file_path, destination_path)
-        print("Patch applied successfully to cached model file.")
+        print(f"Patching modeling file at: {modeling_file_path}")
+        shutil.copyfile(patched_modeling_file_path, modeling_file_path)
+        print("Modeling file patched successfully in cache.")
+
+        # --- Patch configuration file ---
+        config_class = model.config.__class__
+        config_file_path = inspect.getfile(config_class)
+        patched_config_file_path = os.path.join(script_dir, "InternVL", "internvl_chat", "internvl", "model", "internvl_chat", "configuration_internvl_chat.py")
+
+        print(f"Patching configuration file at: {config_file_path}")
+        shutil.copyfile(patched_config_file_path, config_file_path)
+        print("Configuration file patched successfully in cache.")
+
+        # --- Reload the model to apply patches ---
+        print("Reloading model to apply patches...")
+        # We need to unload the old modules to force a re-import
+        if modeling_class.__module__ in sys.modules:
+            del sys.modules[modeling_class.__module__]
+        if config_class.__module__ in sys.modules:
+            del sys.modules[config_class.__module__]
+
+        model = AutoModelForCausalLM.from_pretrained(
+            hub_model_id, 
+            trust_remote_code=True,
+            torch_dtype='auto',
+            low_cpu_mem_usage=True
+        ).cuda()
+        tokenizer = AutoTokenizer.from_pretrained(hub_model_id, trust_remote_code=True)
+        print("Model reloaded successfully.")
 
     except Exception as e:
-        print(f"Error: Could not find and patch the model file dynamically: {e}")
+        print(f"Error: Could not find and patch the model files dynamically: {e}")
         print("Aborting.")
         return
 
