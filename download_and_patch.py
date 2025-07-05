@@ -1,16 +1,34 @@
 import os
 import shutil
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import subprocess
+import sys
+
+# Install dependencies
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+except ImportError:
+    print("Installing required libraries: transformers, torch, accelerate")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers", "torch", "accelerate"])
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
 
 def download_and_patch_model():
     # Define paths
     hub_model_id = "OpenGVLab/InternVL3-1B"
     local_model_dir = "local_internvl_model"
-    patched_file_path = "/kaggle/working/multicoco/InternVL/internvl_chat/internvl/model/internvl_chat/modeling_internvl_chat.py"
+    
+    # Use a relative path for the patch file to make it more robust
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    patched_file_path = os.path.join(script_dir, "InternVL", "internvl_chat", "internvl", "model", "internvl_chat", "modeling_internvl_chat.py")
     
     # 1. Download and save the model from the Hub
     print(f"Downloading model '{hub_model_id}' from the Hub...")
-    model = AutoModelForCausalLM.from_pretrained(hub_model_id, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        hub_model_id, 
+        trust_remote_code=True,
+        torch_dtype='auto',
+        low_cpu_mem_usage=True
+    ).cuda()
     tokenizer = AutoTokenizer.from_pretrained(hub_model_id, trust_remote_code=True)
 
     print(f"Saving model and tokenizer to '{local_model_dir}'...")
