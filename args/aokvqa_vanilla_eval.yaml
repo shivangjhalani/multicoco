@@ -1,0 +1,31 @@
+# Main configuration for evaluating the vanilla InternVL model.
+
+project: multicoco
+name: aokvqa-vanilla-eval
+save_path: checkpoints # Not used in eval but good to have
+model_id: OpenGVLab/InternVL3-1B # Use the original model from Hugging Face
+load_model_path: null
+
+# Staging - all false for vanilla evaluation
+cot: False
+coconut: False
+c_thought: 0
+max_latent_stage: 0
+epochs_per_stage: 0 # Not used in eval
+
+# Data
+data_dir: data/
+train_path: null # Not used in eval
+val_path: data/aokvqa_validation.json
+
+# Training - these settings don't matter much for eval
+batch_size_training: 8
+gradient_accumulation_steps: 1
+lr: !!float 5e-5
+weight_decay: 0.01
+bf16: True
+save_only_improve: False
+reset_optimizer: False
+seed: 42
+debug: False
+only_eval: True 
