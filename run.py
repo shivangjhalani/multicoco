@@ -41,7 +41,7 @@ def main():
     device = torch.device(f"cuda:{rank}")
 
     # Model
-    model_id = args.get('model_id', 'OpenGVLab/InternVL3-1B')
+    model_id = 'multicoco/InternVL/internvl_chat'
     latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
     special_tokens = list(latent_tokens.values())
 
