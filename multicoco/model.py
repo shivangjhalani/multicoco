@@ -1,16 +1,22 @@
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig
 
 class MultiCoCo(nn.Module):
     def __init__(self, model_id, image_processor_id=None, tokenizer_id=None, latent_tokens={}, special_tokens=[]):
         super().__init__()
+        
+        # Load config, force eager attention, and then load the model with this config.
+        # This is a more robust way to prevent Flash Attention errors.
+        config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        config.attn_implementation = "eager"
+
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
+            config=config,
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
             trust_remote_code=True,
-            attn_implementation='eager',
         )
         # Use a separate ID for the tokenizer if provided, otherwise default to model_id.
         tok_id = tokenizer_id if tokenizer_id else model_id
