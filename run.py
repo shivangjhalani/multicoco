@@ -51,23 +51,6 @@ def main():
         special_tokens=special_tokens
     ).to(device)
 
-    # --- INVESTIGATION ---
-    if rank == 0:
-        print("--- Model Investigation ---")
-        try:
-            image_token_id = model.tokenizer.convert_tokens_to_ids('<image>')
-            img_token_id = model.tokenizer.convert_tokens_to_ids('<img>')
-            img_context_token_id = getattr(model.model, 'img_context_token_id', None)
-            num_image_tokens = getattr(model.model, 'num_image_token', None)
-            print(f"Tokenizer's ID for '<image>': {image_token_id}")
-            print(f"Tokenizer's ID for '<img>': {img_token_id}")
-            print(f"Model's internal 'img_context_token_id': {img_context_token_id}")
-            print(f"Model's 'num_image_token': {num_image_tokens}")
-        except AttributeError as e:
-            print(f"Could not find an attribute: {e}")
-        print("--------------------------")
-    # --- END INVESTIGATION ---
-
     # Load checkpoint if provided
     if args.get('load_model_path') and os.path.exists(args['load_model_path']):
         print(f"Loading model checkpoint from: {args['load_model_path']}")
