@@ -19,7 +19,7 @@ train_path: data/aokvqa_train.json
 val_path: data/aokvqa_validation.json
 
 # Training
-batch_size_training: 1
+batch_size_training: 8
 gradient_accumulation_steps: 2
 lr: !!float 5e-5
 weight_decay: 0.01 
