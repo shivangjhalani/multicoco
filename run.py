@@ -3,6 +3,21 @@ import yaml
 import os
 import sys
 import torch
+
+# --- BEGIN MONKEY-PATCH ---
+# This is a workaround for a bug in some versions of the transformers library
+# where Flash Attention is not correctly initialized, leading to a NameError.
+# By explicitly setting _flash_supports_window_size to False, we prevent
+# the code path that causes the error from being executed.
+try:
+    import transformers.modeling_flash_attention_utils
+    transformers.modeling_flash_attention_utils._flash_supports_window_size = False
+except (ImportError, AttributeError):
+    # This might fail if the library structure changes, but it's safe to ignore
+    # as it means the bug likely doesn't exist in that version.
+    pass
+# --- END MONKEY-PATCH ---
+
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader

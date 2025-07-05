@@ -80,7 +80,7 @@ class InternVLChatModel(PreTrainedModel):
             elif config.llm_config.architectures[0] == 'Phi3ForCausalLM':
                 self.language_model = Phi3ForCausalLM(config.llm_config)
             elif config.llm_config.architectures[0] == 'Qwen2ForCausalLM':
-                self.language_model = Qwen2ForCausalLM(config.llm_config, use_flash_attn=use_flash_attn)
+                self.language_model = Qwen2ForCausalLM(config.llm_config)
             else:
                 raise NotImplementedError(f'{config.llm_config.architectures[0]} is not implemented.')
 
