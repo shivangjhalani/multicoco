@@ -6,6 +6,7 @@ save_path: checkpoints
 model_id: OpenGVLab/InternVL3-1B
 load_model_path: null
 
+
 # Staging
 cot: True
 coconut: False
