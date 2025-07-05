@@ -7,7 +7,8 @@ import re
 
 def extract_final_answer_digit(s: str):
     """
-    Extracts the digit that follows the phrase 'The final answer is: '.
+    Extracts the digit from common answer phrases.
+    Searches for patterns like "the answer is 3", "the correct answer is: 2", etc.
     
     Args:
         s: The input string.
@@ -15,10 +16,14 @@ def extract_final_answer_digit(s: str):
     Returns:
         The digit as a string, or None if the pattern is not found.
     """
-    match = re.search(r'The final answer is:\s*(\d)', s)
+    # More flexible regex to find the answer
+    match = re.search(r'(?:the final answer is|the answer is|the correct answer is)\s*:?\s*(\d)', s, re.IGNORECASE)
     if match:
         return match.group(1)
-    return None
+    
+    # Fallback to just find the last digit if the pattern is not found
+    digits = re.findall(r'\d', s)
+    return digits[-1] if digits else None
 
 
 class Trainer:

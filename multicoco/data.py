@@ -80,9 +80,7 @@ class DataCollatorForInternVL(object):
             is_mcq = ins['is_mcq']
             if is_mcq:
                 system_instruction = (
-                    "You are an AI assistant helping with a multiple-choice question about an image. "
-                    "Analyze the image and the question. First, provide your step-by-step reasoning. "
-                    "Finally, you MUST provide the final answer in the format 'The final answer is: <digit>' and nothing else after it."
+                    "You are an AI assistant. Please answer the following multiple-choice question about the image."
                 )
                 question_part = f"Question: {ins['question']}\nChoices: {ins['choices_str']}"
             else:
@@ -91,14 +89,14 @@ class DataCollatorForInternVL(object):
                 )
                 question_part = f"Question: {ins['question']}"
 
-            full_prompt = f"{'<img>' * self.num_image_tokens}\n{system_instruction}\n\n---\n{question_part}\n---\n\nReasoning:"
+            full_prompt = f"{'<img>' * self.num_image_tokens}\n{system_instruction}\n\n{question_part}"
 
             conv.messages = []
             conv.append_message(roles["human"], full_prompt)
             
             if not is_eval:
                 if is_mcq:
-                    answer_for_training = f" {ins['answer']}\nThe final answer is: {ins['choices'].index(ins['answer'])}"
+                    answer_for_training = f"The correct answer is {ins['choices'].index(ins['answer'])}."
                 else:
                     answer_for_training = ins['answer']
                 conv.append_message(roles["gpt"], answer_for_training)
