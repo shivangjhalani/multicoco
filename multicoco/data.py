@@ -18,7 +18,7 @@ class MultiCoCoDataset(Dataset):
         # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
         # Remove this line to use the full dataset again.
         if "val" in data_path: # Apply only to validation set
-            self.data = self.data[:10]
+            self.data = self.data[:20]
         
 
     def __len__(self):
