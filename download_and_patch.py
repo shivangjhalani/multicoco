@@ -6,7 +6,7 @@ def download_and_patch_model():
     # Define paths
     hub_model_id = "OpenGVLab/InternVL3-1B"
     local_model_dir = "local_internvl_model"
-    patched_file_path = "multicoco/InternVL/internvl_chat/internvl/model/internvl_chat/modeling_internvl_chat.py"
+    patched_file_path = "/kaggle/working/multicoco/InternVL/internvl_chat/internvl/model/internvl_chat/modeling_internvl_chat.py"
     
     # 1. Download and save the model from the Hub
     print(f"Downloading model '{hub_model_id}' from the Hub...")
