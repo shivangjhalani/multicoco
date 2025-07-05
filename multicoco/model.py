@@ -142,10 +142,25 @@ class MultiCoCo(nn.Module):
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
         inputs['pixel_values'] = pixel_values.to(self.model.device)
         
-        with torch.no_grad():
-            outputs = self.model.generate(**inputs, **generation_config)
+        # Ensure generation parameters are correctly passed
+        gen_kwargs = {
+            "max_new_tokens": generation_config.get('max_new_tokens', 100),
+            "temperature": generation_config.get('temperature', 0.0),
+            "do_sample": generation_config.get('temperature', 0.0) > 0,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": generation_config.get('eos_token_id', self.tokenizer.eos_token_id)
+        }
 
-        responses = [self.tokenizer.decode(output, skip_special_tokens=True).split(conv.roles[1] + ':')[-1].strip() for output in outputs]
+        with torch.no_grad():
+            outputs = self.model.generate(**inputs, **gen_kwargs)
+
+        responses = []
+        for output in outputs:
+            response = self.tokenizer.decode(output, skip_special_tokens=True)
+            # Add a fallback for the role separator
+            separator = conv.roles[1] + ':' if conv.roles[1] else 'ASSISTANT:'
+            response = response.split(separator)[-1].strip()
+            responses.append(response)
         return responses
 
     def generate_coconut(self, pixel_values, questions, generation_config):
