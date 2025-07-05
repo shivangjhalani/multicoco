@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 import torch.distributed as dist
 import inspect
+import re
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -115,7 +116,7 @@ class Trainer:
                 outputs = model_to_eval.model.generate(
                     **batch,
                     do_sample=False,
-                    max_new_tokens=100,
+                    max_new_tokens=5,  # Drastically reduce max tokens
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
@@ -133,17 +134,25 @@ class Trainer:
                     question_part = input_texts[i]
                     if tokenizer.bos_token:
                         question_part = question_part.replace(tokenizer.bos_token, '')
-                    question_part = question_part.replace('<img>' * num_image_tokens + '\n', '').strip()
+                    question_part = question_part.replace('<img>' * num_image_tokens, '').strip() # Also remove newline
                     
                     answer_text = gen_text.replace(question_part, '').strip()
 
-                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
+                    # Use regex to find the first digit in the answer
+                    match = re.search(r'\d', answer_text)
+                    extracted_answer = match.group(0) if match else None
+                    
+                    is_correct = False
+                    if extracted_answer is not None:
+                        is_correct = any(ans == extracted_answer for ans in original_answers[i])
+
                     if is_correct:
                         total_correct += 1
 
                     all_results.append({
                         "question": original_questions[i],
                         "generated_answer": answer_text,
+                        "extracted_answer": extracted_answer,
                         "ground_truth": original_answers[i],
                         "correct": is_correct
                     })
@@ -165,6 +174,7 @@ class Trainer:
                     f.write("----------------------------------------\n")
                     f.write(f"Question: {res['question']}\n")
                     f.write(f"Generated Answer: {res['generated_answer']}\n")
+                    f.write(f"Extracted Answer: {res['extracted_answer']}\n")
                     f.write(f"Ground Truth Answers: {res['ground_truth']}\n")
                     f.write(f"Correct: {'Yes' if res['correct'] else 'No'}\n")
                     f.write("----------------------------------------\n\n")

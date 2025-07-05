@@ -56,8 +56,9 @@ class DataCollatorForInternVL(object):
         all_labels = []
 
         for ins in instances:
-            question = '<img>' * self.num_image_tokens + '\n' + ins['question']
-            question += "\nAnswer with the option number only."
+            # Reformat the prompt to be a very direct instruction
+            prompt = f"{ins['question']}\n\nRespond with a single digit that indicates the correct option."
+            question = '<img>' * self.num_image_tokens + '\n' + prompt
             answer = ins['answer']
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
