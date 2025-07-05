@@ -40,6 +40,21 @@ class DataCollatorForInternVL(object):
         self.image_processor = image_processor
         self.image_token_id = tokenizer.convert_tokens_to_ids('<img>')
         self.num_image_tokens = model.config.num_image_token
+        self.train_config = {'is_train': True}  # Default to training mode
+
+    def format_question_for_eval(self, question: str) -> str:
+        """
+        Format the question for evaluation to encourage single digit answers.
+        
+        Args:
+            question: The original question with choices
+            
+        Returns:
+            Formatted question string
+        """
+        # Add instruction to make it clear we want a single number
+        formatted_question = f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
+        return formatted_question
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
@@ -56,7 +71,16 @@ class DataCollatorForInternVL(object):
         all_labels = []
 
         for ins in instances:
-            question = '<img>' * self.num_image_tokens + '\n' + ins['question']
+            # Format question based on whether we're in training or evaluation mode
+            base_question = ins['question']
+            if not self.train_config.get('is_train', True):
+                # In evaluation mode, format the question to encourage single digit answers
+                formatted_question = self.format_question_for_eval(base_question)
+            else:
+                # In training mode, use the original question
+                formatted_question = base_question
+            
+            question = '<img>' * self.num_image_tokens + '\n' + formatted_question
             answer = ins['answer']
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}

@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 import torch.distributed as dist
 import inspect
+import re
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -81,6 +82,54 @@ class Trainer:
                     print(f"Stage {stage}, Epoch {epoch+1}: Validation Accuracy: {val_acc:.4f}")
                     self.save_checkpoint(stage, epoch, val_acc)
 
+    def format_question(self, question: str) -> str:
+        """
+        Format the question for the model to encourage single digit answers.
+        
+        Args:
+            question: The original question with choices
+            
+        Returns:
+            Formatted question string
+        """
+        # Add instruction to make it clear we want a single number
+        formatted_question = f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
+        return formatted_question
+
+    def extract_answer_choice(self, response: str) -> str:
+        """
+        Extract the answer choice (0, 1, 2, or 3) from the model response.
+        
+        Args:
+            response: Model response string
+            
+        Returns:
+            Extracted answer choice or empty string if not found
+        """
+        # Look for single digits in the response
+        
+        # First, try to find explicit single digit answers
+        single_digits = re.findall(r'\b[0-3]\b', response)
+        if single_digits:
+            return single_digits[0]
+        
+        # Try to find answer patterns
+        answer_patterns = [
+            r'answer\s*:?\s*([0-3])',
+            r'choice\s*:?\s*([0-3])',
+            r'option\s*:?\s*([0-3])',
+            r'([0-3])\s*:',
+            r'^\s*([0-3])\s*$'
+        ]
+        
+        for pattern in answer_patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        
+        # If no clear answer found, return empty string
+        return ""
+
     def evaluate(self):
         """Evaluation loop."""
         self.model.eval()
@@ -115,11 +164,11 @@ class Trainer:
                 if 'image_flags' not in generate_args:
                     batch.pop('image_flags', None)
 
-                # Generate outputs
+                # Generate outputs with limited tokens for cleaner answers
                 outputs = model_to_eval.model.generate(
                     **batch,
                     do_sample=False,
-                    max_new_tokens=100,
+                    max_new_tokens=10,  # Reduced for cleaner single digit answers
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
@@ -139,16 +188,26 @@ class Trainer:
                         question_part = question_part.replace(tokenizer.bos_token, '')
                     question_part = question_part.replace('<img>' * num_image_tokens + '\n', '').strip()
                     
-                    answer_text = gen_text.replace(question_part, '').strip()
+                    # Extract the raw answer (everything after the question)
+                    raw_answer = gen_text.replace(question_part, '').strip()
 
-                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
+                    # Extract the choice number using the same logic as the evaluation script
+                    extracted_answer = self.extract_answer_choice(raw_answer)
+                    
+                    # Get the ground truth answer (should be a single digit string)
+                    ground_truth = str(original_answers[i][0]) if isinstance(original_answers[i], list) else str(original_answers[i])
+
+                    # Check correctness
+                    is_correct = extracted_answer == ground_truth
+
                     if is_correct:
                         total_correct += 1
 
                     all_results.append({
                         "question": original_questions[i],
-                        "generated_answer": answer_text,
-                        "ground_truth": original_answers[i],
+                        "generated_answer": raw_answer,
+                        "extracted_answer": extracted_answer,
+                        "ground_truth": ground_truth,
                         "correct": is_correct
                     })
                 
@@ -162,13 +221,19 @@ class Trainer:
                 # Flatten the list of lists
                 all_results = [item for sublist in gathered_results for item in sublist]
 
-        # Log results on the main process
+        # Log results on the main process with the same format as the evaluation script
         if is_main_process:
             with open('evaluation.log', 'w') as f:
-                for res in all_results:
+                f.write("InternVL3-1B A-OKVQA Evaluation Log\n")
+                f.write(f"Total samples: {len(all_results)}\n")
+                f.write("="*80 + "\n\n")
+                
+                for i, res in enumerate(all_results, 1):
+                    f.write(f"Sample {i}:\n")
                     f.write("----------------------------------------\n")
                     f.write(f"Question: {res['question']}\n")
                     f.write(f"Generated Answer: {res['generated_answer']}\n")
+                    f.write(f"Extracted Answer: {res['extracted_answer']}\n")
                     f.write(f"Ground Truth Answers: {res['ground_truth']}\n")
                     f.write(f"Correct: {'Yes' if res['correct'] else 'No'}\n")
                     f.write("----------------------------------------\n\n")
