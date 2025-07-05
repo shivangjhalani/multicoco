@@ -2,6 +2,7 @@ import os
 import torch
 from tqdm import tqdm
 import torch.distributed as dist
+import inspect
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -98,6 +99,12 @@ class Trainer:
                         batch[k] = v.to(self.device)
                 
                 model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
+
+                # Inspect the model's generate function to see if it accepts `image_flags`.
+                # The vanilla model doesn't, so we remove it to prevent a ValueError.
+                generate_args = inspect.signature(model_to_eval.model.generate).parameters
+                if 'image_flags' not in generate_args:
+                    batch.pop('image_flags', None)
 
                 # Generate outputs
                 outputs = model_to_eval.model.generate(
