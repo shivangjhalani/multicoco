@@ -3,13 +3,14 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 from typing import Dict, Sequence
+import json
 from multicoco.conversation import get_conv_template
 
 class MultiCoCoDataset(Dataset):
     def __init__(self, data_path, data_dir):
         if data_path:
             with open(data_path, 'r') as f:
-                self.data = [eval(line) for line in f]
+                self.data = json.load(f)
         else:
             self.data = []
         self.data_dir = data_dir
