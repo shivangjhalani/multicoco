@@ -361,8 +361,9 @@ class Trainer:
             
             return responses, token_counts
             
-        except Exception as e:
-            print(f"Error generating answers for batch: {e}")
+        except Exception:
+            import traceback
+            traceback.print_exc()
             return ["" for _ in questions], [0 for _ in questions]
 
     def evaluate(self):
