@@ -28,14 +28,7 @@ def cleanup():
     """Cleans up the distributed environment."""
     dist.destroy_process_group()
 
-def main():
-    parser = argparse.ArgumentParser(description="MultiCoCo Training Script")
-    parser.add_argument('config', type=str, help='Path to the YAML config file')
-    cli_args = parser.parse_args()
-
-    with open(cli_args.config, 'r') as f:
-        args = yaml.safe_load(f)
-
+def main(args):
     # DDP Setup
     rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -50,12 +43,12 @@ def main():
     # Determine model path and special tokens based on the config.
     # If cot or coconut flags are set, use the local patched model and custom tokens.
     # Otherwise, use the model_id from the config for a vanilla run.
-    if args.get('cot') or args.get('coconut'):
+    if args.cot or args.coconut:
         model_path = os.path.abspath('local_internvl_model')
         latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
         special_tokens = list(latent_tokens.values())
     else:
-        model_path = args['model_id']
+        model_path = args.model_id
         latent_tokens = {}
         special_tokens = []
 
@@ -66,8 +59,8 @@ def main():
     ).to(device)
 
     # Load checkpoint if provided
-    if args.get('load_model_path') and os.path.exists(args['load_model_path']):
-        print(f"Loading model checkpoint from: {args['load_model_path']}")
+    if args.load_model_path and os.path.exists(args.load_model_path):
+        print(f"Loading model checkpoint from: {args.load_model_path}")
     
     if world_size > 1:
         model = DDP(model, device_ids=[rank])
@@ -84,30 +77,30 @@ def main():
     )
 
     # Always create val_loader
-    val_dataset = MultiCoCoDataset(data_path=args['val_path'], data_dir=args['data_dir'])
+    val_dataset = MultiCoCoDataset(data_path=args.val_path, data_dir=args.data_dir)
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
     val_loader = DataLoader(
         val_dataset,
-        batch_size=args['batch_size_training'],
+        batch_size=args.batch_size_training,
         sampler=val_sampler,
         collate_fn=collator
     )
 
     # Conditionally create train_loader
     train_loader = None
-    if not args.get('only_eval', False):
-        train_dataset = MultiCoCoDataset(data_path=args['train_path'], data_dir=args['data_dir'])
+    if not args.only_eval:
+        train_dataset = MultiCoCoDataset(data_path=args.train_path, data_dir=args.data_dir)
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
         train_loader = DataLoader(
             train_dataset,
-            batch_size=args['batch_size_training'],
+            batch_size=args.batch_size_training,
             sampler=train_sampler,
             collate_fn=collator,
             shuffle=(train_sampler is None) # Shuffle only if not using DDP
         )
 
     # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     # Trainer
     trainer = Trainer(
@@ -119,7 +112,7 @@ def main():
     )
 
     # Start training or evaluation
-    if args.get('only_eval', False):
+    if args.only_eval:
         print("--- Starting Evaluation Only ---")
         val_acc = trainer.evaluate()
         if rank == 0:
@@ -131,4 +124,19 @@ def main():
         cleanup()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="MultiCoCo Training Script")
+    parser.add_argument('config', type=str, help='Path to the YAML config file')
+    cli_args = parser.parse_args()
+
+    # Load config from YAML file
+    with open(cli_args.config, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Use the config to create a new argparse.Namespace or dict
+    args = argparse.Namespace(**config)
+    
+    # Set device
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    args.device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    
+    main(args)
