@@ -25,16 +25,15 @@ class MultiCoCoDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        image_path = os.path.join(self.data_dir, item['image'])
-        question = item['question']
-        steps = item.get('steps', [])
-        answer = item['answer']
+        # Ensure the 'answers' key exists, defaulting to a list containing the single answer.
+        # This is crucial for the evaluation logic.
         return {
-            "image_path": image_path,
-            "question": question,
-            "steps": steps,
-            "answer": answer
+            "question": item["question"],
+            "answer": item["answer"],
+            "image": item["image"],
+            "answers": item.get("answers", [item.get("answer")])
         }
+
 
 class DataCollatorForInternVL(object):
     def __init__(self, tokenizer, model):
@@ -49,6 +48,11 @@ class DataCollatorForInternVL(object):
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
 
+        raw_images = [ins.pop('image') for ins in instances]
+        answers = [ins.pop('answers') for ins in instances]  # Pop answers to process separately
+        pixel_values, num_patches = self.model.dynamic_preprocess(raw_images, self.model.config.image_size)
+
+        # 2. Process text
         all_input_ids = []
         all_labels = []
         all_pixel_values = []
@@ -124,9 +128,7 @@ class DataCollatorForInternVL(object):
             'attention_mask': attention_mask,
             'labels': padded_labels,
             'image_flags': image_flags,
+            'answers': answers  # Always include the answers
         }
-
-        if all_answers:
-            batch['answers'] = all_answers
 
         return batch
