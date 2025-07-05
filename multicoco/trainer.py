@@ -5,48 +5,19 @@ import inspect
 import re
 
 
-def extract_answer_from_model_output(generated_text: str, choices: list):
+def extract_final_answer_digit(s: str):
     """
-    Extracts the answer from the model's generated text for a multiple-choice question.
-
-    This function tries to find the answer in a hierarchical manner:
-    1. It checks if the text of any of the choices appears in the generated output.
-    2. If not, it looks for a unique digit in the text that corresponds to a choice index.
-
+    Extracts the digit that follows the phrase 'The final answer is: '.
+    
     Args:
-        generated_text: The output from the model.
-        choices: A list of the possible answer strings.
-
+        s: The input string.
+    
     Returns:
-        The index of the chosen answer as a string, or None if no answer can be found.
+        The digit as a string, or None if the pattern is not found.
     """
-    # 1. Check for the full text of a choice in the generated answer
-    for i, choice_text in enumerate(choices):
-        if re.search(r'\b' + re.escape(choice_text) + r'\b', generated_text, re.IGNORECASE):
-            return str(i)
-
-    # 2. If no text match, look for a digit corresponding to a choice
-    # Find all digits in the string
-    found_digits = re.findall(r'\d', generated_text)
-    
-    # Filter for digits that are valid choice indices
-    valid_indices = [d for d in found_digits if int(d) < len(choices)]
-    
-    # If there is exactly one valid digit, return it
-    if len(valid_indices) == 1:
-        return valid_indices[0]
-    
-    # Advanced search for patterns like "the answer is 2"
-    match = re.search(r'(?:the final answer is|the answer is|the correct answer is|choice is)\s*:?\s*(\d)', generated_text, re.IGNORECASE)
+    match = re.search(r'The final answer is:\s*(\d)', s)
     if match:
-        digit = match.group(1)
-        if int(digit) < len(choices):
-            return digit
-            
-    # As a last resort, return the last valid digit if any exist
-    if valid_indices:
-        return valid_indices[-1]
-
+        return match.group(1)
     return None
 
 
@@ -90,17 +61,15 @@ class Trainer:
         model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
         is_main_process = not dist.is_initialized() or dist.get_rank() == 0
         tokenizer = self.val_loader.collate_fn.tokenizer
-        
-        # Prevent repetitive warning
-        if hasattr(model_to_eval.model.config, 'pad_token_id'):
-            model_to_eval.model.config.pad_token_id = tokenizer.eos_token_id
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(not is_main_process))
 
         with torch.no_grad():
             for batch in pbar:
+                # The data collator for eval does not return labels, so pop it
                 batch.pop('labels', None)
                 
+                # Prepare inputs for generation
                 for k, v in batch.items():
                     if isinstance(v, torch.Tensor):
                         batch[k] = v.to(self.args.device)
@@ -111,7 +80,7 @@ class Trainer:
                     'attention_mask': batch['attention_mask'],
                     'do_sample': False,
                     'num_beams': 1,
-                    'max_new_tokens': 150,
+                    'max_new_tokens': 150, # Allow more tokens for reasoning
                 }
                 
                 generate_args_spec = inspect.signature(model_to_eval.model.generate).parameters
@@ -125,26 +94,26 @@ class Trainer:
                 for i, (generated_text, gt_answers) in enumerate(zip(generated_texts, batch['answers'])):
                     if i >= len(batch['original_questions']):
                         break
-                    
+
                     with open('evaluation.log', 'a') as f:
                         question = batch['original_questions'][i]
+                        choices_str = batch['choices_str'][i]
                         
-                        choices_list = batch['choices'][i]
-                        choices_str = ", ".join([f"{idx}: {choice}" for idx, choice in enumerate(choices_list)])
-                        predicted_answer = extract_answer_from_model_output(generated_text, choices_list)
+                        predicted_answer = extract_final_answer_digit(generated_text)
+                        
                         is_correct = predicted_answer in gt_answers if predicted_answer is not None else False
-
                         if is_correct:
                             correct_predictions += 1
                         
                         f.write('----------------------------------------\n')
-                        f.write(f"Question: {question}{' The choices are ' + choices_str}\n")
+                        f.write(f"Question: {question} The choices are {choices_str}\n")
                         f.write(f"Generated Answer: {generated_text.strip()}\n")
                         f.write(f"Ground Truth Answers: {gt_answers}\n")
                         f.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
                 
                 total_predictions += len(batch['original_questions'])
 
+        # Aggregate results in distributed training
         if dist.is_initialized():
             total_correct_tensor = torch.tensor(correct_predictions).to(self.args.device)
             total_preds_tensor = torch.tensor(total_predictions).to(self.args.device)

@@ -11,11 +11,12 @@ class MultiCoCoDataset(Dataset):
     def __init__(self, data_path, data_dir, is_eval=False):
         if data_path:
             with open(data_path, 'r') as f:
-                loaded_data = json.load(f)
-                # Filter out items that are not multiple-choice questions
-                self.data = [item for item in loaded_data if 'choices' in item and item['choices']]
+                self.data = json.load(f)
         else:
             self.data = []
+        
+        if is_eval: # Apply only to validation/test set for quick evaluation
+            self.data = self.data[:20]
 
         self.data_dir = data_dir
 
@@ -24,21 +25,24 @@ class MultiCoCoDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        
         choices_str = ", ".join([f"{i} : {choice}" for i, choice in enumerate(item['choices'])])
+        
+        # 'answer' might not be present in test sets
         answer = item.get("answer")
+        
+        # 'answers' should be a list of strings (the correct option indices)
         if answer is not None and answer in item['choices']:
-            answers = [str(item['choices'].index(answer))]
+             answers = item.get("answers", [str(item['choices'].index(answer))])
         else:
-            answers = []
+            answers = [] # No valid answer for this item
 
         return {
             "image": os.path.join(self.data_dir, item["image"]),
             "question": item["question"],
-            "choices": item.get("choices", []),
+            "choices": item["choices"],
             "choices_str": choices_str,
             "answer": answer,
-            "answers": answers,
+            "answers": answers
         }
 
 
@@ -68,15 +72,17 @@ class DataCollatorForInternVL(object):
         roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
         
         for ins in instances:
-            question_part = f"{ins['question']}\nChoices: {ins['choices_str']}"
-
-            full_prompt = f"{'<img>' * self.num_image_tokens}\n{question_part}"
+            instruction = (
+                "Please provide your reasoning and then end your answer with the single digit corresponding to the correct choice. "
+                "The final answer should be in the format: 'The final answer is: <digit>'"
+            )
+            question = f"<img> * {self.num_image_tokens}\n{ins['question']} The choices are {ins['choices_str']}\n\n{instruction}"
             
             conv.messages = []
-            conv.append_message(roles["human"], full_prompt)
+            conv.append_message(roles["human"], question)
             
             if not is_eval:
-                answer_for_training = str(ins['choices'].index(ins['answer']))
+                answer_for_training = f"{ins['answer']} The final answer is: {ins['choices'].index(ins['answer'])}"
                 conv.append_message(roles["gpt"], answer_for_training)
             else:
                 conv.append_message(roles["gpt"], None)
@@ -94,6 +100,7 @@ class DataCollatorForInternVL(object):
                     round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
                     labels[:round_len] = -100
             else:
+                # For eval, we don't need to compute loss
                 labels[:] = -100
             
             all_input_ids.append(input_ids)
@@ -111,8 +118,7 @@ class DataCollatorForInternVL(object):
             'image_flags': image_flags,
             'answers': [ins['answers'] for ins in instances],
             'original_questions': [ins['question'] for ins in instances],
-            'choices_str': [ins['choices_str'] for ins in instances],
-            'choices': [ins['choices'] for ins in instances],
+            'choices_str': [ins['choices_str'] for ins in instances]
         }
 
         if not is_eval:
