@@ -133,6 +133,10 @@ class Trainer:
     def evaluate(self):
         """Evaluation loop."""
         self.model.eval()
+        
+        # Ensure the data collator is in evaluation mode
+        self.val_loader.collate_fn.train_config = {'is_train': False}
+        
         total_correct = torch.tensor([0.0]).to(self.device)
         total_samples = torch.tensor([0.0]).to(self.device)
         
@@ -168,13 +172,14 @@ class Trainer:
                 outputs = model_to_eval.model.generate(
                     **batch,
                     do_sample=False,
-                    max_new_tokens=10,  # Reduced for cleaner single digit answers
+                    max_new_tokens=20,  # Increased slightly to allow for complete answers
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
                     length_penalty=1.0,
                     temperature=1.0,
-                    pad_token_id=tokenizer.pad_token_id
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id
                 )
                 
                 # Decode and compare
