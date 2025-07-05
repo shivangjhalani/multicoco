@@ -74,11 +74,11 @@ def main():
     if args.get('only_eval', False):
         # For evaluation, load from a checkpoint if specified, otherwise use the base model_id
         model_path = args.get('load_model_path') or args['model_id']
-        model = MultiCoCo(model_path)
+        model = MultiCoCo(model_path).to(device)
         tokenizer = model.tokenizer
     else:
         special_tokens = ['<thought>', '<start_thought>', '<end_thought>']
-        model = MultiCoCo(args['model_id'], special_tokens=special_tokens)
+        model = MultiCoCo(args['model_id'], special_tokens=special_tokens).to(device)
         tokenizer = model.tokenizer
         
         # Add special tokens to args to be accessible in the trainer
@@ -90,7 +90,7 @@ def main():
     if args.get('load_model_path', None) and not args.get('only_eval', False):
         print(f"Loading model from {args['load_model_path']}")
         # Awkwardly, we have to re-init the model to load the checkpoint
-        model = MultiCoCo(args['load_model_path'])
+        model = MultiCoCo(args['load_model_path']).to(device)
         tokenizer = model.tokenizer
 
     # -- DDP Model
