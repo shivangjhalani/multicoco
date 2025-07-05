@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 import torch.distributed as dist
 import inspect
+from .logits_processor import ForceDigitsLogitsProcessor
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -89,6 +90,7 @@ class Trainer:
         # The collator needs access to the tokenizer for decoding
         tokenizer = self.val_loader.collate_fn.tokenizer
         num_image_tokens = self.val_loader.collate_fn.num_image_tokens
+        logits_processor = ForceDigitsLogitsProcessor(tokenizer)
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
@@ -115,13 +117,14 @@ class Trainer:
                 outputs = model_to_eval.model.generate(
                     **batch,
                     do_sample=False,
-                    max_new_tokens=100,
+                    max_new_tokens=1,
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
                     length_penalty=1.0,
                     temperature=1.0,
-                    pad_token_id=tokenizer.pad_token_id
+                    pad_token_id=tokenizer.pad_token_id,
+                    logits_processor=[logits_processor]
                 )
                 
                 # Decode and compare
