@@ -64,6 +64,13 @@ class Trainer:
         self.model.eval()
         all_results = []
         
+        # On main process, clear log file and write header
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            with open("evaluation.log", "w") as f:
+                f.write("========================================\n")
+                f.write("        Evaluation Log\n")
+                f.write("========================================\n\n")
+
         logits_processor = LogitsProcessorList([SingleDigitLogitsProcessor(self.tokenizer)])
 
         for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
@@ -83,6 +90,7 @@ class Trainer:
                     model_inputs['image_flags'] = batch['image_flags']
 
             ground_truth_answers = batch.get("direct_answers", [])
+            original_questions = batch.get("original_questions", [])
 
             with torch.no_grad():
                 model_to_generate = self.model.module if hasattr(self.model, 'module') else self.model
@@ -100,13 +108,20 @@ class Trainer:
             generated_texts = self.tokenizer.batch_decode(outputs[:, input_ids_len:], skip_special_tokens=True)
             
             for j, (gt_ans, gen_text) in enumerate(zip(ground_truth_answers, generated_texts)):
-                question = self.tokenizer.decode(batch['input_ids'][j], skip_special_tokens=True)
+                question = original_questions[j] if j < len(original_questions) else "Question not found"
                 is_correct = gen_text.strip() in gt_ans
                 all_results.append(is_correct)
                 
                 # Only log from the main process
                 if not dist.is_initialized() or dist.get_rank() == 0:
-                    log_entry = f"Question: {question}\nGenerated: {gen_text.strip()}\nGround Truth: {gt_ans}\nCorrect: {is_correct}\n---\n"
+                    log_entry = (
+                        f"---------- Sample {j+1} ----------\n"
+                        f"Question: {question}\n"
+                        f"Generated Answer: {gen_text.strip()}\n"
+                        f"Ground Truth: {gt_ans}\n"
+                        f"Correct: {'Yes' if is_correct else 'No'}\n"
+                        f"---------------------------------\n\n"
+                    )
                     with open("evaluation.log", "a") as f:
                         f.write(log_entry)
 
