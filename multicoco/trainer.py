@@ -137,7 +137,8 @@ class Trainer:
                     
                     answer_text = gen_text.replace(question_part, '').strip()
 
-                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
+                    # Check for an exact match with any of the ground truth answers
+                    is_correct = any(ans == answer_text for ans in original_answers[i])
                     if is_correct:
                         total_correct += 1
 

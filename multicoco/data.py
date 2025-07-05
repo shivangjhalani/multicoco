@@ -51,6 +51,7 @@ class DataCollatorForInternVL(object):
 
         for ins in instances:
             question = '<img>' * self.num_image_tokens + '\n' + ins['question']
+            question += "\n\nAnswer with the option number only."
             answer = ins['answer']
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
