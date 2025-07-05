@@ -280,9 +280,13 @@ class InternVLChatModel(PreTrainedModel):
                 output_hidden_states=True,
                 return_dict=True).hidden_states[self.select_layer]
 
-        if self.downsample_ratio > 1:
+        # Correctly reshape and pool the features
+        vit_embeds = vit_embeds[:, 1:, :]
+        h = w = int(vit_embeds.shape[1] ** 0.5)
+        vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], h, w, -1)
+        if self.downsample_ratio != 1.0:
             vit_embeds = self.pixel_shuffle(vit_embeds, scale_factor=self.downsample_ratio)
-
+        vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], -1, vit_embeds.shape[-1])
         vit_embeds = torch.mean(vit_embeds, dim=1)
 
         vit_embeds = self.mlp1(vit_embeds)
