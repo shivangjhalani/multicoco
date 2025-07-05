@@ -327,10 +327,9 @@ class Trainer:
         try:
             # Get the underlying model and tokenizer
             model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
-            if hasattr(model_to_eval, 'model'):
-                underlying_model = model_to_eval.model
-            else:
-                underlying_model = model_to_eval
+            
+            # The `batch_chat` method is on the MultiCoCo model wrapper, not the underlying HF model
+            underlying_model = model_to_eval
             
             tokenizer = self.val_loader.collate_fn.tokenizer
             
@@ -346,7 +345,7 @@ class Trainer:
             )
             
             # Ensure pixel_values are on the same device as model
-            model_device = next(underlying_model.parameters()).device
+            model_device = next(underlying_model.model.parameters()).device
             if pixel_values.device != model_device:
                 pixel_values = pixel_values.to(model_device)
             
