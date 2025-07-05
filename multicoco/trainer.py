@@ -137,7 +137,7 @@ class Trainer:
                 # We need to clean up the generated text to isolate the answer
                 # The prompt is not in this text, so we find it by what's *after* the assistant role
                 for i, gen_text in enumerate(generated_texts):
-                    conv_gen = get_conv_template(model_to_eval.conv_template)
+                    conv_gen = get_conv_template(model_to_eval.model.conv_template)
                     roles = {"human": conv_gen.roles[0], "gpt": conv_gen.roles[1]}
                     conv_gen.append_message(roles["human"], 'dummy') # The content doesn't matter here
                     conv_gen.append_message(roles["gpt"], None)
