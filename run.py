@@ -8,8 +8,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-# Add the InternVL project directory to the system path to resolve module loading issues.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'InternVL')))
+# Add the project's root directory (multicoco) to the system path.
+# This ensures that the 'internvl' module can be found.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from multicoco.data import MultiCoCoDataset, DataCollatorForInternVL
 from multicoco.model import MultiCoCo
