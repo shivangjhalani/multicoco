@@ -103,18 +103,20 @@ def main():
     )
 
     # -- DataLoaders
-    train_dataset = MultiCoCoDataset(
-        data_path=args['train_path'] if not is_eval_only else None,
-        data_dir=args['data_dir']
-    )
-    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args['batch_size_training'],
-        sampler=train_sampler,
-        collate_fn=collator,
-        shuffle=(train_sampler is None) # Shuffle only if not using DDP
-    )
+    train_loader = None
+    if not is_eval_only:
+        train_dataset = MultiCoCoDataset(
+            data_path=args['train_path'],
+            data_dir=args['data_dir']
+        )
+        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=args['batch_size_training'],
+            sampler=train_sampler,
+            collate_fn=collator,
+            shuffle=(train_sampler is None) # Shuffle only if not using DDP
+        )
 
     # Always create val_loader
     val_dataset = MultiCoCoDataset(data_path=args['val_path'], data_dir=args['data_dir'])
