@@ -1,23 +1,36 @@
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig
+import functools
 
 class MultiCoCo(nn.Module):
     def __init__(self, model_id, image_processor_id=None, tokenizer_id=None, latent_tokens={}, special_tokens=[]):
         super().__init__()
         
-        # Load config, force eager attention, and then load the model with this config.
-        # This is a more robust way to prevent Flash Attention errors.
-        config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-        config.attn_implementation = "eager"
+        # Monkey-patch from_pretrained to force eager attention on the nested language model.
+        # This is necessary because the custom InternVL model code does not propagate the
+        # attn_implementation flag from the top-level config to the language model it loads.
+        original_from_pretrained = AutoModelForCausalLM.from_pretrained
+        
+        @functools.wraps(original_from_pretrained)
+        def patched_from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs):
+            if 'qwen' in pretrained_model_name_or_path.lower():
+                kwargs['attn_implementation'] = 'eager'
+            return original_from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+        
+        AutoModelForCausalLM.from_pretrained = patched_from_pretrained
 
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            config=config,
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
-            trust_remote_code=True,
-        )
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype=torch.bfloat16,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            )
+        finally:
+            # Always restore the original function
+            AutoModelForCausalLM.from_pretrained = original_from_pretrained
+
         # Use a separate ID for the tokenizer if provided, otherwise default to model_id.
         tok_id = tokenizer_id if tokenizer_id else model_id
         self.tokenizer = AutoTokenizer.from_pretrained(tok_id, trust_remote_code=True)
