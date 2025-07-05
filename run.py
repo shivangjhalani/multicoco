@@ -55,57 +55,66 @@ def main():
     torch.cuda.set_device(rank)
     device = torch.device(f"cuda:{rank}")
 
-    # Model
-    # Determine model path and special tokens based on the config.
-    # If cot or coconut flags are set, use the local patched model and custom tokens.
-    # Otherwise, use the model_id from the config for a vanilla run.
-    if args.get('cot') or args.get('coconut'):
-        model_path = os.path.abspath('local_internvl_model')
-        hub_id = args['model_id'] # The original Hub ID for configs/tokenizer
-        latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
-        special_tokens = list(latent_tokens.values())
-    else:
-        model_path = args['model_id']
-        hub_id = args['model_id'] # For vanilla, local and hub IDs are the same
-        latent_tokens = {}
-        special_tokens = []
+    # -- DDP Setup
+    setup()
 
     # -- Initialize Tokenizer and Model
-    if args.get('only_eval', False):
-        # For evaluation, load from a checkpoint if specified, otherwise use the base model_id
-        model_path = args.get('load_model_path') or args['model_id']
-        model = MultiCoCo(model_path).to(device)
-        tokenizer = model.tokenizer
-    else:
+    load_path = args.get('load_model_path')
+    model_id = args['model_id']
+    is_eval_only = args.get('only_eval', False)
+    
+    special_tokens = []
+    if not is_eval_only:
         special_tokens = ['<thought>', '<start_thought>', '<end_thought>']
-        model = MultiCoCo(args['model_id'], special_tokens=special_tokens).to(device)
-        tokenizer = model.tokenizer
-        
-        # Add special tokens to args to be accessible in the trainer
+
+    # If load_path is a checkpoint file, we must load the base model first
+    if load_path and os.path.isfile(load_path):
+        print(f"Initializing from base model '{model_id}' to load checkpoint '{load_path}'")
+        model = MultiCoCo(model_id, special_tokens=special_tokens).to(device)
+        print(f"Loading checkpoint weights from file: {load_path}")
+        checkpoint = torch.load(load_path, map_location=device)
+        state_dict = {k.replace('module.', ''): v for k, v in checkpoint.items()}
+        model.load_state_dict(state_dict, strict=False)
+    else:
+        # If load_path is a directory or None, use it or model_id as the primary source
+        primary_path = load_path if load_path else model_id
+        print(f"Initializing model from '{primary_path}'")
+        model = MultiCoCo(primary_path, special_tokens=special_tokens).to(device)
+
+    tokenizer = model.tokenizer
+    
+    if not is_eval_only:
+        # Add special tokens to args to be accessible in the trainer for training
         args['thought_token_id'] = tokenizer.convert_tokens_to_ids('<thought>')
         args['start_thought_id'] = tokenizer.convert_tokens_to_ids('<start_thought>')
         args['end_thought_id'] = tokenizer.convert_tokens_to_ids('<end_thought>')
-
-    # -- Load Model from Checkpoint if Provided
-    if args.get('load_model_path', None) and not args.get('only_eval', False):
-        print(f"Loading model from {args['load_model_path']}")
-        # Awkwardly, we have to re-init the model to load the checkpoint
-        model = MultiCoCo(args['load_model_path']).to(device)
-        tokenizer = model.tokenizer
 
     # -- DDP Model
     if world_size > 1:
         model = DDP(model, device_ids=[rank])
     
-    # tokenizer = model.module.tokenizer if hasattr(model, 'module') else model.tokenizer
-
-    # Data
+    # -- Collator
+    # The collator needs access to the model and tokenizer, which might be wrapped in DDP
     hf_model = (model.module if hasattr(model, 'module') else model).model
     image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
     collator = DataCollatorForInternVL(
         tokenizer=tokenizer,
         model=hf_model,
         image_processor=image_processor
+    )
+
+    # -- DataLoaders
+    train_dataset = MultiCoCoDataset(
+        data_path=args['train_path'] if not is_eval_only else None,
+        data_dir=args['data_dir']
+    )
+    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args['batch_size_training'],
+        sampler=train_sampler,
+        collate_fn=collator,
+        shuffle=(train_sampler is None) # Shuffle only if not using DDP
     )
 
     # Always create val_loader
@@ -117,19 +126,6 @@ def main():
         sampler=val_sampler,
         collate_fn=collator
     )
-
-    # Conditionally create train_loader
-    train_loader = None
-    if not args.get('only_eval', False):
-        train_dataset = MultiCoCoDataset(data_path=args['train_path'], data_dir=args['data_dir'])
-        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=args['batch_size_training'],
-            sampler=train_sampler,
-            collate_fn=collator,
-            shuffle=(train_sampler is None) # Shuffle only if not using DDP
-        )
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
