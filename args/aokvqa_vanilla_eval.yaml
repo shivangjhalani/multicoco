@@ -18,9 +18,10 @@ data_dir: data/
 train_path: null # Not used in eval
 val_path: data/aokvqa_validation.json
 
-# Training - these settings don't matter much for eval :)
+# Training
 batch_size_training: 8
-gradient_accumulation_steps: 1
+batch_size_evaluation: 16
+gradient_accumulation_steps: 2
 lr: !!float 5e-5
 weight_decay: 0.01
 bf16: True

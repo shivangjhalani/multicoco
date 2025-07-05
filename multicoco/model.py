@@ -73,3 +73,26 @@ class MultiCoCo(nn.Module):
                 return_dict=True
             )
         return output
+
+    def batch_chat(self, tokenizer, pixel_values, questions, generation_config):
+        """
+        Handles batch chatting with the model.
+        """
+        # Manually build the prompts for the batch
+        prompts = [f"A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: {q} ASSISTANT:" for q in questions]
+
+        # Tokenize the batch of prompts
+        inputs = tokenizer(prompts, return_tensors='pt', padding=True, truncation=True)
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+        
+        # Add pixel values to the inputs
+        inputs['pixel_values'] = pixel_values.to(self.model.device)
+        
+        # Generate responses for the batch
+        with torch.no_grad():
+            outputs = self.model.generate(**inputs, **generation_config)
+
+        # Decode the generated responses
+        responses = [tokenizer.decode(output, skip_special_tokens=True).split("ASSISTANT:")[-1].strip() for output in outputs]
+        
+        return responses

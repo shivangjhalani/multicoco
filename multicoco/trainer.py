@@ -313,22 +313,20 @@ class Trainer:
         
         return pixel_values
 
-    def generate_answer(self, pixel_values: torch.Tensor, question: str) -> tuple[str, int]:
+    def generate_answer(self, pixel_values: torch.Tensor, questions: list[str]) -> tuple[list[str], list[int]]:
         """
-        Generate answer using model.chat() and return both response and token count.
+        Generate answers for a batch of questions.
         
         Args:
-            pixel_values: Preprocessed pixel values tensor
-            question: Formatted question string
+            pixel_values: Tensor of preprocessed image pixels for the batch
+            questions: List of question strings for the batch
             
         Returns:
-            Tuple of (generated answer string, token count)
+            A tuple containing a list of response strings and a list of token counts
         """
         try:
-            # Get the model and tokenizer
+            # Get the underlying model and tokenizer
             model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
-            
-            # Access the underlying model that has the chat method
             if hasattr(model_to_eval, 'model'):
                 underlying_model = model_to_eval.model
             else:
@@ -352,24 +350,21 @@ class Trainer:
             if pixel_values.device != model_device:
                 pixel_values = pixel_values.to(model_device)
             
-            # Use the model's chat method with preprocessed pixel values
-            response = underlying_model.chat(
+            # Use the model's batch_chat method for batch inference
+            responses = underlying_model.batch_chat(
                 tokenizer,
                 pixel_values,
-                question,
-                generation_config,
-                history=None,
-                return_history=False
+                questions,
+                generation_config
             )
             
-            response = response.strip()
-            token_count = self.count_tokens(response)
+            token_counts = [self.count_tokens(resp) for resp in responses]
             
-            return response, token_count
+            return responses, token_counts
             
         except Exception as e:
-            print(f"Error generating answer: {e}")
-            return "", 0
+            print(f"Error generating answers for batch: {e}")
+            return ["" for _ in questions], [0 for _ in questions]
 
     def evaluate(self):
         """Evaluation loop with CoT support and token counting."""
@@ -393,73 +388,57 @@ class Trainer:
             mode_name = "cot"
         else:
             mode_name = "vanilla"
-
-        # Create a simple dataset from the validation loader
-        dataset = self.val_loader.dataset
         
-        pbar = tqdm(range(len(dataset)), desc=f"Evaluating ({mode_name})", disable=(dist.is_initialized() and dist.get_rank() != 0))
+        pbar = tqdm(self.val_loader, desc=f"Evaluating ({mode_name})", disable=(not is_main_process))
 
         with torch.no_grad():
-            for idx in pbar:
-                # Get raw sample data
-                sample = dataset[idx]
-                
-                # Extract information
-                image_path = sample['image'] if isinstance(sample['image'], str) else sample['image']
-                question = sample['question']
-                steps = sample.get('steps', [])
-                
-                # Handle different answer formats
-                if 'answers' in sample:
-                    correct_answer = str(sample['answers'][0]) if isinstance(sample['answers'], list) else str(sample['answers'])
-                else:
-                    correct_answer = str(sample['answer'])
-                
-                # Preprocess image using the same logic as standalone script
-                pixel_values = self.preprocess_image_for_eval(image_path)
-                if pixel_values is None:
+            for batch in pbar:
+                # Move batch to device
+                for k, v in batch.items():
+                    if isinstance(v, torch.Tensor):
+                        batch[k] = v.to(self.device)
+
+                pixel_values = batch['pixel_values']
+                questions = batch['original_questions']
+                correct_answers = batch['answers']
+                steps_list = batch.get('steps', [[] for _ in range(len(questions))])
+
+                # Format questions for the current mode
+                formatted_questions = [self.format_question_for_mode(q, mode_name) for q in questions]
+
+                # Generate answers in batch
+                raw_responses, token_counts = self.generate_answer(pixel_values, formatted_questions)
+
+                for i in range(len(questions)):
+                    raw_response = raw_responses[i]
+                    token_count = token_counts[i]
+                    correct_answer = str(correct_answers[i])
+                    question = questions[i]
+                    steps = steps_list[i]
+
+                    # Extract answer choice
+                    extracted_answer = self.extract_answer_choice(raw_response, mode_name)
+                    
+                    # Check correctness
+                    is_correct = extracted_answer == correct_answer
+
+                    if is_correct:
+                        total_correct += 1
+
+                    total_tokens += token_count
+
                     all_results.append({
                         "question": question,
                         "steps": steps,
-                        "generated_answer": "",
-                        "extracted_answer": "",
+                        "generated_answer": raw_response,
+                        "extracted_answer": extracted_answer,
                         "ground_truth": correct_answer,
-                        "correct": False,
-                        "tokens_generated": 0,
+                        "correct": is_correct,
+                        "tokens_generated": token_count,
                         "mode": mode_name
                     })
-                    total_samples += 1
-                    continue
                 
-                # Format question based on mode
-                formatted_question = self.format_question_for_mode(question, mode_name)
-                
-                # Generate answer using model.chat()
-                raw_response, token_count = self.generate_answer(pixel_values, formatted_question)
-                
-                # Extract answer choice using the same logic as standalone script
-                extracted_answer = self.extract_answer_choice(raw_response, mode_name)
-                
-                # Check correctness
-                is_correct = extracted_answer == correct_answer
-
-                if is_correct:
-                    total_correct += 1
-
-                total_tokens += token_count
-
-                all_results.append({
-                    "question": question,
-                    "steps": steps,
-                    "generated_answer": raw_response,
-                    "extracted_answer": extracted_answer,
-                    "ground_truth": correct_answer,
-                    "correct": is_correct,
-                    "tokens_generated": token_count,
-                    "mode": mode_name
-                })
-                
-                total_samples += 1
+                total_samples += len(questions)
 
         # In DDP, gather results from all processes to the main process
         if dist.is_initialized():
