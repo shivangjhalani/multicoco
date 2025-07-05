@@ -37,6 +37,7 @@ class InternVLChatConfig(PretrainedConfig):
             ps_version='v1',
             min_dynamic_patch=1,
             max_dynamic_patch=6,
+            num_image_token=256,
             **kwargs):
         super().__init__(**kwargs)
 
@@ -72,6 +73,7 @@ class InternVLChatConfig(PretrainedConfig):
         self.ps_version = ps_version  # pixel shuffle version
         self.min_dynamic_patch = min_dynamic_patch
         self.max_dynamic_patch = max_dynamic_patch
+        self.num_image_token = num_image_token
 
         self.hidden_size = self.llm_config.hidden_size
         # By default, we use tie_word_embeddings=False for models of all sizes.
@@ -105,5 +107,6 @@ class InternVLChatConfig(PretrainedConfig):
         output['ps_version'] = self.ps_version
         output['min_dynamic_patch'] = self.min_dynamic_patch
         output['max_dynamic_patch'] = self.max_dynamic_patch
+        output['num_image_token'] = self.num_image_token
 
         return output
