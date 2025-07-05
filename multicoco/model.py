@@ -1,16 +1,22 @@
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor
 
 class MultiCoCo(nn.Module):
-    def __init__(self, model_id, latent_tokens, special_tokens):
-        super(MultiCoCo, self).__init__()
-        self.model = AutoModel.from_pretrained(model_id, trust_remote_code=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, use_fast=False)
+    def __init__(self, model_id, latent_tokens={}, special_tokens=[]):
+        super().__init__()
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+        self.image_processor = AutoImageProcessor.from_pretrained(model_id, trust_remote_code=True)
 
-        # Add special tokens
-        self.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-        self.model.language_model.resize_token_embeddings(len(self.tokenizer))
+        if special_tokens:
+            num_added_tokens = self.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
+            self.model.language_model.resize_token_embeddings(len(self.tokenizer))
 
         self.latent_tokens = latent_tokens
 

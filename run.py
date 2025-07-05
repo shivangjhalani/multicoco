@@ -76,7 +76,7 @@ def main():
 
     # Data
     hf_model = (model.module if hasattr(model, 'module') else model).model
-    image_processor = (model.module if hasattr(model, 'module') else model).image_processor
+    image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
     collator = DataCollatorForInternVL(
         tokenizer=tokenizer,
         model=hf_model,
