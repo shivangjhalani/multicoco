@@ -44,19 +44,17 @@ def main():
 
     with open(cli_args.config, 'r') as f:
         args = yaml.safe_load(f)
-
-    # DDP Setup
-    rank = int(os.environ.get("LOCAL_RANK", 0))
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
     
-    if world_size > 1:
-        setup(rank, world_size)
-    
-    torch.cuda.set_device(rank)
-    device = torch.device(f"cuda:{rank}")
-
     # -- DDP Setup
-    setup()
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_ddp = world_size > 1
+    if is_ddp:
+        rank = int(os.environ["LOCAL_RANK"])
+        setup(rank, world_size)
+        device = torch.device(f"cuda:{rank}")
+    else:
+        rank = 0
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # -- Initialize Tokenizer and Model
     load_path = args.get('load_model_path')
@@ -90,7 +88,7 @@ def main():
         args['end_thought_id'] = tokenizer.convert_tokens_to_ids('<end_thought>')
 
     # -- DDP Model
-    if world_size > 1:
+    if is_ddp:
         model = DDP(model, device_ids=[rank])
     
     # -- Collator
@@ -108,7 +106,7 @@ def main():
         data_path=args['train_path'] if not is_eval_only else None,
         data_dir=args['data_dir']
     )
-    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
+    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
     train_loader = DataLoader(
         train_dataset,
         batch_size=args['batch_size_training'],
@@ -119,10 +117,10 @@ def main():
 
     # Always create val_loader
     val_dataset = MultiCoCoDataset(data_path=args['val_path'], data_dir=args['data_dir'])
-    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
+    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
     val_loader = DataLoader(
         val_dataset,
-        batch_size=args['batch_size_training'],
+        batch_size=args.get('batch_size_evaluation', 1),
         sampler=val_sampler,
         collate_fn=collator
     )
@@ -145,16 +143,16 @@ def main():
     # Trainer
     trainer = Trainer(
         model=model,
-        optimizer=optimizer,
+        optimizer=None if is_eval_only else optimizer,
         train_loader=train_loader,
         val_loader=val_loader,
         args=args,
-        wandb_run=wandb_run,
-        text_table=text_table
+        wandb_run=wandb_run if rank == 0 else None,
+        text_table=text_table if rank == 0 else None
     )
 
     # Start training or evaluation
-    if args.get('only_eval', False):
+    if is_eval_only:
         print("--- Starting Evaluation Only ---")
         val_acc = trainer.evaluate()
         if rank == 0:
@@ -162,7 +160,8 @@ def main():
     else:
         trainer.train()
 
-    if world_size > 1:
+    # -- Cleanup
+    if is_ddp:
         cleanup()
 
 if __name__ == "__main__":
