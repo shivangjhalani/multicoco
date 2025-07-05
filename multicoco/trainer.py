@@ -172,40 +172,24 @@ class Trainer:
         Returns:
             Extracted answer choice or empty string if not found
         """
-        # For CoT mode, look for the final answer after reasoning
-        if mode == "cot":
-            # Look for patterns like "Therefore, the answer is 2" or "The answer is 2"
-            final_answer_patterns = [
-                r'(?:therefore|thus|so),?\s+(?:the\s+)?answer\s+is\s+([0-3])',
-                r'(?:final|my)\s+answer\s+is\s+([0-3])',
-                r'answer:\s*([0-3])',
-                r'the\s+answer\s+is\s+([0-3])'
-            ]
-            
-            for pattern in final_answer_patterns:
-                match = re.search(pattern, response, re.IGNORECASE)
-                if match:
-                    return match.group(1)
+        # General pattern to find a digit surrounded by common delimiters
+        general_patterns = [
+            r'answer is ([0-3])',
+            r'answer: ([0-3])',
+            r'is: ([0-3])',
+            r'is ([0-3])'
+        ]
         
+        for pattern in general_patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+
         # Look for single digits in the response (works for all modes)
         single_digits = re.findall(r'\b[0-3]\b', response)
         if single_digits:
-            return single_digits[-1]  # Take the last one for CoT (likely the final answer)
-        
-        # Try to find answer patterns
-        answer_patterns = [
-            r'answer\s*:?\s*([0-3])',
-            r'choice\s*:?\s*([0-3])',
-            r'option\s*:?\s*([0-3])',
-            r'([0-3])\s*:',
-            r'^\s*([0-3])\s*$'
-        ]
-        
-        for pattern in answer_patterns:
-            match = re.search(pattern, response, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        
+            return single_digits[-1]  # Take the last one
+
         return ""
 
     def count_tokens(self, text: str) -> int:
@@ -313,60 +297,6 @@ class Trainer:
         
         return pixel_values
 
-    def generate_answer(self, pixel_values: torch.Tensor, questions: list[str]) -> tuple[list[str], list[int]]:
-        """
-        Generate answers for a batch of questions.
-        
-        Args:
-            pixel_values: Tensor of preprocessed image pixels for the batch
-            questions: List of question strings for the batch
-            
-        Returns:
-            A tuple containing a list of response strings and a list of token counts
-        """
-        try:
-            # Get the underlying model and tokenizer
-            model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
-            
-            # The `batch_chat` method is on the MultiCoCo model wrapper, not the underlying HF model
-            underlying_model = model_to_eval
-            
-            tokenizer = self.val_loader.collate_fn.tokenizer
-            
-            # Check if model and tokenizer are available
-            if underlying_model is None or tokenizer is None:
-                raise ValueError("Model and tokenizer must be loaded before generating answers")
-            
-            # Use the model's chat method for inference with same config as standalone script
-            generation_config = dict(
-                max_new_tokens=100, 
-                do_sample=False,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=[tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|im_end|>')]
-            )
-            
-            # Ensure pixel_values are on the same device as model
-            model_device = next(underlying_model.model.parameters()).device
-            if pixel_values.device != model_device:
-                pixel_values = pixel_values.to(model_device)
-            
-            # Use the model's batch_chat method for batch inference
-            responses = underlying_model.batch_chat(
-                tokenizer,
-                pixel_values,
-                questions,
-                generation_config
-            )
-            
-            token_counts = [self.count_tokens(resp) for resp in responses]
-            
-            return responses, token_counts
-            
-        except Exception:
-            import traceback
-            traceback.print_exc()
-            return ["" for _ in questions], [0 for _ in questions]
-
     def evaluate(self):
         """Evaluation loop with CoT support and token counting."""
         self.model.eval()
@@ -380,16 +310,23 @@ class Trainer:
 
         # Determine evaluation mode
         eval_config = self._get_eval_config()
+        self.val_loader.collate_fn.train_config = eval_config  # Set collator to eval mode
         cot_mode = eval_config.get('cot', False)
         coconut_mode = eval_config.get('coconut', False)
         
         if coconut_mode:
             mode_name = "coconut"
-        elif cot_mode:
-            mode_name = "cot"
+            generation_config = {'c_thought': self.args.get('c_thought', 1), 'max_new_tokens': 100}
         else:
-            mode_name = "vanilla"
-        
+            mode_name = "cot" if cot_mode else "vanilla"
+            generation_config = dict(
+                max_new_tokens=100, 
+                do_sample=False,
+                temperature=0.0,
+                pad_token_id=self.val_loader.collate_fn.tokenizer.pad_token_id,
+                eos_token_id=[self.val_loader.collate_fn.tokenizer.eos_token_id, self.val_loader.collate_fn.tokenizer.convert_tokens_to_ids('<|im_end|>')]
+            )
+
         pbar = tqdm(self.val_loader, desc=f"Evaluating ({mode_name})", disable=(not is_main_process))
 
         with torch.no_grad():
@@ -404,11 +341,14 @@ class Trainer:
                 correct_answers = batch['answers']
                 steps_list = batch.get('steps', [[] for _ in range(len(questions))])
 
-                # Format questions for the current mode
-                formatted_questions = [self.format_question_for_mode(q, mode_name) for q in questions]
-
-                # Generate answers in batch
-                raw_responses, token_counts = self.generate_answer(pixel_values, formatted_questions)
+                if coconut_mode:
+                    raw_responses = self.model.generate_coconut(pixel_values, questions, generation_config)
+                else:
+                    # Format questions for vanilla/cot
+                    formatted_questions = [self.format_question_for_mode(q, mode_name) for q in questions]
+                    raw_responses = self.model.batch_chat(pixel_values, formatted_questions, generation_config)
+                
+                token_counts = [self.count_tokens(resp) for resp in raw_responses]
 
                 for i in range(len(questions)):
                     raw_response = raw_responses[i]

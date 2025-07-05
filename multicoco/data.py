@@ -39,9 +39,10 @@ class DataCollatorForInternVL(object):
         self.tokenizer = tokenizer
         self.model = model
         self.image_processor = image_processor
-        self.image_token_id = tokenizer.convert_tokens_to_ids('<img>')
-        self.num_image_tokens = model.config.num_image_token
         self.train_config = {'is_train': True}  # Default to training mode
+        self.thought_token_id = tokenizer.convert_tokens_to_ids('<thought>')
+        self.start_thought_id = tokenizer.convert_tokens_to_ids('<start_thought>')
+        self.end_thought_id = tokenizer.convert_tokens_to_ids('<end_thought>')
 
     def format_question_for_eval(self, question: str, mode: str = "vanilla") -> str:
         """
@@ -81,6 +82,17 @@ class DataCollatorForInternVL(object):
         return f"{reasoning} Therefore, the answer is {final_answer}."
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        is_train = self.train_config.get('is_train', True)
+        is_coconut = self.train_config.get('coconut', False)
+        
+        # In coconut mode, we construct a different kind of input
+        if is_coconut:
+            return self.prepare_coconut_batch(instances)
+
+        # Otherwise, proceed with the standard CoT/vanilla batch preparation
+        return self.prepare_cot_batch(instances, is_train)
+        
+    def prepare_cot_batch(self, instances: Sequence[Dict], is_train: bool) -> Dict[str, torch.Tensor]:
         images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
         answers = [ins.pop('answers') for ins in instances]
         original_questions = [ins['question'] for ins in instances]
@@ -117,7 +129,7 @@ class DataCollatorForInternVL(object):
                 formatted_question = self.format_question_for_eval(base_question, eval_mode)
                 answer = ins['answer']
             
-            question = '<img>' * self.num_image_tokens + '\n' + formatted_question
+            question = '<img>' * self.model.config.num_image_token + '\n' + formatted_question
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
             conv.append_message(roles["human"], question)
@@ -151,7 +163,7 @@ class DataCollatorForInternVL(object):
         padded_input_ids = torch.nn.utils.rnn.pad_sequence(all_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         padded_labels = torch.nn.utils.rnn.pad_sequence(all_labels, batch_first=True, padding_value=-100)
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
-        image_flags = (padded_input_ids == self.image_token_id).long()
+        image_flags = (padded_input_ids == self.tokenizer.convert_tokens_to_ids('<img>')).long()
 
         return {
             'pixel_values': pixel_values,
@@ -162,4 +174,69 @@ class DataCollatorForInternVL(object):
             'answers': answers,
             'original_questions': original_questions,
             'steps': steps
+        }
+
+    def prepare_coconut_batch(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
+        answers = [ins.pop('answers') for ins in instances]
+        original_questions = [ins['question'] for ins in instances]
+        
+        c_thought = self.train_config.get('c_thought', 1)
+
+        if hasattr(self.model, 'dynamic_preprocess'):
+            pixel_values_list, _ = self.model.dynamic_preprocess(images, image_size=self.model.config.image_size)
+            pixel_values = torch.cat(pixel_values_list, dim=0)
+        else:
+            pixel_values = self.image_processor(images=images, return_tensors="pt")['pixel_values'].to(torch.bfloat16)
+
+        all_input_ids = []
+        all_labels = []
+
+        for i, ins in enumerate(instances):
+            question = ins['question']
+            answer = ins['answer']
+            
+            # Construct the input with latent thought tokens
+            question_with_thoughts = (
+                '<img>' * self.model.config.num_image_token + '\n' +
+                question +
+                ' ' +
+                '<start_thought>' +
+                '<thought>' * c_thought +
+                '<end_thought>'
+            )
+            
+            conv = get_conv_template(self.model.conv_template)
+            roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+            conv.append_message(roles["human"], question_with_thoughts)
+            conv.append_message(roles["gpt"], answer)
+            conversation = conv.get_prompt()
+
+            input_ids = self.tokenizer(conversation, return_tensors="pt", padding="longest", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
+            labels = input_ids.clone()
+            
+            # Mask everything except the final answer
+            sep = conv.sep + conv.roles[1] + ": "
+            parts = conversation.split(sep)
+            if len(parts) > 1:
+                instruction_len = len(self.tokenizer(parts[0] + sep, add_special_tokens=False).input_ids)
+                labels[:instruction_len] = -100
+
+            all_input_ids.append(input_ids)
+            all_labels.append(labels)
+
+        padded_input_ids = torch.nn.utils.rnn.pad_sequence(all_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+        padded_labels = torch.nn.utils.rnn.pad_sequence(all_labels, batch_first=True, padding_value=-100)
+        attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
+        image_flags = (padded_input_ids == self.tokenizer.convert_tokens_to_ids('<img>')).long()
+        
+        return {
+            'pixel_values': pixel_values,
+            'input_ids': padded_input_ids,
+            'attention_mask': attention_mask,
+            'labels': padded_labels,
+            'image_flags': image_flags,
+            'answers': answers,
+            'original_questions': original_questions,
+            'steps': [ins['steps'] for ins in instances]
         }

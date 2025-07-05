@@ -70,18 +70,23 @@ def main():
         latent_tokens = {}
         special_tokens = []
 
-    model = MultiCoCo(
-        model_id=model_path,
-        config_id=hub_id,
-        tokenizer_id=hub_id,
-        image_processor_id=hub_id,
-        latent_tokens=latent_tokens,
-        special_tokens=special_tokens
-    ).to(device)
+    # -- Initialize Tokenizer and Model
+    if args.get('only_eval', False):
+        model = MultiCoCo(args['load_model_path'])
+        tokenizer = model.tokenizer
+    else:
+        special_tokens = ['<thought>', '<start_thought>', '<end_thought>']
+        model = MultiCoCo(args['model_id'], special_tokens=special_tokens)
+        tokenizer = model.tokenizer
+        
+        # Add special tokens to args to be accessible in the trainer
+        args['thought_token_id'] = tokenizer.convert_tokens_to_ids('<thought>')
+        args['start_thought_id'] = tokenizer.convert_tokens_to_ids('<start_thought>')
+        args['end_thought_id'] = tokenizer.convert_tokens_to_ids('<end_thought>')
 
-    # Load checkpoint if provided
-    if args.get('load_model_path') and os.path.exists(args['load_model_path']):
-        print(f"Loading model checkpoint from: {args['load_model_path']}")
+    # -- Load Model from Checkpoint if Provided
+    if args.get('load_model_path', None) and not args.get('only_eval', False):
+        print(f"Loading model from {args['load_model_path']}")
     
     if world_size > 1:
         model = DDP(model, device_ids=[rank])
