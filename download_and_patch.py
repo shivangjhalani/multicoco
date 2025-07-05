@@ -4,6 +4,13 @@ import subprocess
 import sys
 import inspect
 
+# Use a relative path for the patch file to make it more robust
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Add the InternVL chat model path to the system path
+# This is necessary because the model's remote code has local imports.
+sys.path.insert(0, os.path.join(script_dir, 'InternVL', 'internvl_chat'))
+
 # Install dependencies
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer
