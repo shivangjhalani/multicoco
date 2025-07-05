@@ -55,6 +55,10 @@ class Trainer:
                         if isinstance(v, torch.Tensor):
                             batch[k] = v.to(self.device)
                 
+                    # Remove fields that are not model inputs before passing to the model
+                    batch.pop("answers", None)
+                    batch.pop("original_questions", None)
+
                     output = self.model(**batch)
                     loss = output.loss / grad_accumulation_steps
                     
