@@ -70,7 +70,12 @@ def main():
 
     # Data
     hf_model = (model.module if hasattr(model, 'module') else model).model
-    collator = DataCollatorForInternVL(tokenizer=tokenizer, model=hf_model)
+    image_processor = (model.module if hasattr(model, 'module') else model).image_processor
+    collator = DataCollatorForInternVL(
+        tokenizer=tokenizer,
+        model=hf_model,
+        image_processor=image_processor
+    )
 
     # Always create val_loader
     val_dataset = MultiCoCoDataset(data_path=args['val_path'], data_dir=args['data_dir'])
