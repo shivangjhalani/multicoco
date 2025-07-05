@@ -106,16 +106,16 @@ def main():
             shuffle=(train_sampler is None) # Shuffle only if not using DDP
         )
 
-    # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
+    # Optimizer - no longer needed for evaluation
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
 
     # Trainer
     trainer = Trainer(
+        config=args,
         model=model,
-        optimizer=optimizer,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        args=args
+        train_dataloader=train_loader,
+        eval_dataloader=val_loader,
+        tokenizer=tokenizer
     )
 
     # Start training or evaluation
