@@ -11,7 +11,9 @@ class MultiCoCoDataset(Dataset):
     def __init__(self, data_path, data_dir, is_eval=False):
         if data_path:
             with open(data_path, 'r') as f:
-                self.data = json.load(f)
+                loaded_data = json.load(f)
+                # Filter out items that are not multiple-choice questions
+                self.data = [item for item in loaded_data if 'choices' in item and item['choices']]
         else:
             self.data = []
         
