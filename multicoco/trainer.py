@@ -119,11 +119,14 @@ class Trainer:
                 if 'image_flags' not in generate_args:
                     generation_batch.pop('image_flags', None)
 
+                # Get the length of the prompt so we can slice it off the output
+                input_ids_length = generation_batch['input_ids'].shape[1]
+
                 # Generate outputs
                 outputs = model_to_eval.model.generate(
                     **generation_batch,
                     do_sample=False,
-                    max_new_tokens=100, # Restore a reasonable length
+                    max_new_tokens=10, # A bit more room than 5, but still constrained
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
@@ -132,21 +135,13 @@ class Trainer:
                     pad_token_id=tokenizer.pad_token_id
                 )
                 
-                generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                # Slice the output to get only the generated tokens
+                generated_token_ids = outputs[:, input_ids_length:]
+                generated_texts = tokenizer.batch_decode(generated_token_ids, skip_special_tokens=True)
                 
-                # We need to clean up the generated text to isolate the answer
-                # The prompt is not in this text, so we find it by what's *after* the assistant role
-                for i, gen_text in enumerate(generated_texts):
-                    conv_gen = get_conv_template(model_to_eval.model.conv_template)
-                    roles = {"human": conv_gen.roles[0], "gpt": conv_gen.roles[1]}
-                    conv_gen.append_message(roles["human"], 'dummy') # The content doesn't matter here
-                    conv_gen.append_message(roles["gpt"], None)
-                    # This gets us the "ASSISTANT: " part
-                    assistant_role_prompt = conv_gen.get_prompt().split('dummy')[1]
-                    
-                    answer_text = gen_text.split(assistant_role_prompt)[-1].strip()
-
-                    match = re.search(r'\d', answer_text)
+                for i, answer_text in enumerate(generated_texts):
+                    # The answer_text is now much cleaner
+                    match = re.search(r'\d', answer_text.strip())
                     extracted_answer = match.group(0) if match else None
                     
                     is_correct = False
@@ -158,7 +153,7 @@ class Trainer:
 
                     all_results.append({
                         "question": original_questions[i],
-                        "generated_answer": answer_text,
+                        "generated_answer": answer_text.strip(),
                         "extracted_answer": extracted_answer,
                         "ground_truth": original_answers[i],
                         "correct": is_correct
