@@ -1,146 +1,200 @@
-import logging
-
+import os
 import torch
-import torch.distributed as dist
 from tqdm import tqdm
-from transformers import LogitsProcessorList
-
-from .generation import SingleDigitLogitsProcessor
-
-
-logger = logging.getLogger(__name__)
-
+import torch.distributed as dist
+import inspect
 
 class Trainer:
-    def __init__(
-        self,
-        config,
-        model,
-        tokenizer,
-        train_dataloader=None,
-        eval_dataloader=None,
-        optimizer=None,
-    ):
-        self.config = config
+    def __init__(self, model, optimizer, train_loader, val_loader, args):
         self.model = model
-        self.tokenizer = tokenizer
-        self.train_dataloader = train_dataloader
-        self.eval_dataloader = eval_dataloader
         self.optimizer = optimizer
-        self.device = next(model.parameters()).device if hasattr(model, 'parameters') and next(model.parameters(), None) is not None else torch.device('cpu')
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.args = args
+        self.device = dist.get_rank() if dist.is_initialized() else 'cuda'
+        self.best_val_acc = 0.0
 
+    def _get_train_config_for_stage(self, stage):
+        """Returns the training configuration for a given stage."""
+        if stage == 0: # CoT training
+            return {'is_train': True, 'coconut': False}
+        else: # Coconut training
+            return {'is_train': True, 'coconut': True, 'c_thought': self.args.get('c_thought', 2)}
 
     def train(self):
-        if self.train_dataloader is None or self.optimizer is None:
-            logger.error("Trainer is not configured for training. Missing train_dataloader or optimizer.")
-            return
-            
-        self.model.train()
-        for epoch in range(self.config['epochs']):
-            if dist.is_initialized() and hasattr(self.train_dataloader.sampler, 'set_epoch'):
-                self.train_dataloader.sampler.set_epoch(epoch)
+        """Main training loop that handles staged training."""
+        max_stages = self.args.get('max_latent_stage', 0) + 1 # 0 is CoT stage
+        grad_accumulation_steps = self.args.get('gradient_accumulation_steps', 1)
 
-            for batch in tqdm(self.train_dataloader, desc=f"Training Epoch {epoch}"):
-                for key, value in batch.items():
-                    if isinstance(value, torch.Tensor):
-                        batch[key] = value.to(self.device)
-                
-                outputs = self.model(**batch)
-                loss = outputs.loss
-                loss.backward()
-                self.optimizer.step()
+        for stage in range(max_stages):
+            print(f"--- Starting Stage {stage} ---")
+            
+            # Reset optimizer if specified
+            if stage > 0 and self.args.get('reset_optimizer', False):
+                print("Resetting optimizer for new stage.")
+                self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.args['lr'], weight_decay=self.args['weight_decay'])
+
+            # Update data collator with the correct config for the current stage
+            train_config = self._get_train_config_for_stage(stage)
+            self.train_loader.collate_fn.train_config = train_config
+            self.val_loader.collate_fn.train_config = {'is_train': False} # Eval is always inference mode
+
+            num_epochs = self.args.get('epochs_per_stage', 1)
+
+            for epoch in range(num_epochs):
+                self.model.train()
+                total_loss = 0
                 self.optimizer.zero_grad()
-            
-            logger.info(f"Epoch {epoch} loss: {loss.item()}")
-
-            if self.eval_dataloader:
-                self.evaluate(epoch)
-
-    def evaluate(self, epoch=0):
-        if self.eval_dataloader is None:
-            logger.warning("No evaluation dataloader provided, skipping evaluation.")
-            return
-
-        self.model.eval()
-        all_results = []
-        
-        # On main process, clear log file and write header
-        if not dist.is_initialized() or dist.get_rank() == 0:
-            with open("evaluation.log", "w") as f:
-                f.write("========================================\n")
-                f.write("        Evaluation Log\n")
-                f.write("========================================\n\n")
-
-        logits_processor = LogitsProcessorList([SingleDigitLogitsProcessor(self.tokenizer)])
-
-        for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
-            for key, value in batch.items():
-                if isinstance(value, torch.Tensor):
-                    batch[key] = value.to(self.device)
-            
-            # Separate model inputs from evaluation metadata
-            model_inputs = {
-                "input_ids": batch.get("input_ids"),
-                "attention_mask": batch.get("attention_mask"),
-                "pixel_values": batch.get("pixel_values"),
-            }
-            # The patched model expects image_flags, the vanilla one does not.
-            if 'image_flags' in batch:
-                if self.config.get('cot') or self.config.get('coconut'):
-                    model_inputs['image_flags'] = batch['image_flags']
-
-            ground_truth_answers = batch.get("direct_answers", [])
-            original_questions = batch.get("original_questions", [])
-
-            with torch.no_grad():
-                model_to_generate = self.model.module if hasattr(self.model, 'module') else self.model
-
-                outputs = model_to_generate.generate(
-                    **model_inputs,
-                    max_new_tokens=2,
-                    eos_token_id=self.tokenizer.eos_token_id,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    logits_processor=logits_processor,
-                )
-
-            # Decode generated tokens
-            input_ids_len = batch["input_ids"].shape[1]
-            generated_texts = self.tokenizer.batch_decode(outputs[:, input_ids_len:], skip_special_tokens=True)
-            
-            for j, (gt_ans, gen_text) in enumerate(zip(ground_truth_answers, generated_texts)):
-                question = original_questions[j] if j < len(original_questions) else "Question not found"
-                is_correct = gen_text.strip() in gt_ans
-                all_results.append(is_correct)
                 
-                # Only log from the main process
+                # Use tqdm for progress bar
+                pbar = tqdm(enumerate(self.train_loader), total=len(self.train_loader), desc=f"Stage {stage}/Epoch {epoch+1}", disable=(dist.is_initialized() and dist.get_rank() != 0))
+
+                for i, batch in pbar:
+                    # Move batch to device
+                    for k, v in batch.items():
+                        if isinstance(v, torch.Tensor):
+                            batch[k] = v.to(self.device)
+                
+                    output = self.model(**batch)
+                    loss = output.loss / grad_accumulation_steps
+                    
+                    loss.backward()
+
+                    if (i + 1) % grad_accumulation_steps == 0 or (i + 1) == len(self.train_loader):
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
+                    
+                    total_loss += loss.item() * grad_accumulation_steps
+                    pbar.set_postfix({"loss": loss.item() * grad_accumulation_steps})
+                
+                avg_loss = total_loss / len(self.train_loader)
                 if not dist.is_initialized() or dist.get_rank() == 0:
-                    log_entry = (
-                        f"---------- Sample {j+1} ----------\n"
-                        f"Question: {question}\n"
-                        f"Generated Answer: {gen_text.strip()}\n"
-                        f"Ground Truth: {gt_ans}\n"
-                        f"Correct: {'Yes' if is_correct else 'No'}\n"
-                        f"---------------------------------\n\n"
-                    )
-                    with open("evaluation.log", "a") as f:
-                        f.write(log_entry)
+                    print(f"Stage {stage}, Epoch {epoch+1}: Average Training Loss: {avg_loss:.4f}")
+                
+                # Evaluate after each epoch
+                val_acc = self.evaluate()
+                if not dist.is_initialized() or dist.get_rank() == 0:
+                    print(f"Stage {stage}, Epoch {epoch+1}: Validation Accuracy: {val_acc:.4f}")
+                    self.save_checkpoint(stage, epoch, val_acc)
 
-        # Aggregate results across all processes
+    def evaluate(self):
+        """Evaluation loop."""
+        self.model.eval()
+        total_correct = torch.tensor([0.0]).to(self.device)
+        total_samples = torch.tensor([0.0]).to(self.device)
+        
+        all_results = []
+        is_main_process = not dist.is_initialized() or dist.get_rank() == 0
+
+        # The collator needs access to the tokenizer for decoding
+        tokenizer = self.val_loader.collate_fn.tokenizer
+        num_image_tokens = self.val_loader.collate_fn.num_image_tokens
+
+        pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
+
+        with torch.no_grad():
+            for batch in pbar:
+                # We need the original answers for comparison, which are not part of the model's input
+                original_answers = batch.pop("answers")
+                original_questions = batch.pop("original_questions")
+
+                # Move batch to device
+                for k, v in batch.items():
+                    if isinstance(v, torch.Tensor):
+                        batch[k] = v.to(self.device)
+                
+                model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
+
+                # Inspect the model's generate function to see if it accepts `image_flags`.
+                # The vanilla model doesn't, so we remove it to prevent a ValueError.
+                generate_args = inspect.signature(model_to_eval.model.generate).parameters
+                if 'image_flags' not in generate_args:
+                    batch.pop('image_flags', None)
+
+                # Generate outputs
+                outputs = model_to_eval.model.generate(
+                    **batch,
+                    do_sample=False,
+                    max_new_tokens=100,
+                    num_beams=1,
+                    min_length=1,
+                    repetition_penalty=1.0,
+                    length_penalty=1.0,
+                    temperature=1.0,
+                    pad_token_id=tokenizer.pad_token_id
+                )
+                
+                # Decode and compare
+                generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=False) # Keep special tokens for cleanup
+
+                for i, gen_text in enumerate(generated_texts):
+                    # Clean up generated text to isolate the answer
+                    question_part = input_texts[i]
+                    if tokenizer.bos_token:
+                        question_part = question_part.replace(tokenizer.bos_token, '')
+                    question_part = question_part.replace('<img>' * num_image_tokens + '\n', '').strip()
+                    
+                    answer_text = gen_text.replace(question_part, '').strip()
+
+                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
+                    if is_correct:
+                        total_correct += 1
+
+                    all_results.append({
+                        "question": original_questions[i],
+                        "generated_answer": answer_text,
+                        "ground_truth": original_answers[i],
+                        "correct": is_correct
+                    })
+                
+                total_samples += len(original_answers)
+
+        # In DDP, gather results from all processes to the main process
         if dist.is_initialized():
-            world_size = dist.get_world_size()
-            gathered_results = [None] * world_size
+            gathered_results = [None] * dist.get_world_size()
             dist.all_gather_object(gathered_results, all_results)
-            all_results = [item for sublist in gathered_results for item in sublist]
+            if is_main_process:
+                # Flatten the list of lists
+                all_results = [item for sublist in gathered_results for item in sublist]
 
-        if not all_results:
-            logger.warning("Evaluation produced no results.")
-            if not dist.is_initialized() or dist.get_rank() == 0:
-                return 0.0
+        # Log results on the main process
+        if is_main_process:
+            with open('evaluation.log', 'w') as f:
+                for res in all_results:
+                    f.write("----------------------------------------\n")
+                    f.write(f"Question: {res['question']}\n")
+                    f.write(f"Generated Answer: {res['generated_answer']}\n")
+                    f.write(f"Ground Truth Answers: {res['ground_truth']}\n")
+                    f.write(f"Correct: {'Yes' if res['correct'] else 'No'}\n")
+                    f.write("----------------------------------------\n\n")
+
+        # Aggregate results from all processes in DDP for accuracy calculation
+        if dist.is_initialized():
+            dist.all_reduce(total_correct, op=dist.ReduceOp.SUM)
+            dist.all_reduce(total_samples, op=dist.ReduceOp.SUM)
+
+        return (total_correct / total_samples).item() if total_samples > 0 else 0.0
+
+    def save_checkpoint(self, stage, epoch, val_acc):
+        """Saves a model checkpoint."""
+        if not self.args.get('save_path'):
+            return
+            
+        save_dir = os.path.join(self.args['save_path'], f"stage_{stage}")
+        os.makedirs(save_dir, exist_ok=True)
+        
+        save_only_improve = self.args.get('save_only_improve', False)
+
+        if save_only_improve and val_acc <= self.best_val_acc:
             return
 
-        accuracy = sum(all_results) / len(all_results)
+        self.best_val_acc = val_acc
         
+        # In DDP, only the main process should save the model
         if not dist.is_initialized() or dist.get_rank() == 0:
-            logger.info(f"Epoch {epoch} accuracy: {accuracy}")
+            model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
             
-        return accuracy
+            checkpoint_path = os.path.join(save_dir, f"epoch_{epoch+1}_acc_{val_acc:.4f}.pt")
+            torch.save(model_to_save.state_dict(), checkpoint_path)
+            print(f"Checkpoint saved to {checkpoint_path}")
