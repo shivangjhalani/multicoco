@@ -14,8 +14,8 @@ from multicoco.trainer import Trainer
 
 def setup(rank, world_size):
     """Initializes the distributed environment."""
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    # os.environ['MASTER_ADDR'] = 'localhost' # This is now handled by torchrun
+    # os.environ['MASTER_PORT'] = '12355'   # This is now handled by torchrun
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 def cleanup():
