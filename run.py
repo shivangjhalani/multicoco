@@ -54,10 +54,27 @@ def main():
     device = torch.device(f"cuda:{rank}")
 
     # Model
-    # Reverted to simpler model loading. The model ID from the config is used directly.
-    # The special tokens are assumed to be part of the model's tokenizer config.
+    # Determine model path and special tokens based on the config.
+    # If cot or coconut flags are set, use the local patched model and custom tokens.
+    # Otherwise, use the model_id from the config for a vanilla run.
+    if args.get('cot') or args.get('coconut'):
+        model_path = os.path.abspath('local_internvl_model')
+        hub_id = args['model_id'] # The original Hub ID for configs/tokenizer
+        latent_tokens = {"start": "<|start-latent|>", "end": "<|end-latent|>", "latent": "<|latent|>"}
+        special_tokens = list(latent_tokens.values())
+    else:
+        model_path = args['model_id']
+        hub_id = args['model_id'] # For vanilla, local and hub IDs are the same
+        latent_tokens = {}
+        special_tokens = []
+
     model = MultiCoCo(
-        model_id=args['model_id']
+        model_id=model_path,
+        config_id=hub_id,
+        tokenizer_id=hub_id,
+        image_processor_id=hub_id,
+        latent_tokens=latent_tokens,
+        special_tokens=special_tokens
     ).to(device)
 
     # Load checkpoint if provided
