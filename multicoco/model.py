@@ -31,6 +31,10 @@ class MultiCoCo(nn.Module):
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # Manually set the image context token ID for the model.
+        # This is required for the vanilla model's generate function.
+        self.model.img_context_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
         
         if special_tokens:
             self.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
