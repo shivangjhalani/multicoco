@@ -92,9 +92,7 @@ class DataCollatorForInternVL(object):
             except ValueError:
                 raise ValueError("The '<img>' token was not found in the question.")
 
-            # Insert a fixed number of image tokens, corresponding to the model's configuration
-            num_image_tokens = self.model.config.num_image_token
-            image_tokens = [self.image_token_id] * num_image_tokens
+            image_tokens = [self.image_token_id] * num_patches
             
             # Replace placeholder in prompt_ids
             prompt_ids_with_image = prompt_ids[:placeholder_idx] + image_tokens + prompt_ids[placeholder_idx+1:]
