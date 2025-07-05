@@ -157,9 +157,11 @@ class Trainer:
             Formatted question string
         """
         if mode == "cot":
-            return f"{question}\nThink step by step and provide your reasoning, then at the end, give your final answer as a number (0, 1, 2, or 3) corresponding to the correct choice."
+            # A more direct prompt for CoT
+            return f"{question}\nFirst, provide your reasoning, then answer with 'the final answer is' followed by the number (0, 1, 2, or 3)."
         else:
-            return f"{question}\nAnswer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
+            # A more direct prompt for vanilla/coconut
+            return f"{question}\nAnswer with only the number (0, 1, 2, or 3)."
 
     def extract_answer_choice(self, response: str, mode: str = "vanilla") -> str:
         """
@@ -172,7 +174,13 @@ class Trainer:
         Returns:
             Extracted answer choice or empty string if not found
         """
-        # General pattern to find a digit surrounded by common delimiters
+        # More robust pattern for CoT to find the final answer
+        if mode == "cot":
+            match = re.search(r'the final answer is.*?([0-3])', response, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        # General pattern to find a digit, improved to be more specific
         general_patterns = [
             r'answer is ([0-3])',
             r'answer: ([0-3])',
@@ -185,10 +193,10 @@ class Trainer:
             if match:
                 return match.group(1).strip()
 
-        # Look for single digits in the response (works for all modes)
+        # Fallback to finding the last single digit in the response
         single_digits = re.findall(r'\b[0-3]\b', response)
         if single_digits:
-            return single_digits[-1]  # Take the last one
+            return single_digits[-1]
 
         return ""
 
@@ -321,10 +329,12 @@ class Trainer:
             mode_name = "cot" if cot_mode else "vanilla"
             generation_config = dict(
                 max_new_tokens=100, 
-                do_sample=False,
-                temperature=0.0,
+                temperature=0.0, # Explicitly set temperature to 0 for deterministic output
                 pad_token_id=self.val_loader.collate_fn.tokenizer.pad_token_id,
-                eos_token_id=[self.val_loader.collate_fn.tokenizer.eos_token_id, self.val_loader.collate_fn.tokenizer.convert_tokens_to_ids('<|im_end|>')]
+                eos_token_id=[
+                    self.val_loader.collate_fn.tokenizer.eos_token_id, 
+                    self.val_loader.collate_fn.tokenizer.convert_tokens_to_ids('<|im_end|>')
+                ]
             )
 
         pbar = tqdm(self.val_loader, desc=f"Evaluating ({mode_name})", disable=(not is_main_process))
