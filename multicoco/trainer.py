@@ -3,21 +3,6 @@ import torch
 from tqdm import tqdm
 import torch.distributed as dist
 import inspect
-import re
-
-def extract_last_digit(s: str):
-    """Extracts the last digit from a string.
-    
-    Args:
-        s: The input string.
-    
-    Returns:
-        The last digit found in the string, or None if no digit is found.
-    """
-    # Find all digits in the string
-    digits = re.findall(r'\d', s)
-    # Return the last digit, or None if no digits were found
-    return digits[-1] if digits else None
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -152,10 +137,9 @@ class Trainer:
                     
                     answer_text = gen_text.replace(question_part, '').strip()
 
-                    extracted_answer = extract_last_digit(answer_text)
-                    is_correct = False
-                    if extracted_answer is not None:
-                        is_correct = any(ans.lower() == extracted_answer.lower() for ans in original_answers[i])
+                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
+                    if is_correct:
+                        total_correct += 1
 
                     all_results.append({
                         "question": original_questions[i],
