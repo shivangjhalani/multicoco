@@ -25,22 +25,29 @@ class MultiCoCoDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        choices_str = ", ".join([f"{i} : {choice}" for i, choice in enumerate(item['choices'])])
         
-        answer = item.get("answer")
+        is_mcq = 'choices' in item and item['choices']
         
-        if answer is not None and answer in item['choices']:
-             answers = item.get("answers", [str(item['choices'].index(answer))])
+        if is_mcq:
+            choices_str = ", ".join([f"{i} : {choice}" for i, choice in enumerate(item['choices'])])
+            answer = item.get("answer")
+            if answer is not None and answer in item['choices']:
+                answers = [str(item['choices'].index(answer))]
+            else:
+                answers = []
         else:
-            answers = []
+            choices_str = ""
+            answer = item.get("answer")
+            answers = item.get("answers", [answer] if answer else [])
 
         return {
             "image": os.path.join(self.data_dir, item["image"]),
             "question": item["question"],
-            "choices": item["choices"],
+            "choices": item.get("choices", []),
             "choices_str": choices_str,
             "answer": answer,
-            "answers": answers
+            "answers": answers,
+            "is_mcq": is_mcq
         }
 
 
@@ -69,22 +76,31 @@ class DataCollatorForInternVL(object):
         conv = get_conv_template(self.model.conv_template)
         roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
         
-        system_instruction = (
-            "You are an AI assistant helping with a multiple-choice question about an image. "
-            "Analyze the image and the question. First, provide your step-by-step reasoning. "
-            "Finally, you MUST provide the final answer in the format 'The final answer is: <digit>' and nothing else after it."
-        )
-
         for ins in instances:
-            question_part = f"Question: {ins['question']}\nChoices: {ins['choices_str']}"
-            
+            is_mcq = ins['is_mcq']
+            if is_mcq:
+                system_instruction = (
+                    "You are an AI assistant helping with a multiple-choice question about an image. "
+                    "Analyze the image and the question. First, provide your step-by-step reasoning. "
+                    "Finally, you MUST provide the final answer in the format 'The final answer is: <digit>' and nothing else after it."
+                )
+                question_part = f"Question: {ins['question']}\nChoices: {ins['choices_str']}"
+            else:
+                system_instruction = (
+                    "You are an AI assistant. Please provide a short answer to the question about the image."
+                )
+                question_part = f"Question: {ins['question']}"
+
             full_prompt = f"<img> * {self.num_image_tokens}\n{system_instruction}\n\n---\n{question_part}\n---\n\nReasoning:"
 
             conv.messages = []
             conv.append_message(roles["human"], full_prompt)
             
             if not is_eval:
-                answer_for_training = f" {ins['answer']}\nThe final answer is: {ins['choices'].index(ins['answer'])}"
+                if is_mcq:
+                    answer_for_training = f" {ins['answer']}\nThe final answer is: {ins['choices'].index(ins['answer'])}"
+                else:
+                    answer_for_training = ins['answer']
                 conv.append_message(roles["gpt"], answer_for_training)
             else:
                 conv.append_message(roles["gpt"], None)
@@ -119,7 +135,8 @@ class DataCollatorForInternVL(object):
             'image_flags': image_flags,
             'answers': [ins['answers'] for ins in instances],
             'original_questions': [ins['question'] for ins in instances],
-            'choices_str': [ins['choices_str'] for ins in instances]
+            'choices_str': [ins['choices_str'] for ins in instances],
+            'is_mcq': [ins['is_mcq'] for ins in instances]
         }
 
         if not is_eval:

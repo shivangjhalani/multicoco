@@ -66,10 +66,8 @@ class Trainer:
 
         with torch.no_grad():
             for batch in pbar:
-                # The data collator for eval does not return labels, so pop it
                 batch.pop('labels', None)
                 
-                # Prepare inputs for generation
                 for k, v in batch.items():
                     if isinstance(v, torch.Tensor):
                         batch[k] = v.to(self.args.device)
@@ -80,7 +78,7 @@ class Trainer:
                     'attention_mask': batch['attention_mask'],
                     'do_sample': False,
                     'num_beams': 1,
-                    'max_new_tokens': 150, # Allow more tokens for reasoning
+                    'max_new_tokens': 150,
                 }
                 
                 generate_args_spec = inspect.signature(model_to_eval.model.generate).parameters
@@ -94,26 +92,31 @@ class Trainer:
                 for i, (generated_text, gt_answers) in enumerate(zip(generated_texts, batch['answers'])):
                     if i >= len(batch['original_questions']):
                         break
+                    
+                    is_mcq = batch['is_mcq'][i]
 
                     with open('evaluation.log', 'a') as f:
                         question = batch['original_questions'][i]
                         choices_str = batch['choices_str'][i]
                         
-                        predicted_answer = extract_final_answer_digit(generated_text)
-                        
-                        is_correct = predicted_answer in gt_answers if predicted_answer is not None else False
+                        if is_mcq:
+                            predicted_answer = extract_final_answer_digit(generated_text)
+                            is_correct = predicted_answer in gt_answers if predicted_answer is not None else False
+                        else:
+                            # For non-MCQ, check if any ground truth answer is in the generated text
+                            is_correct = any(gt.lower() in generated_text.lower() for gt in gt_answers)
+
                         if is_correct:
                             correct_predictions += 1
                         
                         f.write('----------------------------------------\n')
-                        f.write(f"Question: {question} The choices are {choices_str}\n")
+                        f.write(f"Question: {question}{' Choices: ' + choices_str if is_mcq else ''}\n")
                         f.write(f"Generated Answer: {generated_text.strip()}\n")
                         f.write(f"Ground Truth Answers: {gt_answers}\n")
                         f.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
                 
                 total_predictions += len(batch['original_questions'])
 
-        # Aggregate results in distributed training
         if dist.is_initialized():
             total_correct_tensor = torch.tensor(correct_predictions).to(self.args.device)
             total_preds_tensor = torch.tensor(total_predictions).to(self.args.device)
