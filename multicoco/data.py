@@ -14,10 +14,10 @@ class MultiCoCoDataset(Dataset):
             with open(data_path, 'r') as f:
                 self.data = json.load(f)
         
-        # # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
-        # # Remove this line to use the full dataset again.
-        # if data_path and "val" in data_path: # Apply only to validation set
-        #     self.data = self.data[:20]
+        # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
+        # Remove this line to use the full dataset again.
+        if data_path and "val" in data_path: # Apply only to validation set
+            self.data = self.data[:20]
 
     def __len__(self):
         return len(self.data)
