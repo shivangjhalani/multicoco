@@ -95,6 +95,7 @@ def main():
 
     # Conditionally create train_loader
     train_loader = None
+    optimizer = None
     if not args.get('only_eval', False):
         train_dataset = MultiCoCoDataset(data_path=args['train_path'], data_dir=args['data_dir'])
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
@@ -105,17 +106,16 @@ def main():
             collate_fn=collator,
             shuffle=(train_sampler is None) # Shuffle only if not using DDP
         )
-
-    # Optimizer - no longer needed for evaluation
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
 
     # Trainer
     trainer = Trainer(
         config=args,
         model=model,
+        tokenizer=tokenizer,
         train_dataloader=train_loader,
         eval_dataloader=val_loader,
-        tokenizer=tokenizer
+        optimizer=optimizer,
     )
 
     # Start training or evaluation
@@ -125,6 +125,7 @@ def main():
         if rank == 0:
             print(f"Final Validation Accuracy: {val_acc:.4f}")
     else:
+        print("--- Starting Training ---")
         trainer.train()
 
     if world_size > 1:
