@@ -92,10 +92,12 @@ class DataCollatorForInternVL(object):
             except ValueError:
                 raise ValueError("The '<img>' token was not found in the question.")
 
-            image_tokens_with_boundaries = [self.img_start_token_id] + [self.image_token_id] * num_patches + [self.img_end_token_id]
+            # The model expects a single feature vector per image view.
+            # We must insert exactly `num_patches` tokens to match the `pixel_values` tensor.
+            image_tokens = [self.image_token_id] * num_patches
             
             # Replace placeholder in prompt_ids
-            prompt_ids_with_image = prompt_ids[:placeholder_idx] + image_tokens_with_boundaries + prompt_ids[placeholder_idx+1:]
+            prompt_ids_with_image = prompt_ids[:placeholder_idx] + image_tokens + prompt_ids[placeholder_idx+1:]
 
             # Create final input_ids and labels
             input_ids = torch.tensor(prompt_ids_with_image + answer_ids, dtype=torch.long)
