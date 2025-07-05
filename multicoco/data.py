@@ -54,30 +54,21 @@ class DataCollatorForInternVL(object):
 
         all_input_ids = []
         all_labels = []
-        all_generation_input_ids = []
 
         for ins in instances:
             question = '<img>' * self.num_image_tokens + '\n' + ins['question']
+            question += "\nAnswer with the option number only."
             answer = ins['answer']
+            conv = get_conv_template(self.model.conv_template)
+            roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+            conv.append_message(roles["human"], question)
+            conv.append_message(roles["gpt"], answer)
+            conversation = conv.get_prompt()
 
-            # For training (input_ids and labels)
-            conv_train = get_conv_template(self.model.conv_template)
-            roles = {"human": conv_train.roles[0], "gpt": conv_train.roles[1]}
-            conv_train.append_message(roles["human"], question)
-            conv_train.append_message(roles["gpt"], answer)
-            conversation = conv_train.get_prompt()
             input_ids = self.tokenizer(conversation, return_tensors="pt", padding="longest", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
             labels = input_ids.clone()
 
-            # For generation (prompt only)
-            conv_gen = get_conv_template(self.model.conv_template)
-            conv_gen.append_message(roles["human"], question)
-            conv_gen.append_message(roles["gpt"], None)
-            generation_prompt = conv_gen.get_prompt()
-            generation_input_ids = self.tokenizer(generation_prompt, return_tensors="pt", padding="longest", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
-
-            # Masking for labels
-            sep = conv_train.sep + roles["gpt"] + ": "
+            sep = conv.sep + conv.roles[1] + ": "
             parts = conversation.split(sep)
             if len(parts) > 1:
                 parts[0] += sep
@@ -89,14 +80,10 @@ class DataCollatorForInternVL(object):
             
             all_input_ids.append(input_ids)
             all_labels.append(labels)
-            all_generation_input_ids.append(generation_input_ids)
 
         padded_input_ids = torch.nn.utils.rnn.pad_sequence(all_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         padded_labels = torch.nn.utils.rnn.pad_sequence(all_labels, batch_first=True, padding_value=-100)
-        padded_generation_input_ids = torch.nn.utils.rnn.pad_sequence(all_generation_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
-        generation_attention_mask = padded_generation_input_ids.ne(self.tokenizer.pad_token_id)
         image_flags = (padded_input_ids == self.image_token_id).long()
 
         return {
@@ -104,8 +91,6 @@ class DataCollatorForInternVL(object):
             'input_ids': padded_input_ids,
             'attention_mask': attention_mask,
             'labels': padded_labels,
-            'generation_input_ids': padded_generation_input_ids,
-            'generation_attention_mask': generation_attention_mask,
             'image_flags': image_flags,
             'answers': answers,
             'original_questions': original_questions
