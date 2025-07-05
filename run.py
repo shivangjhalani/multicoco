@@ -72,7 +72,9 @@ def main():
 
     # -- Initialize Tokenizer and Model
     if args.get('only_eval', False):
-        model = MultiCoCo(args['load_model_path'])
+        # For evaluation, load from a checkpoint if specified, otherwise use the base model_id
+        model_path = args.get('load_model_path') or args['model_id']
+        model = MultiCoCo(model_path)
         tokenizer = model.tokenizer
     else:
         special_tokens = ['<thought>', '<start_thought>', '<end_thought>']
@@ -87,11 +89,15 @@ def main():
     # -- Load Model from Checkpoint if Provided
     if args.get('load_model_path', None) and not args.get('only_eval', False):
         print(f"Loading model from {args['load_model_path']}")
-    
+        # Awkwardly, we have to re-init the model to load the checkpoint
+        model = MultiCoCo(args['load_model_path'])
+        tokenizer = model.tokenizer
+
+    # -- DDP Model
     if world_size > 1:
         model = DDP(model, device_ids=[rank])
     
-    tokenizer = model.module.tokenizer if hasattr(model, 'module') else model.tokenizer
+    # tokenizer = model.module.tokenizer if hasattr(model, 'module') else model.tokenizer
 
     # Data
     hf_model = (model.module if hasattr(model, 'module') else model).model
