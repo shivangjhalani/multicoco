@@ -25,16 +25,10 @@ def cleanup():
 def main():
     parser = argparse.ArgumentParser(description="MultiCoCo Training Script")
     parser.add_argument('config', type=str, help='Path to the YAML config file')
-    parser.add_argument('--batch-size', type=int, help='Override the training batch size.')
     cli_args = parser.parse_args()
 
     with open(cli_args.config, 'r') as f:
         args = yaml.safe_load(f)
-
-    # Override batch size if provided
-    if cli_args.batch_size:
-        args['batch_size_training'] = cli_args.batch_size
-        print(f"Overriding batch size to {args['batch_size_training']}")
 
     # DDP Setup
     rank = int(os.environ.get("LOCAL_RANK", 0))
