@@ -1,22 +1,14 @@
+# Set environment variable to disable Flash Attention 2 before importing transformers
+import os
+os.environ["TRANSFORMERS_NO_FLASH_ATTENTION_2"] = "1"
+
 import argparse
 import yaml
-import os
 import sys
 import torch
 
-# --- BEGIN MONKEY-PATCH ---
-# This is a workaround for a bug in some versions of the transformers library
-# where Flash Attention is not correctly initialized, leading to a NameError.
-# By explicitly setting _flash_supports_window_size to False, we prevent
-# the code path that causes the error from being executed.
-try:
-    import transformers.modeling_flash_attention_utils
-    transformers.modeling_flash_attention_utils._flash_supports_window_size = False
-except (ImportError, AttributeError):
-    # This might fail if the library structure changes, but it's safe to ignore
-    # as it means the bug likely doesn't exist in that version.
-    pass
-# --- END MONKEY-PATCH ---
+# The previous monkey-patch for _flash_supports_window_size is no longer needed
+# and has been removed. The environment variable is the correct way to disable it.
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
