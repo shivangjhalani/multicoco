@@ -3,7 +3,21 @@ import torch
 from tqdm import tqdm
 import torch.distributed as dist
 import inspect
-from .logits_processor import ForceDigitsLogitsProcessor
+import re
+
+def extract_last_digit(s: str):
+    """Extracts the last digit from a string.
+    
+    Args:
+        s: The input string.
+    
+    Returns:
+        The last digit found in the string, or None if no digit is found.
+    """
+    # Find all digits in the string
+    digits = re.findall(r'\d', s)
+    # Return the last digit, or None if no digits were found
+    return digits[-1] if digits else None
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -90,7 +104,6 @@ class Trainer:
         # The collator needs access to the tokenizer for decoding
         tokenizer = self.val_loader.collate_fn.tokenizer
         num_image_tokens = self.val_loader.collate_fn.num_image_tokens
-        logits_processor = ForceDigitsLogitsProcessor(tokenizer)
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
@@ -117,14 +130,13 @@ class Trainer:
                 outputs = model_to_eval.model.generate(
                     **batch,
                     do_sample=False,
-                    max_new_tokens=1,
+                    max_new_tokens=100,
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
                     length_penalty=1.0,
                     temperature=1.0,
-                    pad_token_id=tokenizer.pad_token_id,
-                    logits_processor=[logits_processor]
+                    pad_token_id=tokenizer.pad_token_id
                 )
                 
                 # Decode and compare
@@ -140,9 +152,10 @@ class Trainer:
                     
                     answer_text = gen_text.replace(question_part, '').strip()
 
-                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
-                    if is_correct:
-                        total_correct += 1
+                    extracted_answer = extract_last_digit(answer_text)
+                    is_correct = False
+                    if extracted_answer is not None:
+                        is_correct = any(ans.lower() == extracted_answer.lower() for ans in original_answers[i])
 
                     all_results.append({
                         "question": original_questions[i],
