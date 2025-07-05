@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig
 import inspect
+from multicoco.conversation import get_conv_template
 
 class MultiCoCo(nn.Module):
     def __init__(self, model_id, config_id=None, tokenizer_id=None, image_processor_id=None, latent_tokens={}, special_tokens=[]):
@@ -78,8 +79,16 @@ class MultiCoCo(nn.Module):
         """
         Handles batch chatting with the model.
         """
-        # Manually build the prompts for the batch
-        prompts = [f"A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: {q} ASSISTANT:" for q in questions]
+        num_image_tokens = self.model.config.num_image_token
+        
+        prompts = []
+        for q in questions:
+            question_with_img = '<img>' * num_image_tokens + '\n' + q
+            conv = get_conv_template(self.model.conv_template)
+            roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+            conv.append_message(roles["human"], question_with_img)
+            conv.append_message(roles["gpt"], None)
+            prompts.append(conv.get_prompt())
 
         # Tokenize the batch of prompts
         inputs = tokenizer(prompts, return_tensors='pt', padding=True, truncation=True)
@@ -93,6 +102,6 @@ class MultiCoCo(nn.Module):
             outputs = self.model.generate(**inputs, **generation_config)
 
         # Decode the generated responses
-        responses = [tokenizer.decode(output, skip_special_tokens=True).split("ASSISTANT:")[-1].strip() for output in outputs]
+        responses = [tokenizer.decode(output, skip_special_tokens=True).split(conv.roles[1] + ':')[-1].strip() for output in outputs]
         
         return responses
