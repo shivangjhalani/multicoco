@@ -33,6 +33,7 @@ class DataCollatorForInternVL(object):
         self.model = model
         self.image_processor = image_processor
         self.image_token_id = tokenizer.convert_tokens_to_ids('<img>')
+        self.num_image_tokens = model.config.num_image_token
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
@@ -48,7 +49,7 @@ class DataCollatorForInternVL(object):
         all_labels = []
 
         for ins in instances:
-            question = '<img>\n' + ins['question']
+            question = '<img>' * self.num_image_tokens + '\n' + ins['question']
             answer = ins['answer']
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
