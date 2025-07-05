@@ -53,6 +53,7 @@ class DataCollatorForInternVL(object):
         all_labels = []
         all_pixel_values = []
         all_num_patches = []
+        all_answers = []
 
         for i, ins in enumerate(instances):
             # 1. Load and process image
@@ -104,6 +105,9 @@ class DataCollatorForInternVL(object):
             all_input_ids.append(input_ids)
             all_labels.append(labels)
 
+            if 'answers' in ins:
+                all_answers.append(ins['answers'])
+
         # 3. Pad the batch
         padded_input_ids = torch.nn.utils.rnn.pad_sequence(
             all_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
@@ -114,10 +118,15 @@ class DataCollatorForInternVL(object):
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
         image_flags = (padded_input_ids == self.image_token_id).long()
 
-        return {
+        batch = {
             'pixel_values': torch.cat(all_pixel_values, dim=0),
             'input_ids': padded_input_ids,
             'attention_mask': attention_mask,
             'labels': padded_labels,
             'image_flags': image_flags,
-        } 
+        }
+
+        if all_answers:
+            batch['answers'] = all_answers
+
+        return batch
