@@ -324,11 +324,11 @@ class Trainer:
         
         if coconut_mode:
             mode_name = "coconut"
-            generation_config = {'c_thought': self.args.get('c_thought', 1), 'max_new_tokens': 100}
+            generation_config = {'c_thought': self.args.get('c_thought', 1), 'max_new_tokens': 500}
         else:
             mode_name = "cot" if cot_mode else "vanilla"
             generation_config = dict(
-                max_new_tokens=100, 
+                max_new_tokens=500, 
                 temperature=0.0, # Explicitly set temperature to 0 for deterministic output
                 pad_token_id=self.val_loader.collate_fn.tokenizer.pad_token_id,
                 eos_token_id=[
