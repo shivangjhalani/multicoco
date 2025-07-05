@@ -4,4 +4,5 @@ transformers
 tokenizers
 tqdm
 accelerate
-datasets 
+datasets
+wandb

@@ -4,9 +4,10 @@ from tqdm import tqdm
 import torch.distributed as dist
 import inspect
 import re
+from copy import copy
 
 class Trainer:
-    def __init__(self, model, optimizer, train_loader, val_loader, args):
+    def __init__(self, model, optimizer, train_loader, val_loader, args, wandb_run=None, text_table=None):
         self.model = model
         self.optimizer = optimizer
         self.train_loader = train_loader
@@ -14,6 +15,9 @@ class Trainer:
         self.args = args
         self.device = dist.get_rank() if dist.is_initialized() else 'cuda'
         self.best_val_acc = 0.0
+        self.wandb_run = wandb_run
+        self.text_table = text_table
+        self.total_train_steps = 0
 
     def _get_train_config_for_stage(self, stage):
         """Returns the training configuration for a given stage."""
@@ -51,6 +55,29 @@ class Trainer:
                 pbar = tqdm(enumerate(self.train_loader), total=len(self.train_loader), desc=f"Stage {stage}/Epoch {epoch+1}", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
                 for i, batch in pbar:
+                    # Log training data on first step if wandb is enabled
+                    if i == 0 and self.wandb_run and self.text_table and (not dist.is_initialized() or dist.get_rank() == 0):
+                        print("logging training data")
+                        text_str = ""
+                        if 'input_ids' in batch:
+                            cur_bs = len(batch["input_ids"])
+                            for data_idx in range(min(cur_bs, 2)):  # Log max 2 samples to avoid overwhelming logs
+                                for token_idx in range(min(len(batch["input_ids"][data_idx]), 50)):  # Log max 50 tokens per sample
+                                    if 'labels' in batch:
+                                        text_str += (
+                                            str(batch["input_ids"][data_idx][token_idx].item())
+                                            + " "
+                                            + str(batch["labels"][data_idx][token_idx].item())
+                                            + " "
+                                            + self.train_loader.collate_fn.tokenizer.decode(
+                                                batch["input_ids"][data_idx][token_idx]
+                                            )
+                                            + "\n"
+                                        )
+                                text_str += "====" * 10 + "\n"
+                        self.text_table.add_data(self.total_train_steps, text_str)
+                        self.wandb_run.log({"data_table": copy(self.text_table)})
+
                     # Move batch to device
                     for k, v in batch.items():
                         if isinstance(v, torch.Tensor):
@@ -71,6 +98,18 @@ class Trainer:
                     
                     total_loss += loss.item() * grad_accumulation_steps
                     pbar.set_postfix({"loss": loss.item() * grad_accumulation_steps})
+                    
+                    # Log training metrics to wandb
+                    if self.wandb_run and (not dist.is_initialized() or dist.get_rank() == 0):
+                        log_dict = {
+                            "train/stage": stage,
+                            "train/epoch": epoch + 1,
+                            "train/step": self.total_train_steps,
+                            "train/loss": loss.item() * grad_accumulation_steps,
+                        }
+                        self.wandb_run.log(log_dict)
+                    
+                    self.total_train_steps += 1
                 
                 avg_loss = total_loss / len(self.train_loader)
                 if not dist.is_initialized() or dist.get_rank() == 0:
@@ -80,6 +119,17 @@ class Trainer:
                 val_acc = self.evaluate()
                 if not dist.is_initialized() or dist.get_rank() == 0:
                     print(f"Stage {stage}, Epoch {epoch+1}: Validation Accuracy: {val_acc:.4f}")
+                    
+                    # Log validation metrics to wandb
+                    if self.wandb_run:
+                        log_dict = {
+                            "eval/stage": stage,
+                            "eval/epoch": epoch + 1,
+                            "eval/acc": val_acc,
+                            "eval/loss": avg_loss,
+                        }
+                        self.wandb_run.log(log_dict)
+                    
                     self.save_checkpoint(stage, epoch, val_acc)
 
     def format_question(self, question: str) -> str:

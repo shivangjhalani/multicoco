@@ -6,6 +6,7 @@ import argparse
 import yaml
 import sys
 import torch
+import wandb
 
 # The previous monkey-patch for _flash_supports_window_size is no longer needed
 # and has been removed. The environment variable is the correct way to disable it.
@@ -14,6 +15,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from copy import copy
 
 # Add the correct path for the internvl package to the system path.
 # This ensures that imports within the Hugging Face cached scripts can find the local modules.
@@ -121,13 +123,27 @@ def main():
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
 
+    # Initialize wandb for logging
+    wandb_run = None
+    if not args.get('debug', False) and not args.get('only_eval', False) and rank == 0:
+        wandb_run = wandb.init(
+            project=args.get('project', 'multicoco'),
+            name=args.get('name', 'default-run'),
+            config=args
+        )
+        text_table = wandb.Table(columns=["step", "text"])
+    else:
+        text_table = None
+
     # Trainer
     trainer = Trainer(
         model=model,
         optimizer=optimizer,
         train_loader=train_loader,
         val_loader=val_loader,
-        args=args
+        args=args,
+        wandb_run=wandb_run,
+        text_table=text_table
     )
 
     # Start training or evaluation
