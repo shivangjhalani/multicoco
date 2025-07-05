@@ -14,6 +14,9 @@ class MultiCoCo(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
         self.image_processor = AutoImageProcessor.from_pretrained(model_id, trust_remote_code=True)
 
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         # Manually set the image context token ID for the model.
         # This is required for the vanilla model's generate function.
         self.model.img_context_token_id = self.tokenizer.convert_tokens_to_ids('<img>')

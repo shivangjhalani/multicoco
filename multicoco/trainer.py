@@ -85,6 +85,7 @@ class Trainer:
         
         # The collator needs access to the tokenizer for decoding
         tokenizer = self.val_loader.collate_fn.tokenizer
+        num_image_tokens = self.val_loader.collate_fn.num_image_tokens
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
@@ -113,19 +114,23 @@ class Trainer:
                     max_new_tokens=100,
                     num_beams=1,
                     min_length=1,
-                    top_p=0.9,
                     repetition_penalty=1.0,
                     length_penalty=1.0,
                     temperature=1.0,
+                    pad_token_id=tokenizer.pad_token_id
                 )
                 
                 # Decode and compare
                 generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=True)
+                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=False) # Keep special tokens for cleanup
 
                 for i, gen_text in enumerate(generated_texts):
-                    # Clean up generated text
-                    question_part = input_texts[i].replace('<image>\n', '').replace(tokenizer.bos_token, '')
+                    # Clean up generated text to isolate the answer
+                    question_part = input_texts[i]
+                    if tokenizer.bos_token:
+                        question_part = question_part.replace(tokenizer.bos_token, '')
+                    question_part = question_part.replace('<img>' * num_image_tokens + '\n', '').strip()
+                    
                     answer_text = gen_text.replace(question_part, '').strip()
 
                     if any(ans.lower() in answer_text.lower() for ans in original_answers[i]):
