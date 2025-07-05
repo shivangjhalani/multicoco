@@ -1,16 +1,16 @@
-# Configuration for evaluating the CoCoNUt (latent reasoning) model.
+# Configuration for evaluating the CoT (Chain of Thought) model.
 
 project: multicoco
-name: aokvqa-coconut-eval
+name: aokvqa-cot-eval
 save_path: checkpoints # Not used in eval but good to have
 model_id: OpenGVLab/InternVL3-1B # Use the original model from Hugging Face
-load_model_path: null
+load_model_path: checkpoints/stage_0/epoch_1_acc_0.6500.pt
 
-# Staging - enable CoCoNUt for evaluation
-cot: False
-coconut: True
-c_thought: 2
-max_latent_stage: 1
+# Staging - enable CoT for evaluation
+cot: True
+coconut: False
+c_thought: 0
+max_latent_stage: 0
 epochs_per_stage: 0 # Not used in eval
 
 # Data

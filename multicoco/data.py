@@ -30,7 +30,8 @@ class MultiCoCoDataset(Dataset):
             "image": os.path.join(self.data_dir, item["image"]),
             "question": item["question"],
             "answer": item["answer"],
-            "answers": item.get("answers", [item.get("answer")])
+            "answers": item.get("answers", [item.get("answer")]),
+            "steps": item.get("steps", [])  # Chain of thought steps
         }
 
 class DataCollatorForInternVL(object):
@@ -42,24 +43,48 @@ class DataCollatorForInternVL(object):
         self.num_image_tokens = model.config.num_image_token
         self.train_config = {'is_train': True}  # Default to training mode
 
-    def format_question_for_eval(self, question: str) -> str:
+    def format_question_for_eval(self, question: str, mode: str = "vanilla") -> str:
         """
-        Format the question for evaluation to encourage single digit answers.
+        Format the question for evaluation based on the mode.
         
         Args:
             question: The original question with choices
+            mode: "vanilla", "cot", or "coconut"
             
         Returns:
             Formatted question string
         """
-        # Add instruction to make it clear we want a single number
-        formatted_question = f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
+        if mode == "cot":
+            # For CoT, ask for reasoning before the answer
+            formatted_question = f"{question}\n\nPlease think step by step and provide your reasoning, then give your final answer as a number (0, 1, 2, or 3)."
+        else:
+            # For vanilla and coconut, ask for direct answer
+            formatted_question = f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
         return formatted_question
+
+    def format_cot_answer(self, steps: list, final_answer: str) -> str:
+        """
+        Format the chain of thought answer for training.
+        
+        Args:
+            steps: List of reasoning steps
+            final_answer: The final answer
+            
+        Returns:
+            Formatted answer string with reasoning
+        """
+        if not steps:
+            return final_answer
+        
+        # Combine steps into reasoning
+        reasoning = " ".join(steps)
+        return f"{reasoning} Therefore, the answer is {final_answer}."
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
         answers = [ins.pop('answers') for ins in instances]
         original_questions = [ins['question'] for ins in instances]
+        steps = [ins.pop('steps', []) for ins in instances]
 
         if hasattr(self.model, 'dynamic_preprocess'):
             pixel_values_list, _ = self.model.dynamic_preprocess(images, image_size=self.model.config.image_size)
@@ -70,18 +95,29 @@ class DataCollatorForInternVL(object):
         all_input_ids = []
         all_labels = []
 
-        for ins in instances:
-            # Format question based on whether we're in training or evaluation mode
+        for i, ins in enumerate(instances):
             base_question = ins['question']
-            if not self.train_config.get('is_train', True):
-                # In evaluation mode, format the question to encourage single digit answers
-                formatted_question = self.format_question_for_eval(base_question)
+            
+            # Determine the mode and format accordingly
+            is_train = self.train_config.get('is_train', True)
+            is_coconut = self.train_config.get('coconut', False)
+            
+            if is_train:
+                if is_coconut:
+                    # CoCoNUt training: Use original question, answer only (no reasoning)
+                    formatted_question = base_question
+                    answer = ins['answer']
+                else:
+                    # CoT training: Use original question, include reasoning steps
+                    formatted_question = base_question
+                    answer = self.format_cot_answer(steps[i], ins['answer'])
             else:
-                # In training mode, use the original question
-                formatted_question = base_question
+                # Evaluation mode: Format based on the mode
+                eval_mode = "coconut" if is_coconut else ("cot" if steps[i] else "vanilla")
+                formatted_question = self.format_question_for_eval(base_question, eval_mode)
+                answer = ins['answer']
             
             question = '<img>' * self.num_image_tokens + '\n' + formatted_question
-            answer = ins['answer']
             conv = get_conv_template(self.model.conv_template)
             roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
             conv.append_message(roles["human"], question)
@@ -91,15 +127,23 @@ class DataCollatorForInternVL(object):
             input_ids = self.tokenizer(conversation, return_tensors="pt", padding="longest", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
             labels = input_ids.clone()
 
-            sep = conv.sep + conv.roles[1] + ": "
-            parts = conversation.split(sep)
-            if len(parts) > 1:
-                parts[0] += sep
-                round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
-                instruction_len = len(self.tokenizer(parts[0] + parts[1], add_special_tokens=False).input_ids)
-                labels[:round_len] = -100
-                if len(labels) > instruction_len:
-                    labels[instruction_len:] = -100
+            if is_train:
+                # For training, mask the instruction part
+                sep = conv.sep + conv.roles[1] + ": "
+                parts = conversation.split(sep)
+                if len(parts) > 1:
+                    parts[0] += sep
+                    round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
+                    instruction_len = len(self.tokenizer(parts[0] + parts[1], add_special_tokens=False).input_ids)
+                    labels[:round_len] = -100
+                    
+                    if is_coconut:
+                        # For CoCoNUt, also mask reasoning part if present, only train on final answer
+                        # This is a simplified approach - in practice you'd want more sophisticated parsing
+                        labels[instruction_len:] = -100
+            else:
+                # For evaluation, we don't need labels
+                labels[:] = -100
             
             all_input_ids.append(input_ids)
             all_labels.append(labels)
@@ -116,5 +160,6 @@ class DataCollatorForInternVL(object):
             'labels': padded_labels,
             'image_flags': image_flags,
             'answers': answers,
-            'original_questions': original_questions
+            'original_questions': original_questions,
+            'steps': steps
         }

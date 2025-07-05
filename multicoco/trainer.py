@@ -26,6 +26,18 @@ class Trainer:
         else: # Coconut training
             return {'is_train': True, 'coconut': True, 'c_thought': self.args.get('c_thought', 2)}
 
+    def _get_eval_config(self):
+        """Returns the evaluation configuration based on args."""
+        cot_mode = self.args.get('cot', False)
+        coconut_mode = self.args.get('coconut', False)
+        
+        if coconut_mode:
+            return {'is_train': False, 'coconut': True}
+        elif cot_mode:
+            return {'is_train': False, 'coconut': False, 'cot': True}
+        else:
+            return {'is_train': False, 'coconut': False, 'cot': False}
+
     def train(self):
         """Main training loop that handles staged training."""
         max_stages = self.args.get('max_latent_stage', 0) + 1 # 0 is CoT stage
@@ -42,7 +54,7 @@ class Trainer:
             # Update data collator with the correct config for the current stage
             train_config = self._get_train_config_for_stage(stage)
             self.train_loader.collate_fn.train_config = train_config
-            self.val_loader.collate_fn.train_config = {'is_train': False} # Eval is always inference mode
+            self.val_loader.collate_fn.train_config = self._get_eval_config()
 
             num_epochs = self.args.get('epochs_per_stage', 1)
 
@@ -86,6 +98,7 @@ class Trainer:
                     # Remove fields that are not model inputs before passing to the model
                     batch.pop("answers", None)
                     batch.pop("original_questions", None)
+                    batch.pop("steps", None)
 
                     output = self.model(**batch)
                     loss = output.loss / grad_accumulation_steps
@@ -132,40 +145,52 @@ class Trainer:
                     
                     self.save_checkpoint(stage, epoch, val_acc)
 
-    def format_question(self, question: str) -> str:
+    def format_question_for_mode(self, question: str, mode: str) -> str:
         """
-        Format the question for the model.
+        Format the question based on evaluation mode.
         
         Args:
             question: The original question with choices
+            mode: "vanilla", "cot", or "coconut"
             
         Returns:
             Formatted question string
         """
-        # The question already contains the choices in the format:
-        # "What is in the motorcyclist's mouth? The choices are 0 : toothpick, 1 : food, 2 : popsicle stick, 3 : cigarette"
-        
-        # Add instruction to make it clear we want a single number
-        formatted_question = f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
-        
-        return formatted_question
+        if mode == "cot":
+            return f"{question}\n\nPlease think step by step and provide your reasoning, then give your final answer as a number (0, 1, 2, or 3)."
+        else:
+            return f"{question}\n\nPlease answer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
 
-    def extract_answer_choice(self, response: str) -> str:
+    def extract_answer_choice(self, response: str, mode: str = "vanilla") -> str:
         """
-        Extract the answer choice (0, 1, 2, or 3) from the model response.
+        Extract the answer choice from the model response.
         
         Args:
             response: Model response string
+            mode: "vanilla", "cot", or "coconut"
             
         Returns:
             Extracted answer choice or empty string if not found
         """
-        # Look for single digits in the response
+        # For CoT mode, look for the final answer after reasoning
+        if mode == "cot":
+            # Look for patterns like "Therefore, the answer is 2" or "The answer is 2"
+            final_answer_patterns = [
+                r'(?:therefore|thus|so),?\s+(?:the\s+)?answer\s+is\s+([0-3])',
+                r'(?:final|my)\s+answer\s+is\s+([0-3])',
+                r'answer:\s*([0-3])',
+                r'the\s+answer\s+is\s+([0-3])'
+            ]
+            
+            for pattern in final_answer_patterns:
+                match = re.search(pattern, response, re.IGNORECASE)
+                if match:
+                    return match.group(1)
         
-        # First, try to find explicit single digit answers
+        # Look for single digits in the response (works for all modes)
         single_digits = re.findall(r'\b[0-3]\b', response)
         if single_digits:
-            return single_digits[0]
+            return single_digits[-1]  # Take the last one for CoT (likely the final answer)
         
         # Try to find answer patterns
         answer_patterns = [
@@ -181,8 +206,13 @@ class Trainer:
             if match:
                 return match.group(1)
         
-        # If no clear answer found, return empty string
         return ""
+
+    def count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text string."""
+        tokenizer = self.val_loader.collate_fn.tokenizer
+        tokens = tokenizer.encode(text, add_special_tokens=False)
+        return len(tokens)
 
     def preprocess_image_for_eval(self, image_path: str):
         """
@@ -200,85 +230,66 @@ class Trainer:
             # Load image and convert to RGB
             image = Image.open(image_path).convert('RGB')
             
-            # Get the model to use for preprocessing
+            # Get the underlying model that has the dynamic_preprocess method
             model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
-            
-            # Access the underlying model that has the dynamic_preprocess method
             if hasattr(model_to_eval, 'model'):
                 underlying_model = model_to_eval.model
             else:
                 underlying_model = model_to_eval
             
-            # Use the model's dynamic preprocessing if available
+            # Use dynamic preprocessing if available
             if hasattr(underlying_model, 'dynamic_preprocess'):
-                pixel_values_list, _ = underlying_model.dynamic_preprocess(
-                    [image], 
-                    image_size=underlying_model.config.image_size
-                )
+                pixel_values_list, _ = underlying_model.dynamic_preprocess([image], image_size=underlying_model.config.image_size)
                 pixel_values = torch.cat(pixel_values_list, dim=0)
-                # Ensure bfloat16 dtype and correct device to match model
-                pixel_values = pixel_values.to(device=self.device, dtype=torch.bfloat16)
-                return pixel_values
             else:
-                # Fallback to manual dynamic preprocessing
-                return self._manual_dynamic_preprocess(image, underlying_model)
+                # Fallback to manual preprocessing
+                pixel_values = self._manual_dynamic_preprocess(image, underlying_model)
+            
+            return pixel_values
             
         except Exception as e:
-            print(f"Error loading/preprocessing image {image_path}: {e}")
+            print(f"Error preprocessing image {image_path}: {e}")
             return None
 
     def _manual_dynamic_preprocess(self, image, model, input_size: int = 448, max_num: int = 12):
-        """
-        Manual dynamic preprocessing for InternVL3 model.
-        """
-        import torchvision.transforms as T
-        from torchvision.transforms.functional import InterpolationMode
+        """Manual implementation of dynamic preprocessing."""
+        # Get image processor from the data collator
+        image_processor = self.val_loader.collate_fn.image_processor
         
-        # Build transform
-        IMAGENET_MEAN = (0.485, 0.456, 0.406)
-        IMAGENET_STD = (0.229, 0.224, 0.225)
+        # Get transform from image processor
+        if hasattr(image_processor, 'transforms'):
+            transform = image_processor.transforms
+        else:
+            # Create a basic transform if not available
+            from torchvision import transforms
+            transform = transforms.Compose([
+                transforms.Resize((input_size, input_size)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
         
-        transform = T.Compose([
-            T.Lambda(lambda img: img.convert('RGB') if img.mode != 'RGB' else img),
-            T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
-            T.ToTensor(),
-            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
-        ])
+        # Get original dimensions
+        width, height = image.size
+        aspect_ratio = width / height
         
-        # Dynamic preprocessing logic
-        orig_width, orig_height = image.size
-        aspect_ratio = orig_width / orig_height
+        # Calculate target dimensions
+        if aspect_ratio > 1:
+            target_width = input_size * max_num
+            target_height = int(target_width / aspect_ratio)
+        else:
+            target_height = input_size * max_num
+            target_width = int(target_height * aspect_ratio)
         
-        # Generate target ratios
-        target_ratios = set(
-            (i, j) for n in range(1, max_num + 1) for i in range(1, n + 1) for j in range(1, n + 1) if
-            i * j <= max_num and i * j >= 1)
-        target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
+        # Ensure dimensions are multiples of input_size
+        target_width = (target_width // input_size) * input_size
+        target_height = (target_height // input_size) * input_size
         
-        # Find closest aspect ratio
-        best_ratio_diff = float('inf')
-        best_ratio = (1, 1)
-        area = orig_width * orig_height
-        
-        for ratio in target_ratios:
-            target_aspect_ratio = ratio[0] / ratio[1]
-            ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-            if ratio_diff < best_ratio_diff:
-                best_ratio_diff = ratio_diff
-                best_ratio = ratio
-            elif ratio_diff == best_ratio_diff:
-                if area > 0.5 * input_size * input_size * ratio[0] * ratio[1]:
-                    best_ratio = ratio
-        
-        # Resize and split image
-        target_width = input_size * best_ratio[0]
-        target_height = input_size * best_ratio[1]
-        blocks = best_ratio[0] * best_ratio[1]
-        
+        # Resize image
         resized_img = image.resize((target_width, target_height))
-        processed_images = []
         
-        for i in range(blocks):
+        # Split into blocks
+        processed_images = []
+        for i in range((target_width // input_size) * (target_height // input_size)):
             box = (
                 (i % (target_width // input_size)) * input_size,
                 (i // (target_width // input_size)) * input_size,
@@ -302,16 +313,16 @@ class Trainer:
         
         return pixel_values
 
-    def generate_answer(self, pixel_values: torch.Tensor, question: str) -> str:
+    def generate_answer(self, pixel_values: torch.Tensor, question: str) -> tuple[str, int]:
         """
-        Generate answer using model.chat() exactly like the standalone script.
+        Generate answer using model.chat() and return both response and token count.
         
         Args:
             pixel_values: Preprocessed pixel values tensor
             question: Formatted question string
             
         Returns:
-            Generated answer string
+            Tuple of (generated answer string, token count)
         """
         try:
             # Get the model and tokenizer
@@ -351,27 +362,42 @@ class Trainer:
                 return_history=False
             )
             
-            return response.strip()
+            response = response.strip()
+            token_count = self.count_tokens(response)
+            
+            return response, token_count
             
         except Exception as e:
             print(f"Error generating answer: {e}")
-            return ""
+            return "", 0
 
     def evaluate(self):
-        """Evaluation loop using the same logic as the standalone script."""
+        """Evaluation loop with CoT support and token counting."""
         self.model.eval()
         
         total_correct = torch.tensor([0.0]).to(self.device)
         total_samples = torch.tensor([0.0]).to(self.device)
+        total_tokens = torch.tensor([0.0]).to(self.device)
         
         all_results = []
         is_main_process = not dist.is_initialized() or dist.get_rank() == 0
 
+        # Determine evaluation mode
+        eval_config = self._get_eval_config()
+        cot_mode = eval_config.get('cot', False)
+        coconut_mode = eval_config.get('coconut', False)
+        
+        if coconut_mode:
+            mode_name = "coconut"
+        elif cot_mode:
+            mode_name = "cot"
+        else:
+            mode_name = "vanilla"
+
         # Create a simple dataset from the validation loader
-        # We need to iterate through the raw data, not the processed batches
         dataset = self.val_loader.dataset
         
-        pbar = tqdm(range(len(dataset)), desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
+        pbar = tqdm(range(len(dataset)), desc=f"Evaluating ({mode_name})", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
         with torch.no_grad():
             for idx in pbar:
@@ -381,6 +407,7 @@ class Trainer:
                 # Extract information
                 image_path = sample['image'] if isinstance(sample['image'], str) else sample['image']
                 question = sample['question']
+                steps = sample.get('steps', [])
                 
                 # Handle different answer formats
                 if 'answers' in sample:
@@ -393,22 +420,25 @@ class Trainer:
                 if pixel_values is None:
                     all_results.append({
                         "question": question,
+                        "steps": steps,
                         "generated_answer": "",
                         "extracted_answer": "",
                         "ground_truth": correct_answer,
-                        "correct": False
+                        "correct": False,
+                        "tokens_generated": 0,
+                        "mode": mode_name
                     })
                     total_samples += 1
                     continue
                 
-                # Format question using the same logic as standalone script
-                formatted_question = self.format_question(question)
+                # Format question based on mode
+                formatted_question = self.format_question_for_mode(question, mode_name)
                 
                 # Generate answer using model.chat()
-                raw_response = self.generate_answer(pixel_values, formatted_question)
+                raw_response, token_count = self.generate_answer(pixel_values, formatted_question)
                 
                 # Extract answer choice using the same logic as standalone script
-                extracted_answer = self.extract_answer_choice(raw_response)
+                extracted_answer = self.extract_answer_choice(raw_response, mode_name)
                 
                 # Check correctness
                 is_correct = extracted_answer == correct_answer
@@ -416,12 +446,17 @@ class Trainer:
                 if is_correct:
                     total_correct += 1
 
+                total_tokens += token_count
+
                 all_results.append({
                     "question": question,
+                    "steps": steps,
                     "generated_answer": raw_response,
                     "extracted_answer": extracted_answer,
                     "ground_truth": correct_answer,
-                    "correct": is_correct
+                    "correct": is_correct,
+                    "tokens_generated": token_count,
+                    "mode": mode_name
                 })
                 
                 total_samples += 1
@@ -434,22 +469,35 @@ class Trainer:
                 # Flatten the list of lists
                 all_results = [item for sublist in gathered_results for item in sublist]
 
-        # Log results on the main process with the same format as the standalone script
+        # Log results on the main process
         if is_main_process:
-            with open('evaluation.log', 'w') as f:
-                f.write("InternVL3-1B A-OKVQA Evaluation Log\n")
+            avg_tokens = (total_tokens / total_samples).item() if total_samples > 0 else 0
+            accuracy = (total_correct / total_samples).item() if total_samples > 0 else 0
+            
+            log_filename = f'evaluation_{mode_name}.log'
+            with open(log_filename, 'w') as f:
+                f.write(f"InternVL3-1B A-OKVQA Evaluation Log ({mode_name.upper()} mode)\n")
                 f.write(f"Total samples: {len(all_results)}\n")
+                f.write(f"Accuracy: {accuracy:.4f}\n")
+                f.write(f"Average tokens generated: {avg_tokens:.2f}\n")
                 f.write("="*80 + "\n\n")
                 
                 for i, res in enumerate(all_results, 1):
                     f.write(f"Sample {i}:\n")
                     f.write("----------------------------------------\n")
                     f.write(f"Question: {res['question']}\n")
+                    if res['steps'] and mode_name == "cot":
+                        f.write(f"Ground Truth Reasoning: {' '.join(res['steps'])}\n")
                     f.write(f"Generated Answer: {res['generated_answer']}\n")
                     f.write(f"Extracted Answer: {res['extracted_answer']}\n")
-                    f.write(f"Ground Truth Answers: {res['ground_truth']}\n")
+                    f.write(f"Ground Truth Answer: {res['ground_truth']}\n")
+                    f.write(f"Tokens Generated: {res['tokens_generated']}\n")
                     f.write(f"Correct: {'Yes' if res['correct'] else 'No'}\n")
                     f.write("----------------------------------------\n\n")
+            
+            print(f"Evaluation complete. Results saved to {log_filename}")
+            print(f"Accuracy: {accuracy:.4f}")
+            print(f"Average tokens generated: {avg_tokens:.2f}")
 
         # Aggregate results from all processes in DDP for accuracy calculation
         if dist.is_initialized():
