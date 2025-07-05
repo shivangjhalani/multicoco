@@ -92,9 +92,9 @@ class DataCollatorForInternVL(object):
             except ValueError:
                 raise ValueError("The '<img>' token was not found in the question.")
 
-            # The model expects a single feature vector per image view.
-            # We must insert exactly `num_patches` tokens to match the `pixel_values` tensor.
-            image_tokens = [self.image_token_id] * num_patches
+            # Insert a fixed number of image tokens, corresponding to the model's configuration
+            num_image_tokens = self.model.config.num_image_token
+            image_tokens = [self.image_token_id] * num_image_tokens
             
             # Replace placeholder in prompt_ids
             prompt_ids_with_image = prompt_ids[:placeholder_idx] + image_tokens + prompt_ids[placeholder_idx+1:]

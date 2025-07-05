@@ -16,6 +16,7 @@ from internvl.model.phi3.modeling_phi3 import Phi3ForCausalLM
 from peft import LoraConfig, get_peft_model
 from torch import nn
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
 from transformers import (AutoModel, GenerationConfig, LlamaForCausalLM,
                           LlamaTokenizer, Qwen2ForCausalLM)
 from transformers.modeling_outputs import CausalLMOutputWithPast
@@ -287,8 +288,12 @@ class InternVLChatModel(PreTrainedModel):
         if self.downsample_ratio != 1.0:
             vit_embeds = self.pixel_shuffle(vit_embeds, scale_factor=self.downsample_ratio)
         vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], -1, vit_embeds.shape[-1])
-        vit_embeds = torch.mean(vit_embeds, dim=1)
 
+        # Resample the number of patch embeddings to match the model's expected number of image tokens
+        vit_embeds = vit_embeds.permute(0, 2, 1)
+        vit_embeds = F.interpolate(vit_embeds, size=self.config.num_image_token, mode='linear', align_corners=False)
+        vit_embeds = vit_embeds.permute(0, 2, 1)
+        
         vit_embeds = self.mlp1(vit_embeds)
         return vit_embeds
 
