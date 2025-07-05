@@ -5,25 +5,49 @@ import inspect
 import re
 
 
-def extract_final_answer_digit(s: str):
+def extract_answer_from_model_output(generated_text: str, choices: list):
     """
-    Extracts the digit from common answer phrases.
-    Searches for patterns like "the answer is 3", "the correct answer is: 2", etc.
-    
+    Extracts the answer from the model's generated text for a multiple-choice question.
+
+    This function tries to find the answer in a hierarchical manner:
+    1. It checks if the text of any of the choices appears in the generated output.
+    2. If not, it looks for a unique digit in the text that corresponds to a choice index.
+
     Args:
-        s: The input string.
-    
+        generated_text: The output from the model.
+        choices: A list of the possible answer strings.
+
     Returns:
-        The digit as a string, or None if the pattern is not found.
+        The index of the chosen answer as a string, or None if no answer can be found.
     """
-    # More flexible regex to find the answer
-    match = re.search(r'(?:the final answer is|the answer is|the correct answer is)\s*:?\s*(\d)', s, re.IGNORECASE)
-    if match:
-        return match.group(1)
+    # 1. Check for the full text of a choice in the generated answer
+    for i, choice_text in enumerate(choices):
+        if re.search(r'\b' + re.escape(choice_text) + r'\b', generated_text, re.IGNORECASE):
+            return str(i)
+
+    # 2. If no text match, look for a digit corresponding to a choice
+    # Find all digits in the string
+    found_digits = re.findall(r'\d', generated_text)
     
-    # Fallback to just find the last digit if the pattern is not found
-    digits = re.findall(r'\d', s)
-    return digits[-1] if digits else None
+    # Filter for digits that are valid choice indices
+    valid_indices = [d for d in found_digits if int(d) < len(choices)]
+    
+    # If there is exactly one valid digit, return it
+    if len(valid_indices) == 1:
+        return valid_indices[0]
+    
+    # Advanced search for patterns like "the answer is 2"
+    match = re.search(r'(?:the final answer is|the answer is|the correct answer is|choice is)\s*:?\s*(\d)', generated_text, re.IGNORECASE)
+    if match:
+        digit = match.group(1)
+        if int(digit) < len(choices):
+            return digit
+            
+    # As a last resort, return the last valid digit if any exist
+    if valid_indices:
+        return valid_indices[-1]
+
+    return None
 
 
 class Trainer:
@@ -66,6 +90,10 @@ class Trainer:
         model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
         is_main_process = not dist.is_initialized() or dist.get_rank() == 0
         tokenizer = self.val_loader.collate_fn.tokenizer
+        
+        # Prevent repetitive warning
+        if hasattr(model_to_eval.model.config, 'pad_token_id'):
+            model_to_eval.model.config.pad_token_id = tokenizer.eos_token_id
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(not is_main_process))
 
@@ -98,24 +126,19 @@ class Trainer:
                     if i >= len(batch['original_questions']):
                         break
                     
-                    is_mcq = batch['is_mcq'][i]
-
                     with open('evaluation.log', 'a') as f:
                         question = batch['original_questions'][i]
-                        choices_str = batch['choices_str'][i]
                         
-                        if is_mcq:
-                            predicted_answer = extract_final_answer_digit(generated_text)
-                            is_correct = predicted_answer in gt_answers if predicted_answer is not None else False
-                        else:
-                            # For non-MCQ, check if any ground truth answer is in the generated text
-                            is_correct = any(gt.lower() in generated_text.lower() for gt in gt_answers)
+                        choices_list = batch['choices'][i]
+                        choices_str = ", ".join([f"{idx}: {choice}" for idx, choice in enumerate(choices_list)])
+                        predicted_answer = extract_answer_from_model_output(generated_text, choices_list)
+                        is_correct = predicted_answer in gt_answers if predicted_answer is not None else False
 
                         if is_correct:
                             correct_predictions += 1
                         
                         f.write('----------------------------------------\n')
-                        f.write(f"Question: {question}{' Choices: ' + choices_str if is_mcq else ''}\n")
+                        f.write(f"Question: {question}{' The choices are ' + choices_str}\n")
                         f.write(f"Generated Answer: {generated_text.strip()}\n")
                         f.write(f"Ground Truth Answers: {gt_answers}\n")
                         f.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
