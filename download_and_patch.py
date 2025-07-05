@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import inspect
 
 # Install dependencies
 try:
@@ -31,29 +32,36 @@ def download_and_patch_model():
     ).cuda()
     tokenizer = AutoTokenizer.from_pretrained(hub_model_id, trust_remote_code=True)
 
+    # 2. Find and patch the model's source file in the cache
+    try:
+        # Get the path of the model's source file
+        model_file_path = inspect.getfile(model.__class__)
+        destination_path = model_file_path
+        
+        # Apply the patch
+        print(f"Patching file at: {destination_path}")
+        shutil.copyfile(patched_file_path, destination_path)
+        print("Patch applied successfully to cached model file.")
+
+    except Exception as e:
+        print(f"Error: Could not find and patch the model file dynamically: {e}")
+        print("Aborting.")
+        return
+
+    # 3. Save the patched model and tokenizer
     print(f"Saving model and tokenizer to '{local_model_dir}'...")
     model.save_pretrained(local_model_dir)
     tokenizer.save_pretrained(local_model_dir)
     
-    # 2. Find the target directory for the patch
-    # The target file is inside a nested directory created by save_pretrained, often with a hash name.
-    # We need to find the correct subdirectory.
-    target_dir = None
+    # 4. (Debug) List the files in the output directory
+    print(f"\n--- Contents of '{local_model_dir}' ---")
     for root, dirs, files in os.walk(local_model_dir):
-        if "modeling_internvl_chat.py" in files:
-            target_dir = root
-            break
-            
-    if not target_dir:
-        print("Error: Could not find the target directory for patching.")
-        return
+        for name in files:
+            print(os.path.join(root, name))
+        for name in dirs:
+            print(os.path.join(root, name))
+    print("--------------------------------------\n")
 
-    # 3. Apply the patch
-    destination_path = os.path.join(target_dir, "modeling_internvl_chat.py")
-    print(f"Patching file at: {destination_path}")
-    shutil.copyfile(patched_file_path, destination_path)
-    
-    print("Patch applied successfully.")
     print(f"Model is ready to be used from '{local_model_dir}'.")
 
 if __name__ == "__main__":
