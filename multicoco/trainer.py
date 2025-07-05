@@ -341,7 +341,8 @@ class Trainer:
             generation_config = dict(
                 max_new_tokens=100, 
                 do_sample=False,
-                pad_token_id=tokenizer.pad_token_id
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=[tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|im_end|>')]
             )
             
             # Ensure pixel_values are on the same device as model
@@ -412,7 +413,7 @@ class Trainer:
                 for i in range(len(questions)):
                     raw_response = raw_responses[i]
                     token_count = token_counts[i]
-                    correct_answer = str(correct_answers[i])
+                    correct_answer_list = correct_answers[i]
                     question = questions[i]
                     steps = steps_list[i]
 
@@ -420,7 +421,7 @@ class Trainer:
                     extracted_answer = self.extract_answer_choice(raw_response, mode_name)
                     
                     # Check correctness
-                    is_correct = extracted_answer == correct_answer
+                    is_correct = extracted_answer in correct_answer_list
 
                     if is_correct:
                         total_correct += 1
@@ -432,7 +433,7 @@ class Trainer:
                         "steps": steps,
                         "generated_answer": raw_response,
                         "extracted_answer": extracted_answer,
-                        "ground_truth": correct_answer,
+                        "ground_truth": correct_answer_list,
                         "correct": is_correct,
                         "tokens_generated": token_count,
                         "mode": mode_name
