@@ -6,17 +6,16 @@ from typing import Dict, Sequence
 import json
 from multicoco.conversation import get_conv_template
 
+
 class MultiCoCoDataset(Dataset):
-    def __init__(self, data_path, data_dir):
+    def __init__(self, data_path, data_dir, is_eval=False):
         if data_path:
             with open(data_path, 'r') as f:
                 self.data = json.load(f)
         else:
             self.data = []
         
-        # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
-        # Remove this line to use the full dataset again.
-        if "val" in data_path: # Apply only to validation set
+        if is_eval: # Apply only to validation/test set for quick evaluation
             self.data = self.data[:20]
 
         self.data_dir = data_dir
@@ -26,12 +25,26 @@ class MultiCoCoDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
+        choices_str = ", ".join([f"{i} : {choice}" for i, choice in enumerate(item['choices'])])
+        
+        # 'answer' might not be present in test sets
+        answer = item.get("answer")
+        
+        # 'answers' should be a list of strings (the correct option indices)
+        if answer is not None and answer in item['choices']:
+             answers = item.get("answers", [str(item['choices'].index(answer))])
+        else:
+            answers = [] # No valid answer for this item
+
         return {
             "image": os.path.join(self.data_dir, item["image"]),
             "question": item["question"],
-            "answer": item["answer"],
-            "answers": item.get("answers", [item.get("answer")])
+            "choices": item["choices"],
+            "choices_str": choices_str,
+            "answer": answer,
+            "answers": answers
         }
+
 
 class DataCollatorForInternVL(object):
     def __init__(self, tokenizer, model, image_processor):
@@ -42,10 +55,10 @@ class DataCollatorForInternVL(object):
         self.num_image_tokens = model.config.num_image_token
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
-        answers = [ins.pop('answers') for ins in instances]
-        original_questions = [ins['question'] for ins in instances]
+        is_eval = 'answer' not in instances[0] or instances[0]['answer'] is None
 
+        images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
+        
         if hasattr(self.model, 'dynamic_preprocess'):
             pixel_values_list, _ = self.model.dynamic_preprocess(images, image_size=self.model.config.image_size)
             pixel_values = torch.cat(pixel_values_list, dim=0)
@@ -55,27 +68,40 @@ class DataCollatorForInternVL(object):
         all_input_ids = []
         all_labels = []
 
+        conv = get_conv_template(self.model.conv_template)
+        roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+        
         for ins in instances:
-            question = '<img>' * self.num_image_tokens + '\n' + ins['question']
-            answer = ins['answer']
-            conv = get_conv_template(self.model.conv_template)
-            roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+            instruction = (
+                "Please provide your reasoning and then end your answer with the single digit corresponding to the correct choice. "
+                "The final answer should be in the format: 'The final answer is: <digit>'"
+            )
+            question = f"<img> * {self.num_image_tokens}\n{ins['question']} The choices are {ins['choices_str']}\n\n{instruction}"
+            
+            conv.messages = []
             conv.append_message(roles["human"], question)
-            conv.append_message(roles["gpt"], answer)
+            
+            if not is_eval:
+                answer_for_training = f"{ins['answer']} The final answer is: {ins['choices'].index(ins['answer'])}"
+                conv.append_message(roles["gpt"], answer_for_training)
+            else:
+                conv.append_message(roles["gpt"], None)
+            
             conversation = conv.get_prompt()
 
             input_ids = self.tokenizer(conversation, return_tensors="pt", padding="longest", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
             labels = input_ids.clone()
 
-            sep = conv.sep + conv.roles[1] + ": "
-            parts = conversation.split(sep)
-            if len(parts) > 1:
-                parts[0] += sep
-                round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
-                instruction_len = len(self.tokenizer(parts[0] + parts[1], add_special_tokens=False).input_ids)
-                labels[:round_len] = -100
-                if len(labels) > instruction_len:
-                    labels[instruction_len:] = -100
+            if not is_eval:
+                sep = conv.sep + conv.roles[1] + ": "
+                parts = conversation.split(sep)
+                if len(parts) > 1:
+                    parts[0] += sep
+                    round_len = len(self.tokenizer(parts[0], add_special_tokens=False).input_ids)
+                    labels[:round_len] = -100
+            else:
+                # For eval, we don't need to compute loss
+                labels[:] = -100
             
             all_input_ids.append(input_ids)
             all_labels.append(labels)
@@ -84,13 +110,18 @@ class DataCollatorForInternVL(object):
         padded_labels = torch.nn.utils.rnn.pad_sequence(all_labels, batch_first=True, padding_value=-100)
         attention_mask = padded_input_ids.ne(self.tokenizer.pad_token_id)
         image_flags = (padded_input_ids == self.image_token_id).long()
-
-        return {
+        
+        return_dict = {
             'pixel_values': pixel_values,
             'input_ids': padded_input_ids,
             'attention_mask': attention_mask,
-            'labels': padded_labels,
             'image_flags': image_flags,
-            'answers': answers,
-            'original_questions': original_questions
+            'answers': [ins['answers'] for ins in instances],
+            'original_questions': [ins['question'] for ins in instances],
+            'choices_str': [ins['choices_str'] for ins in instances]
         }
+
+        if not is_eval:
+            return_dict['labels'] = padded_labels
+            
+        return return_dict
