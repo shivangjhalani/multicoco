@@ -10,6 +10,7 @@ class MultiCoCo(nn.Module):
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
             trust_remote_code=True,
+            attn_implementation='eager',
         )
         # Use a separate ID for the tokenizer if provided, otherwise default to model_id.
         tok_id = tokenizer_id if tokenizer_id else model_id
