@@ -95,28 +95,34 @@ class Trainer:
 
         with torch.no_grad():
             for batch in pbar:
-                # We need the original answers for comparison, which are not part of the model's input
                 original_answers = batch.pop("answers")
                 original_questions = batch.pop("original_questions")
+                
+                # Prepare the batch for generation by using the prompt-only inputs
+                generation_batch = {
+                    'pixel_values': batch['pixel_values'],
+                    'input_ids': batch.pop('generation_input_ids'),
+                    'attention_mask': batch.pop('generation_attention_mask'),
+                }
+                if 'image_flags' in batch:
+                    generation_batch['image_flags'] = batch['image_flags']
 
                 # Move batch to device
-                for k, v in batch.items():
+                for k, v in generation_batch.items():
                     if isinstance(v, torch.Tensor):
-                        batch[k] = v.to(self.device)
+                        generation_batch[k] = v.to(self.device)
                 
                 model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
 
-                # Inspect the model's generate function to see if it accepts `image_flags`.
-                # The vanilla model doesn't, so we remove it to prevent a ValueError.
                 generate_args = inspect.signature(model_to_eval.model.generate).parameters
                 if 'image_flags' not in generate_args:
-                    batch.pop('image_flags', None)
+                    generation_batch.pop('image_flags', None)
 
                 # Generate outputs
                 outputs = model_to_eval.model.generate(
-                    **batch,
+                    **generation_batch,
                     do_sample=False,
-                    max_new_tokens=5,  # Drastically reduce max tokens
+                    max_new_tokens=100, # Restore a reasonable length
                     num_beams=1,
                     min_length=1,
                     repetition_penalty=1.0,
@@ -125,20 +131,20 @@ class Trainer:
                     pad_token_id=tokenizer.pad_token_id
                 )
                 
-                # Decode and compare
                 generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=False) # Keep special tokens for cleanup
-
+                
+                # We need to clean up the generated text to isolate the answer
+                # The prompt is not in this text, so we find it by what's *after* the assistant role
                 for i, gen_text in enumerate(generated_texts):
-                    # Clean up generated text to isolate the answer
-                    question_part = input_texts[i]
-                    if tokenizer.bos_token:
-                        question_part = question_part.replace(tokenizer.bos_token, '')
-                    question_part = question_part.replace('<img>' * num_image_tokens, '').strip() # Also remove newline
+                    conv_gen = get_conv_template(model_to_eval.conv_template)
+                    roles = {"human": conv_gen.roles[0], "gpt": conv_gen.roles[1]}
+                    conv_gen.append_message(roles["human"], 'dummy') # The content doesn't matter here
+                    conv_gen.append_message(roles["gpt"], None)
+                    # This gets us the "ASSISTANT: " part
+                    assistant_role_prompt = conv_gen.get_prompt().split('dummy')[1]
                     
-                    answer_text = gen_text.replace(question_part, '').strip()
+                    answer_text = gen_text.split(assistant_role_prompt)[-1].strip()
 
-                    # Use regex to find the first digit in the answer
                     match = re.search(r'\d', answer_text)
                     extracted_answer = match.group(0) if match else None
                     
