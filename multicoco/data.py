@@ -94,3 +94,37 @@ class DataCollatorForInternVL(object):
             'answers': answers,
             'original_questions': original_questions
         }
+
+
+class DataCollatorForEval(object):
+    def __init__(self, tokenizer, model, image_processor):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.image_processor = image_processor
+        self.num_image_tokens = model.config.num_image_token
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
+        answers = [ins.pop('answers') for ins in instances]
+        original_questions = [ins['question'] for ins in instances]
+
+        if hasattr(self.model, 'dynamic_preprocess'):
+            pixel_values_list, _ = self.model.dynamic_preprocess(images, image_size=self.model.config.image_size)
+            pixel_values = torch.cat(pixel_values_list, dim=0)
+        else:
+            pixel_values = self.image_processor(images=images, return_tensors="pt")['pixel_values'].to(torch.bfloat16)
+
+        prompts = []
+        for ins in instances:
+            question = '<img>' * self.num_image_tokens + '\n' + ins['question']
+            prompts.append(question)
+        
+        # Tokenization will happen inside the evaluation loop
+        # to handle variable length prompts without excessive padding.
+
+        return {
+            'pixel_values': pixel_values,
+            'prompts': prompts,
+            'answers': answers,
+            'original_questions': original_questions
+        }
