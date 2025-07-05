@@ -148,11 +148,18 @@ class Trainer:
     def format_question_for_mode(self, question: str, mode: str) -> str:
         """
         Format the question based on evaluation mode.
+        
+        Args:
+            question: The original question with choices
+            mode: "vanilla", "cot", or "coconut"
+            
+        Returns:
+            Formatted question string
         """
-        # The model was not trained with specific instructions in the prompt,
-        # so we should not add them during evaluation to avoid a train-test skew.
-        # The `batch_chat` method will wrap this in the appropriate conversation template.
-        return question
+        if mode == "cot":
+            return f"{question}\nThink step by step and provide your reasoning, then at the end, give your final answer as a number (0, 1, 2, or 3) corresponding to the correct choice."
+        else:
+            return f"{question}\nAnswer with only the number (0, 1, 2, or 3) corresponding to the correct choice."
 
     def extract_answer_choice(self, response: str, mode: str = "vanilla") -> str:
         """
