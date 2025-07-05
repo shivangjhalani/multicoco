@@ -62,7 +62,8 @@ def main():
     is_eval_only = args.get('only_eval', False)
     
     special_tokens = []
-    if not is_eval_only:
+    # Add special tokens if we are training, or if we are evaluating a model that used them (cot/coconut)
+    if not is_eval_only or args.get('cot') or args.get('coconut'):
         special_tokens = ['<thought>', '<start_thought>', '<end_thought>']
 
     # If load_path is a checkpoint file, we must load the base model first
