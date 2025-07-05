@@ -3,47 +3,6 @@ import torch
 from tqdm import tqdm
 import torch.distributed as dist
 import inspect
-import re
-
-def parse_choices(question_text):
-    """Extracts choices from the question text."""
-    choices_match = re.search(r'The choices are (.+)', question_text)
-    if not choices_match:
-        return []
-    
-    choices_str = choices_match.group(1)
-    # This regex handles "0 : choice, 1 : another"
-    return [c.strip() for c in re.split(r'\d+\s*:\s*', choices_str) if c]
-
-def is_answer_correct(generated_text, ground_truth_answers, choices):
-    """
-    Checks if the generated text contains a correct answer.
-    It checks for the ground truth answer text itself, or the index of the correct answer.
-    """
-    generated_text_lower = generated_text.lower()
-    
-    for gt_ans in ground_truth_answers:
-        gt_ans_lower = gt_ans.lower()
-
-        # 1. Direct match of the ground truth answer text
-        if gt_ans_lower in generated_text_lower:
-            return True
-
-        # 2. Check if the generated text contains the choice text corresponding to the answer
-        try:
-            # gt_ans is often the index as a string, like '3'
-            choice_index = int(gt_ans)
-            if 0 <= choice_index < len(choices):
-                choice_text = choices[choice_index].lower()
-                if choice_text in generated_text_lower:
-                    return True
-        except (ValueError, IndexError):
-            # If gt_ans is not an index, or index is out of bounds, this will fail.
-            # It might be the full answer text, which is already checked above.
-            continue
-            
-    return False
-
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args):
@@ -129,59 +88,56 @@ class Trainer:
 
         # The collator needs access to the tokenizer for decoding
         tokenizer = self.val_loader.collate_fn.tokenizer
+        num_image_tokens = self.val_loader.collate_fn.num_image_tokens
 
         pbar = tqdm(self.val_loader, desc="Evaluating", disable=(dist.is_initialized() and dist.get_rank() != 0))
 
         with torch.no_grad():
             for batch in pbar:
-                # We get prompts directly from the new collator
-                prompts = batch.pop("prompts")
+                # We need the original answers for comparison, which are not part of the model's input
                 original_answers = batch.pop("answers")
                 original_questions = batch.pop("original_questions")
 
-                # Move pixel_values to device
-                pixel_values = batch['pixel_values'].to(self.device)
+                # Move batch to device
+                for k, v in batch.items():
+                    if isinstance(v, torch.Tensor):
+                        batch[k] = v.to(self.device)
                 
                 model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
 
-                # Tokenize prompts
-                inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=tokenizer.model_max_length)
-                input_ids = inputs.input_ids.to(self.device)
-                attention_mask = inputs.attention_mask.to(self.device)
+                # Inspect the model's generate function to see if it accepts `image_flags`.
+                # The vanilla model doesn't, so we remove it to prevent a ValueError.
+                generate_args = inspect.signature(model_to_eval.model.generate).parameters
+                if 'image_flags' not in generate_args:
+                    batch.pop('image_flags', None)
 
                 # Generate outputs
                 outputs = model_to_eval.model.generate(
-                    pixel_values=pixel_values,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
+                    **batch,
                     do_sample=False,
                     max_new_tokens=100,
+                    num_beams=1,
+                    min_length=1,
+                    repetition_penalty=1.0,
+                    length_penalty=1.0,
+                    temperature=1.0,
                     pad_token_id=tokenizer.pad_token_id
                 )
                 
                 # Decode and compare
                 generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                input_texts = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=False) # Keep special tokens for cleanup
 
                 for i, gen_text in enumerate(generated_texts):
-                    # Clean up the generated text by removing the prompt part.
-                    # The prompt now includes conversational tokens, so we find the bot's turn.
-                    prompt_part = prompts[i]
-                    bot_turn_marker = "<bot>"
-                    bot_turn_start_index = prompt_part.find(bot_turn_marker)
+                    # Clean up generated text to isolate the answer
+                    question_part = input_texts[i]
+                    if tokenizer.bos_token:
+                        question_part = question_part.replace(tokenizer.bos_token, '')
+                    question_part = question_part.replace('<img>' * num_image_tokens + '\n', '').strip()
                     
-                    # We remove everything up to and including the bot marker
-                    if bot_turn_start_index != -1:
-                        clean_prompt = prompt_part[bot_turn_start_index + len(bot_turn_marker):].strip()
-                    else:
-                        # Fallback if the marker isn't found for some reason
-                        clean_prompt = prompts[i].replace('<img>' * self.val_loader.collate_fn.num_image_tokens + '\n', '').strip()
+                    answer_text = gen_text.replace(question_part, '').strip()
 
-                    answer_text = gen_text.replace(clean_prompt, '').strip()
-
-                    # Extract choices from the original question to help with parsing
-                    choices = parse_choices(original_questions[i])
-                    
-                    is_correct = is_answer_correct(answer_text, original_answers[i], choices)
+                    is_correct = any(ans.lower() in answer_text.lower() for ans in original_answers[i])
                     if is_correct:
                         total_correct += 1
 

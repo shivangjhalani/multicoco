@@ -14,7 +14,7 @@ internvl_chat_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'in
 if internvl_chat_path not in sys.path:
     sys.path.insert(0, internvl_chat_path)
 
-from multicoco.data import MultiCoCoDataset, DataCollatorForInternVL, DataCollatorForEval
+from multicoco.data import MultiCoCoDataset, DataCollatorForInternVL
 from multicoco.model import MultiCoCo
 from multicoco.trainer import Trainer
 
@@ -77,9 +77,7 @@ def main():
     # Data
     hf_model = (model.module if hasattr(model, 'module') else model).model
     image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
-    
-    # Use the new eval collator for the validation set
-    eval_collator = DataCollatorForEval(
+    collator = DataCollatorForInternVL(
         tokenizer=tokenizer,
         model=hf_model,
         image_processor=image_processor
@@ -90,26 +88,21 @@ def main():
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
     val_loader = DataLoader(
         val_dataset,
-        batch_size=args['batch_size_training'], # Using training batch size for eval as well, can be changed
+        batch_size=args['batch_size_training'],
         sampler=val_sampler,
-        collate_fn=eval_collator
+        collate_fn=collator
     )
 
     # Conditionally create train_loader
     train_loader = None
     if not args.get('only_eval', False):
-        train_collator = DataCollatorForInternVL(
-            tokenizer=tokenizer,
-            model=hf_model,
-            image_processor=image_processor
-        )
         train_dataset = MultiCoCoDataset(data_path=args['train_path'], data_dir=args['data_dir'])
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
         train_loader = DataLoader(
             train_dataset,
             batch_size=args['batch_size_training'],
             sampler=train_sampler,
-            collate_fn=train_collator,
+            collate_fn=collator,
             shuffle=(train_sampler is None) # Shuffle only if not using DDP
         )
 

@@ -13,12 +13,6 @@ class MultiCoCoDataset(Dataset):
                 self.data = json.load(f)
         else:
             self.data = []
-        
-        # Temporary: Slice the dataset to only use the first 10 examples for quick evaluation.
-        # Remove this line to use the full dataset again.
-        if "val" in data_path: # Apply only to validation set
-            self.data = self.data[:10]
-
         self.data_dir = data_dir
 
     def __len__(self):
@@ -91,46 +85,6 @@ class DataCollatorForInternVL(object):
             'attention_mask': attention_mask,
             'labels': padded_labels,
             'image_flags': image_flags,
-            'answers': answers,
-            'original_questions': original_questions
-        }
-
-
-class DataCollatorForEval(object):
-    def __init__(self, tokenizer, model, image_processor):
-        self.tokenizer = tokenizer
-        self.model = model
-        self.image_processor = image_processor
-        self.num_image_tokens = model.config.num_image_token
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        images = [Image.open(ins.pop('image')).convert('RGB') for ins in instances]
-        answers = [ins.pop('answers') for ins in instances]
-        original_questions = [ins['question'] for ins in instances]
-
-        if hasattr(self.model, 'dynamic_preprocess'):
-            pixel_values_list, _ = self.model.dynamic_preprocess(images, image_size=self.model.config.image_size)
-            pixel_values = torch.cat(pixel_values_list, dim=0)
-        else:
-            pixel_values = self.image_processor(images=images, return_tensors="pt")['pixel_values'].to(torch.bfloat16)
-
-        prompts = []
-        for ins in instances:
-            question = '<img>' * self.num_image_tokens + '\n' + ins['question']
-            
-            # Use the conversation template for proper formatting
-            conv = get_conv_template('internvl_v1.1')
-            conv.append_message(conv.roles[0], question) # Human
-            conv.append_message(conv.roles[1], None) # Bot
-            prompt = conv.get_prompt()
-            prompts.append(prompt)
-        
-        # Tokenization will happen inside the evaluation loop
-        # to handle variable length prompts without excessive padding.
-
-        return {
-            'pixel_values': pixel_values,
-            'prompts': prompts,
             'answers': answers,
             'original_questions': original_questions
         }
