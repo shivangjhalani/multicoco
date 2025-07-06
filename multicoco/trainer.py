@@ -149,29 +149,20 @@ class Trainer:
 
     def format_question_for_mode(self, question: str, mode: str) -> str:
         """
-        Formats the question with mode-specific instructions to be used as the content
-        of the user message in the conversation template.
+        Returns the question directly, as the conversation template is handled
+        by the batch_chat method.
         
         Args:
             question: The original question with choices
-            mode: "vanilla", "cot", or "coconut"
+            mode: "vanilla", "cot", or "coconut" (unused, but kept for consistency)
             
         Returns:
-            Formatted question string (to be used as user message content)
+            The original question string.
         """
-        if mode == "cot":
-            # Instruction for CoT reasoning.
-            return (
-                f"{question}\n"
-                "First, provide a step-by-step reasoning for your answer. "
-                "After your reasoning, conclude with the final answer in the format: 'The final answer is [choice number]'."
-            )
-        else: # vanilla and coconut
-            # Dead-simple instruction for a direct answer.
-            return (
-                f"{question}\n"
-                "Answer with only the single digit of the correct option."
-            )
+        # The batch_chat method in model.py wraps this content in the appropriate
+        # conversation template. We provide only the raw question here to avoid
+        # nested prompt confusion.
+        return question
 
     def extract_answer_choice(self, response: str, mode: str = "vanilla") -> str:
         """
