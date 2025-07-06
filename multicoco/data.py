@@ -66,11 +66,14 @@ class DataCollatorForInternVL(object):
         for i, ins in enumerate(instances):
             question = ins['question']
             
+            # Add image tokens, which are essential for the model to process pixel_values
+            question_with_img = '<img>' * self.model.config.num_image_token + '\n' + question
+            
             # For CoT, combine reasoning steps with the final answer
             answer_text = " ".join(steps[i]) + " " + ins['answer'] if steps[i] else ins['answer']
 
             # Simple concatenation for base model
-            full_text = f"{question} {answer_text}{self.tokenizer.eos_token}"
+            full_text = f"{question_with_img} {answer_text}{self.tokenizer.eos_token}"
             
             # Tokenize the full sequence
             input_ids = self.tokenizer(full_text, return_tensors="pt", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
@@ -78,7 +81,7 @@ class DataCollatorForInternVL(object):
             
             if is_train:
                 # Mask the question part, only train on the answer
-                question_tokenized = self.tokenizer(question, return_tensors="pt", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
+                question_tokenized = self.tokenizer(question_with_img, return_tensors="pt", max_length=self.tokenizer.model_max_length, truncation=True).input_ids[0]
                 question_len = len(question_tokenized)
                 labels[:question_len] = -100
             else:
@@ -117,9 +120,12 @@ class DataCollatorForInternVL(object):
             question = ins['question']
             answer_text = ins['answer']
 
+            # Add image tokens to the question
+            question_with_img = '<img>' * self.model.config.num_image_token + '\n' + question
+
             # Construct input with latent tokens
             question_with_thoughts = (
-                f"{question} "
+                f"{question_with_img} "
                 f"<start_thought>{'<thought>' * c_thought}<end_thought>"
             )
 
