@@ -149,28 +149,28 @@ class Trainer:
 
     def format_question_for_mode(self, question: str, mode: str) -> str:
         """
-        Format the question based on evaluation mode using a role-based structure.
+        Formats the question with mode-specific instructions to be used as the content
+        of the user message in the conversation template.
         
         Args:
             question: The original question with choices
             mode: "vanilla", "cot", or "coconut"
             
         Returns:
-            Formatted question string
+            Formatted question string (to be used as user message content)
         """
         if mode == "cot":
-            # A very explicit role-based prompt for CoT
+            # Instruction for CoT reasoning.
             return (
-                f"USER: {question}\n"
-                "Think step-by-step and then write the final answer in the format 'The final answer is [choice number]'.\n"
-                "ASSISTANT:"
+                f"{question}\n"
+                "First, provide a step-by-step reasoning for your answer. "
+                "After your reasoning, conclude with the final answer in the format: 'The final answer is [choice number]'."
             )
-        else:
-            # A very direct role-based prompt for vanilla/coconut
+        else: # vanilla and coconut
+            # Dead-simple instruction for a direct answer.
             return (
-                f"USER: {question}\n"
-                "Respond with only the single digit of the correct answer.\n"
-                "ASSISTANT:"
+                f"{question}\n"
+                "Answer with only the single digit of the correct option."
             )
 
     def extract_answer_choice(self, response: str, mode: str = "vanilla") -> str:
