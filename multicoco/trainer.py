@@ -5,6 +5,8 @@ import torch.distributed as dist
 import inspect
 import re
 from copy import copy
+from PIL import Image
+import torchvision.transforms as T
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, val_loader, args, wandb_run=None, text_table=None):
@@ -200,6 +202,93 @@ class Trainer:
 
         return ""
 
+    def evaluate(self):
+        """Main evaluation loop."""
+        self.model.eval()
+        correct = 0
+        total = 0
+        total_tokens = 0
+        
+        # Get evaluation mode from args
+        eval_config = self._get_eval_config()
+        mode = "coconut" if eval_config['coconut'] else "cot" if eval_config.get('cot') else "vanilla"
+
+        # Prepare log file
+        log_dir = self.args.get('log_dir', 'logs')
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        log_file_path = os.path.join(log_dir, f'evaluation_{mode}.log')
+        
+        with open(log_file_path, 'w') as log_file:
+            log_file.write(f"InternVL3-1B A-OKVQA Evaluation Log ({mode.upper()} mode)\n")
+            
+            pbar = tqdm(self.val_loader, desc=f"Evaluating ({mode.upper()})", disable=(dist.is_initialized() and dist.get_rank() != 0))
+
+            for batch in pbar:
+                pixel_values = batch.pop("pixel_values").to(self.device)
+                questions = batch.pop("original_questions")
+                ground_truths = batch.pop("answers")
+                
+                # Format question based on mode
+                formatted_questions = [self.format_question_for_mode(q, mode) for q in questions]
+
+                with torch.no_grad():
+                    # Get model from DDP wrapper if it exists
+                    model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
+                    
+                    generation_config = {
+                        'max_new_tokens': self.args.get('max_new_tokens', 100),
+                        'temperature': 0.0,
+                        'do_sample': False,
+                        'pad_token_id': model_to_eval.tokenizer.pad_token_id,
+                        'eos_token_id': model_to_eval.tokenizer.eos_token_id
+                    }
+                    
+                    if mode == "coconut":
+                        # Add coconut-specific generation params
+                        generation_config['c_thought'] = self.args.get('c_thought', 2)
+                        responses = model_to_eval.generate_coconut(pixel_values, formatted_questions, generation_config)
+                    else:
+                        responses = model_to_eval.batch_chat(pixel_values, formatted_questions, generation_config)
+
+                for i in range(len(responses)):
+                    response = responses[i]
+                    extracted_answer = self.extract_answer_choice(response, mode)
+                    is_correct = extracted_answer in ground_truths[i]
+
+                    if is_correct:
+                        correct += 1
+                    total += 1
+                    tokens_generated = self.count_tokens(response)
+                    total_tokens += tokens_generated
+                    
+                    log_file.write("================================================================================\n\n")
+                    log_file.write(f"Sample {total}:\n")
+                    log_file.write("----------------------------------------\n")
+                    log_file.write(f"Question: {questions[i]}\n")
+                    log_file.write(f"Generated Answer: {response}\n")
+                    log_file.write(f"Extracted Answer: {extracted_answer}\n")
+                    log_file.write(f"Ground Truth Answer: {ground_truths[i]}\n")
+                    log_file.write(f"Tokens Generated: {tokens_generated}\n")
+                    log_file.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
+                    log_file.write("----------------------------------------\n\n")
+            
+            # Final stats
+            accuracy = correct / total if total > 0 else 0
+            avg_tokens = total_tokens / total if total > 0 else 0
+            
+            log_file.write(f"Total samples: {total}\n")
+            log_file.write(f"Accuracy: {accuracy:.4f}\n")
+            log_file.write(f"Average tokens generated: {avg_tokens:.2f}\n")
+        
+        if dist.is_initialized():
+            # Sync results across all processes
+            accuracy_tensor = torch.tensor(accuracy, device=self.device)
+            dist.all_reduce(accuracy_tensor, op=dist.ReduceOp.SUM)
+            accuracy = (accuracy_tensor.item() / dist.get_world_size())
+
+        return accuracy
+
     def count_tokens(self, text: str) -> int:
         """Count the number of tokens in a text string."""
         tokenizer = self.val_loader.collate_fn.tokenizer
@@ -217,8 +306,6 @@ class Trainer:
             Preprocessed pixel values tensor or None if image can't be loaded
         """
         try:
-            from PIL import Image
-            
             # Load image and convert to RGB
             image = Image.open(image_path).convert('RGB')
             
@@ -253,11 +340,10 @@ class Trainer:
             transform = image_processor.transforms
         else:
             # Create a basic transform if not available
-            from torchvision import transforms
-            transform = transforms.Compose([
-                transforms.Resize((input_size, input_size)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transform = T.Compose([
+                T.Resize((input_size, input_size)),
+                T.ToTensor(),
+                T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
         
         # Get original dimensions
@@ -304,137 +390,6 @@ class Trainer:
         pixel_values = pixel_values.to(device=self.device, dtype=torch.bfloat16)
         
         return pixel_values
-
-    def evaluate(self):
-        """Evaluation loop with CoT support and token counting."""
-        self.model.eval()
-        
-        total_correct = torch.tensor([0.0]).to(self.device)
-        total_samples = torch.tensor([0.0]).to(self.device)
-        total_tokens = torch.tensor([0.0]).to(self.device)
-        
-        all_results = []
-        is_main_process = not dist.is_initialized() or dist.get_rank() == 0
-
-        # Determine evaluation mode
-        eval_config = self._get_eval_config()
-        self.val_loader.collate_fn.train_config = eval_config  # Set collator to eval mode
-        cot_mode = eval_config.get('cot', False)
-        coconut_mode = eval_config.get('coconut', False)
-        
-        if coconut_mode:
-            mode_name = "coconut"
-            generation_config = {'c_thought': self.args.get('c_thought', 1), 'max_new_tokens': 500}
-        else:
-            mode_name = "cot" if cot_mode else "vanilla"
-            generation_config = dict(
-                max_new_tokens=500, 
-                temperature=0.0, # Explicitly set temperature to 0 for deterministic output
-                pad_token_id=self.val_loader.collate_fn.tokenizer.pad_token_id,
-                eos_token_id=[
-                    self.val_loader.collate_fn.tokenizer.eos_token_id, 
-                    self.val_loader.collate_fn.tokenizer.convert_tokens_to_ids('<|im_end|>')
-                ]
-            )
-
-        pbar = tqdm(self.val_loader, desc=f"Evaluating ({mode_name})", disable=(not is_main_process))
-
-        with torch.no_grad():
-            for batch in pbar:
-                # Move batch to device
-                for k, v in batch.items():
-                    if isinstance(v, torch.Tensor):
-                        batch[k] = v.to(self.device)
-
-                pixel_values = batch['pixel_values']
-                questions = batch['original_questions']
-                correct_answers = batch['answers']
-                steps_list = batch.get('steps', [[] for _ in range(len(questions))])
-
-                if coconut_mode:
-                    raw_responses = self.model.generate_coconut(pixel_values, questions, generation_config)
-                else:
-                    # Format questions for vanilla/cot
-                    formatted_questions = [self.format_question_for_mode(q, mode_name) for q in questions]
-                    raw_responses = self.model.batch_chat(pixel_values, formatted_questions, generation_config)
-                
-                token_counts = [self.count_tokens(resp) for resp in raw_responses]
-
-                for i in range(len(questions)):
-                    raw_response = raw_responses[i]
-                    token_count = token_counts[i]
-                    correct_answer_list = correct_answers[i]
-                    question = questions[i]
-                    steps = steps_list[i]
-
-                    # Extract answer choice
-                    extracted_answer = self.extract_answer_choice(raw_response, mode_name)
-                    
-                    # Check correctness
-                    is_correct = extracted_answer in correct_answer_list
-
-                    if is_correct:
-                        total_correct += 1
-
-                    total_tokens += token_count
-
-                    all_results.append({
-                        "question": question,
-                        "steps": steps,
-                        "generated_answer": raw_response,
-                        "extracted_answer": extracted_answer,
-                        "ground_truth": correct_answer_list,
-                        "correct": is_correct,
-                        "tokens_generated": token_count,
-                        "mode": mode_name
-                    })
-                
-                total_samples += len(questions)
-
-        # In DDP, gather results from all processes to the main process
-        if dist.is_initialized():
-            gathered_results = [None] * dist.get_world_size()
-            dist.all_gather_object(gathered_results, all_results)
-            if is_main_process:
-                # Flatten the list of lists
-                all_results = [item for sublist in gathered_results for item in sublist]
-
-        # Log results on the main process
-        if is_main_process:
-            avg_tokens = (total_tokens / total_samples).item() if total_samples > 0 else 0
-            accuracy = (total_correct / total_samples).item() if total_samples > 0 else 0
-            
-            log_filename = f'evaluation_{mode_name}.log'
-            with open(log_filename, 'w') as f:
-                f.write(f"InternVL3-1B A-OKVQA Evaluation Log ({mode_name.upper()} mode)\n")
-                f.write(f"Total samples: {len(all_results)}\n")
-                f.write(f"Accuracy: {accuracy:.4f}\n")
-                f.write(f"Average tokens generated: {avg_tokens:.2f}\n")
-                f.write("="*80 + "\n\n")
-                
-                for i, res in enumerate(all_results, 1):
-                    f.write(f"Sample {i}:\n")
-                    f.write("----------------------------------------\n")
-                    f.write(f"Question: {res['question']}\n")
-                    if res['steps'] and mode_name == "cot":
-                        f.write(f"Ground Truth Reasoning: {' '.join(res['steps'])}\n")
-                    f.write(f"Generated Answer: {res['generated_answer']}\n")
-                    f.write(f"Extracted Answer: {res['extracted_answer']}\n")
-                    f.write(f"Ground Truth Answer: {res['ground_truth']}\n")
-                    f.write(f"Tokens Generated: {res['tokens_generated']}\n")
-                    f.write(f"Correct: {'Yes' if res['correct'] else 'No'}\n")
-                    f.write("----------------------------------------\n\n")
-            
-            print(f"Evaluation complete. Results saved to {log_filename}")
-            print(f"Accuracy: {accuracy:.4f}")
-            print(f"Average tokens generated: {avg_tokens:.2f}")
-
-        # Aggregate results from all processes in DDP for accuracy calculation
-        if dist.is_initialized():
-            dist.all_reduce(total_correct, op=dist.ReduceOp.SUM)
-            dist.all_reduce(total_samples, op=dist.ReduceOp.SUM)
-
-        return (total_correct / total_samples).item() if total_samples > 0 else 0.0
 
     def save_checkpoint(self, stage, epoch, val_acc):
         """Saves a model checkpoint."""
