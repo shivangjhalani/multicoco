@@ -208,11 +208,9 @@ class Trainer:
         total = 0
         total_tokens = 0
         
-        # Get evaluation mode from args
         eval_config = self._get_eval_config()
-        mode = "coconut" if eval_config['coconut'] else "cot" if eval_config.get('cot') else "vanilla"
+        mode = "coconut" if eval_config.get('coconut') else "cot" if eval_config.get('cot') else "vanilla"
 
-        # Prepare log file
         log_dir = self.args.get('log_dir', 'logs')
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -225,74 +223,74 @@ class Trainer:
 
             for batch in pbar:
                 pixel_values = batch.pop("pixel_values").to(self.device)
-                questions = batch.pop("original_questions")
+                input_ids = batch.pop("input_ids").to(self.device)
+                attention_mask = batch.pop("attention_mask").to(self.device)
+                original_questions = batch.pop("original_questions")
                 ground_truths = batch.pop("answers")
-                
-                # Format question based on mode
-                formatted_questions = [self.format_question_for_mode(q, mode) for q in questions]
 
                 with torch.no_grad():
-                    # Get model from DDP wrapper if it exists
                     model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
                     
-                    # Dynamically set max_new_tokens based on mode
-                    if mode == 'vanilla':
-                        max_tokens = 500
-                    elif mode == 'cot':
-                        max_tokens = 500
-                    else: # coconut
-                        max_tokens = self.args.get('max_new_tokens', 500)
-                        
                     generation_config = {
-                        'max_new_tokens': max_tokens,
+                        'max_new_tokens': self.args.get('max_new_tokens', 500),
                         'temperature': 0.0,
                         'do_sample': False,
                         'pad_token_id': model_to_eval.tokenizer.pad_token_id,
-                        'eos_token_id': model_to_eval.tokenizer.eos_token_id
+                        'eos_token_id': model_to_eval.tokenizer.eos_token_id,
                     }
-                    
-                    if mode == "coconut":
-                        # Add coconut-specific generation params
-                        generation_config['c_thought'] = self.args.get('c_thought', 2)
-                        responses = model_to_eval.generate_coconut(pixel_values, formatted_questions, generation_config)
-                    else:
-                        responses = model_to_eval.batch_chat(pixel_values, formatted_questions, generation_config)
 
-                for i in range(len(responses)):
-                    response = responses[i]
-                    extracted_answer = self.extract_answer_choice(response, mode)
-                    is_correct = extracted_answer in ground_truths[i]
+                    outputs = model_to_eval.generate(
+                        pixel_values=pixel_values,
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        **generation_config
+                    )
+                    
+                    generated_texts = model_to_eval.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+
+                for i, gen_text in enumerate(generated_texts):
+                    question = original_questions[i]
+                    gt_answers = ground_truths[i]
+                    
+                    # The generated text is the full completion, remove the prompt part
+                    prompt_len = len(model_to_eval.tokenizer.decode(input_ids[i], skip_special_tokens=True))
+                    generated_answer = gen_text[prompt_len:].strip()
+
+                    extracted_answer = self.extract_answer_choice(generated_answer, mode)
+                    is_correct = extracted_answer in gt_answers
 
                     if is_correct:
                         correct += 1
                     total += 1
-                    tokens_generated = self.count_tokens(response)
+                    
+                    tokens_generated = len(outputs[i]) - len(input_ids[i])
                     total_tokens += tokens_generated
                     
-                    log_file.write("================================================================================\n\n")
+                    log_file.write("="*80 + "\n\n")
                     log_file.write(f"Sample {total}:\n")
-                    log_file.write("----------------------------------------\n")
-                    log_file.write(f"Question: {questions[i]}\n")
-                    log_file.write(f"Generated Answer: {response}\n")
+                    log_file.write("-"*40 + "\n")
+                    log_file.write(f"Question: {question}\n")
+                    log_file.write(f"Generated Answer: {generated_answer}\n")
                     log_file.write(f"Extracted Answer: {extracted_answer}\n")
-                    log_file.write(f"Ground Truth Answer: {ground_truths[i]}\n")
+                    log_file.write(f"Ground Truth Answer: {gt_answers}\n")
                     log_file.write(f"Tokens Generated: {tokens_generated}\n")
                     log_file.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
-                    log_file.write("----------------------------------------\n\n")
-            
-            # Final stats
+                    log_file.write("-"*40 + "\n\n")
+
             accuracy = correct / total if total > 0 else 0
             avg_tokens = total_tokens / total if total > 0 else 0
             
-            log_file.write(f"Total samples: {total}\n")
-            log_file.write(f"Accuracy: {accuracy:.4f}\n")
-            log_file.write(f"Average tokens generated: {avg_tokens:.2f}\n")
-        
-        if dist.is_initialized():
-            # Sync results across all processes
-            accuracy_tensor = torch.tensor(accuracy, device=self.device)
-            dist.all_reduce(accuracy_tensor, op=dist.ReduceOp.SUM)
-            accuracy = (accuracy_tensor.item() / dist.get_world_size())
+            summary = (
+                f"\n{'='*80}\n"
+                f"Evaluation Summary ({mode.upper()} mode)\n"
+                f"Total samples: {total}\n"
+                f"Accuracy: {accuracy:.4f}\n"
+                f"Average tokens generated: {avg_tokens:.2f}\n"
+                f"{'='*80}\n"
+            )
+            log_file.write(summary)
+            if not dist.is_initialized() or dist.get_rank() == 0:
+                print(summary)
 
         return accuracy
 

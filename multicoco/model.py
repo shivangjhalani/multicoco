@@ -3,7 +3,7 @@ import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig
 import inspect
 from collections import namedtuple
-from multicoco.conversation import get_conv_template
+# from multicoco.conversation import get_conv_template # No longer needed
 
 Outputs = namedtuple("Outputs", ["loss", "inputs_embeds", "logits"])
 
@@ -123,102 +123,15 @@ class MultiCoCo(nn.Module):
         
         return Outputs(loss=loss, inputs_embeds=inputs_embeds, logits=logits)
 
-    def batch_chat(self, pixel_values, questions, generation_config):
+    def generate(self, pixel_values, input_ids, attention_mask, **kwargs):
         """
-        Handles batch chatting with the model for vanilla/CoT modes.
+        A simple wrapper around the base model's generate function.
         """
-        num_image_tokens = self.model.config.num_image_token
-        
-        prompts = []
-        for q in questions:
-            question_with_img = '<img>' * num_image_tokens + '\n' + q
-            conv = get_conv_template(self.model.conv_template)
-            roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
-            conv.append_message(roles["human"], question_with_img)
-            conv.append_message(roles["gpt"], None)
-            prompts.append(conv.get_prompt())
-
-        inputs = self.tokenizer(prompts, return_tensors='pt', padding=True, truncation=True)
-        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-        inputs['pixel_values'] = pixel_values.to(self.model.device)
-        
-        # Ensure generation parameters are correctly passed
-        gen_kwargs = {
-            "max_new_tokens": generation_config.get('max_new_tokens', 100),
-            "temperature": generation_config.get('temperature', 0.0),
-            "do_sample": generation_config.get('temperature', 0.0) > 0,
-            "pad_token_id": self.tokenizer.pad_token_id,
-            "eos_token_id": generation_config.get('eos_token_id', self.tokenizer.eos_token_id)
-        }
-
         with torch.no_grad():
-            outputs = self.model.generate(**inputs, **gen_kwargs)
-
-        responses = []
-        for output in outputs:
-            response = self.tokenizer.decode(output, skip_special_tokens=True)
-            # Add a fallback for the role separator
-            separator = conv.roles[1] + ':' if conv.roles[1] else 'ASSISTANT:'
-            response = response.split(separator)[-1].strip()
-            responses.append(response)
-        return responses
-
-    def generate_coconut(self, pixel_values, questions, generation_config):
-        # This is a simplified single-instance generate for clarity. Batching needs more work.
-        if len(questions) > 1:
-            # Note: This is a placeholder. True batch generation for this model is complex.
-            # For now, we process one by one.
-            responses = []
-            for i in range(len(questions)):
-                responses.extend(self.generate_coconut(pixel_values[i:i+1], [questions[i]], generation_config))
-            return responses
-
-        num_image_tokens = self.model.config.num_image_token
-        c_thought = generation_config.get('c_thought', 1)
-        
-        question_with_thoughts = (
-            '<img>' * num_image_tokens + '\n' +
-            questions[0] +
-            ' ' +
-            '<start_thought>' +
-            '<thought>' * c_thought +
-            '<end_thought>'
-        )
-        
-        conv = get_conv_template(self.model.conv_template)
-        roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
-        conv.append_message(roles["human"], question_with_thoughts)
-        conv.append_message(roles["gpt"], None)
-        prompt = conv.get_prompt()
-
-        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.model.device)
-        
-        # Forward pass to get thought-out embeddings
-        outputs = self.forward(
-            input_ids=input_ids,
-            attention_mask=torch.ones_like(input_ids),
-            labels=torch.full_like(input_ids, -100), # Dummy labels
-            pixel_values=pixel_values
-        )
-        
-        # Generate from the final embeddings
-        final_logits = outputs.logits[:, -1, :]
-        next_token = torch.argmax(final_logits, dim=-1).unsqueeze(0)
-        
-        generated_ids = torch.cat([input_ids, next_token], dim=1)
-        
-        # Simple autoregressive generation loop
-        for _ in range(generation_config.get('max_new_tokens', 100) - 1):
-            with torch.no_grad():
-                outputs = self.model(input_ids=generated_ids, pixel_values=pixel_values)
-            
-            next_token_logits = outputs.logits[:, -1, :]
-            next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(0)
-            generated_ids = torch.cat([generated_ids, next_token], dim=1)
-            
-            if next_token.item() in [self.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|im_end|>')]:
-                break
-                
-        response = self.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-        response = response.split(conv.roles[1] + ':')[-1].strip()
-        return [response]
+            outputs = self.model.generate(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **kwargs
+            )
+        return outputs

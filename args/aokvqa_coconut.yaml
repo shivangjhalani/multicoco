@@ -3,7 +3,7 @@
 project: multicoco
 name: aokvqa-coconut
 save_path: checkpoints
-model_id: OpenGVLab/InternVL3-1B
+model_id: OpenGVLab/InternVL3-1B-Pretrained
 load_model_path: "checkpoints/stage_0/YOUR_COT_CHECKPOINT.pt" # IMPORTANT: Update this path
 
 # Staging

@@ -3,7 +3,7 @@
 project: multicoco
 name: aokvqa-cot
 save_path: checkpoints
-model_id: OpenGVLab/InternVL3-1B
+model_id: OpenGVLab/InternVL3-1B-Pretrained
 load_model_path: null
 
 # Staging
