@@ -159,11 +159,19 @@ class Trainer:
             Formatted question string
         """
         if mode == "cot":
-            # A more direct prompt for CoT
-            return f"{question}\nFirst, provide your reasoning, then answer with 'the final answer is' followed by the number (0, 1, 2, or 3)."
+            # A more explicit prompt for CoT to encourage step-by-step reasoning
+            return (
+                "First, provide a step-by-step reasoning for the following question. "
+                "After your reasoning, conclude with 'The final answer is' followed by the single digit of the correct choice.\n\n"
+                f"Question: {question}"
+            )
         else:
-            # A more direct prompt for vanilla/coconut
-            return f"{question}\nAnswer with only the number (0, 1, 2, or 3)."
+            # A very direct prompt for vanilla/coconut to elicit only the number
+            return (
+                "Answer the following multiple-choice question by providing only the single digit of the correct option.\n\n"
+                f"Question: {question}\n\n"
+                "Answer:"
+            )
 
     def extract_answer_choice(self, response: str, mode: str = "vanilla") -> str:
         """
@@ -236,8 +244,16 @@ class Trainer:
                     # Get model from DDP wrapper if it exists
                     model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
                     
+                    # Dynamically set max_new_tokens based on mode
+                    if mode == 'vanilla':
+                        max_tokens = 5
+                    elif mode == 'cot':
+                        max_tokens = 256
+                    else: # coconut
+                        max_tokens = self.args.get('max_new_tokens', 100)
+                        
                     generation_config = {
-                        'max_new_tokens': self.args.get('max_new_tokens', 100),
+                        'max_new_tokens': max_tokens,
                         'temperature': 0.0,
                         'do_sample': False,
                         'pad_token_id': model_to_eval.tokenizer.pad_token_id,
