@@ -237,11 +237,11 @@ class Trainer:
                     
                     # Dynamically set max_new_tokens based on mode
                     if mode == 'vanilla':
-                        max_tokens = 5
+                        max_tokens = 500
                     elif mode == 'cot':
-                        max_tokens = 256
+                        max_tokens = 500
                     else: # coconut
-                        max_tokens = self.args.get('max_new_tokens', 100)
+                        max_tokens = self.args.get('max_new_tokens', 500)
                         
                     generation_config = {
                         'max_new_tokens': max_tokens,
