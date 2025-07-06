@@ -1,12 +1,12 @@
-# Main configuration for evaluating the vanilla InternVL model.
+# Configuration for evaluating the vanilla (direct answer) model.
 
 project: multicoco
 name: aokvqa-vanilla-eval
 save_path: checkpoints # Not used in eval but good to have
-model_id: OpenGVLab/InternVL3-1B # Use the original model from Hugging Face
+model_id: OpenGVLab/InternVL3-1B-Pretrained # Use the pretrained model
 load_model_path: null
 
-# Staging - all false for vanilla evaluation
+# Staging - vanilla mode
 cot: False
 coconut: False
 c_thought: 0
@@ -30,3 +30,4 @@ reset_optimizer: False
 seed: 42
 debug: False
 only_eval: True 
+max_new_tokens: 100 
