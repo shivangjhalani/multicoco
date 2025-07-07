@@ -13,10 +13,19 @@ from transformers.integrations.deepspeed import deepspeed_init
 class CoCoTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Manually set the image context token ID, which is required for the pretrained model
-        if hasattr(self.model, 'img_context_token_id'):
+        # Manually set the image context token ID on the underlying model.
+        # This is required for the pretrained base model.
+        
+        # Get the actual model, unwrapping DDP if necessary
+        unwrapped_model = self.model.module if hasattr(self.model, 'module') else self.model
+        
+        # Get the Hugging Face model from our custom wrapper
+        hf_model = unwrapped_model.model
+
+        if hasattr(hf_model, 'img_context_token_id'):
             IMG_CONTEXT_TOKEN_ID = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
-            self.model.img_context_token_id = IMG_CONTEXT_TOKEN_ID
+            hf_model.img_context_token_id = IMG_CONTEXT_TOKEN_ID
+            
         self.best_val_acc = 0.0
 
     def evaluation_loop(
