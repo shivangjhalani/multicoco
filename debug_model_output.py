@@ -31,10 +31,11 @@ def main():
         aokvqa_data = json.load(f)
     
     # Let's take the first sample
-    sample = aokvqa_data[ = f"data/{sample['image']}"
+    sample = aokvqa_data[0]
+    image_path = f"data/{sample['image']}"
     question = sample['question']
     
-    image = Image.open(image).convert('RGB')
+    image = Image.open(image_path).convert('RGB')
 
     # --- 4. Replicate the data processing logic ---
     # This mimics the logic in data.py and trainer.py
@@ -49,7 +50,7 @@ def main():
     input_ids = tokenizer(prompt, return_tensors='pt').input_ids.to(device)
 
     print(f"--- Input ---")
-    print(f"Image Path: {image}")
+    print(f"Image Path: {image_path}")
     print(f"Question: {question}")
     print(f"Full Prompt being tokenized: '{prompt}'")
     print(f"Input IDs shape: {input_ids.shape}")
