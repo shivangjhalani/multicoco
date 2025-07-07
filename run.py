@@ -82,8 +82,8 @@ def main():
         model = MultiCoCo(primary_path, special_tokens=special_tokens).to(device)
 
     unwrapped_model = model.module if hasattr(model, 'module') else model
-    processor = unwrapped_model.processor
-    tokenizer = unwrapped_model.tokenizer # This is now an alias for the processor
+    tokenizer = unwrapped_model.tokenizer
+    image_processor = unwrapped_model.image_processor
     
     if not is_eval_only:
         # Add special tokens to args to be accessible in the trainer for training
@@ -97,7 +97,8 @@ def main():
     
     # -- Collator
     collator = DataCollatorForCoCo(
-        processor=processor,
+        tokenizer=tokenizer,
+        image_processor=image_processor,
         cot=args.get('cot', False)
     )
 
@@ -181,8 +182,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset if not is_eval_only else None,
         eval_dataset=val_dataset,
-        processor=processor, # Pass the unified processor
-        tokenizer=tokenizer, # For HF trainer compatibility
+        tokenizer=tokenizer,
         data_collator=collator
     )
 

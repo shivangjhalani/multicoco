@@ -34,8 +34,9 @@ class SupervisedDataset(Dataset):
 
 
 class DataCollatorForCoCo(object):
-    def __init__(self, processor, cot=False):
-        self.processor = processor
+    def __init__(self, tokenizer, image_processor, cot=False):
+        self.tokenizer = tokenizer
+        self.image_processor = image_processor
         self.cot = cot
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
@@ -43,7 +44,6 @@ class DataCollatorForCoCo(object):
         full_conversations_text = []
         prompts_for_len_check = []
         
-        # Keep metadata to pass through
         questions = [instance['question'] for instance in instances]
         answers = [instance['answer'] for instance in instances]
         original_questions = [instance.get('original_question') for instance in instances]
@@ -52,9 +52,7 @@ class DataCollatorForCoCo(object):
         for instance in instances:
             question = instance['question']
             answer = instance['answer']
-
-            # Use a single `<img>` token as a placeholder in a string.
-            # The processor will handle replacing it.
+            
             user_content_str = f"<img>\n{question}"
 
             if self.cot:
@@ -64,51 +62,34 @@ class DataCollatorForCoCo(object):
                 user_content_str += " The answer is"
                 full_answer = answer
 
-            # --- Full conversation for training ---
-            full_messages = [
-                {'role': 'user', 'content': user_content_str},
-                {'role': 'assistant', 'content': full_answer}
-            ]
-            # apply_chat_template renders the full conversation string
-            full_conv_str = self.processor.apply_chat_template(
-                full_messages, tokenize=False, add_generation_prompt=False
-            )
-            full_conversations_text.append(full_conv_str + self.processor.eos_token)
+            full_messages = [{'role': 'user', 'content': user_content_str}, {'role': 'assistant', 'content': full_answer}]
+            full_conv_str = self.tokenizer.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False)
+            full_conversations_text.append(full_conv_str + self.tokenizer.eos_token)
 
-            # --- Prompt-only for masking labels ---
             prompt_messages = [{'role': 'user', 'content': user_content_str}]
-            prompt_str = self.processor.apply_chat_template(
-                prompt_messages, tokenize=False, add_generation_prompt=True
-            )
+            prompt_str = self.tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
             prompts_for_len_check.append(prompt_str)
 
-        # The processor handles tokenization and image processing in one step
-        images = [instance['image'] for instance in instances]
-        data = self.processor(
-            text=full_conversations_text,
-            images=images,
-            return_tensors="pt",
-            padding=True
-        )
+        data = self.tokenizer(text=full_conversations_text, return_tensors="pt", padding=True)
         
-        # Tokenize prompts just to get their length for masking
-        prompt_tokenized = self.processor(
-            text=prompts_for_len_check,
-            return_tensors="pt",
-            padding=True
-        )
+        images = [instance['image'] for instance in instances]
+        image_data = self.image_processor(images=images, return_tensors="pt")
+        data['pixel_values'] = image_data['pixel_values']
+
+        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+        image_flags = (data['input_ids'] == image_token_id).long()
+        data['image_flags'] = image_flags
+        
+        prompt_tokenized = self.tokenizer(text=prompts_for_len_check, return_tensors="pt", padding=True)
         prompt_lengths = prompt_tokenized.attention_mask.sum(dim=1)
 
-        # Create labels and mask the prompt part
         labels = data['input_ids'].clone()
         for i in range(len(labels)):
             labels[i, :prompt_lengths[i]] = -100
         
-        # Also mask padding in labels
-        labels[data['input_ids'] == self.processor.pad_token_id] = -100
+        labels[data['input_ids'] == self.tokenizer.pad_token_id] = -100
         data['labels'] = labels
 
-        # Pass along metadata for the evaluation loop
         data['question_ids'] = question_ids
         data['questions'] = questions
         data['answers'] = answers
