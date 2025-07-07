@@ -1,31 +1,24 @@
-# Main configuration for the second stage (Coconut) training.
-
-project: multicoco
-name: aokvqa-coconut
-save_path: checkpoints
-model_id: OpenGVLab/InternVL3-1B-Pretrained
-load_model_path: "checkpoints/stage_0/YOUR_COT_CHECKPOINT.pt" # IMPORTANT: Update this path
-
-# Staging
-cot: False
-coconut: True
-c_thought: 2
-max_latent_stage: 3
-epochs_per_stage: 1
-
-# Data
-data_dir: data/
-train_path: data/aokvqa_train.json
-val_path: data/aokvqa_validation.json
+# Inherits from CoT, but changes the model path and turns off the cot flag.
+model_id: "OpenGVLab/InternVL3-1B-Pretrained"
+load_model_path: "multicoco/aokvqa-cot" # Load weights from the completed CoT stage
+save_path: "multicoco/aokvqa-coconut"
+train_path: "data/aokvqa_train.json"
+val_path: "data/aokvqa_validation.json"
+data_dir: "data"
 
 # Training
+lr: 1.0e-5
+weight_decay: 0.05
+epochs_per_stage: 1
 batch_size_training: 8
-gradient_accumulation_steps: 2
-lr: !!float 5e-5
-weight_decay: 0.01
-bf16: True
-save_only_improve: False
-reset_optimizer: True
-seed: 42
-debug: False
-only_eval: False 
+batch_size_evaluation: 8
+gradient_accumulation_steps: 4
+warmup_steps: 100
+bf16: true
+cot: false # This is the key change for the Coconut stage
+coconut: true # Flag for evaluation
+
+# Logging
+project: "multicoco"
+name: "aokvqa-coconut"
+log_dir: "logs/aokvqa-coconut" 

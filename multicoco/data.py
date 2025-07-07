@@ -1,117 +1,145 @@
+import os
+import json
+from typing import Dict, Sequence
+
 import torch
 from torch.utils.data import Dataset
-import json
 from PIL import Image
-import os
-from copy import deepcopy
+import transformers
+
 
 class SupervisedDataset(Dataset):
-    def __init__(self, data_args, processor, is_eval=False):
+    """Dataset for supervised fine-tuning."""
+
+    def __init__(self, data_path: str, data_dir: str, cot=False, coconut=False):
         super(SupervisedDataset, self).__init__()
-        self.data_path = data_args.eval_data_path if is_eval else data_args.train_data_path
-        self.data = json.load(open(self.data_path))
-        self.data_dir = data_args.data_dir
-        self.processor = processor
+        self.data = json.load(open(data_path))
+        self.data_dir = data_dir
+        self.cot = cot
+        self.coconut = coconut
+
+        if self.coconut:
+            # For the coconut stage, we need to load the rationales from the CoT stage.
+            # We assume they are saved in a predictable location.
+            cot_predictions_path = "multicoco/aokvqa-cot/all_results.json"
+            if not os.path.exists(cot_predictions_path):
+                raise FileNotFoundError(
+                    f"Coconut stage requires CoT predictions, but file not found at: {cot_predictions_path}"
+                )
+            
+            cot_preds = json.load(open(cot_predictions_path))
+            # Create a mapping from question_id to rationale for quick lookup
+            self.rationales = {item['question_id']: item['prediction'] for item in cot_preds}
+
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
-        item = self.data[idx]
-        
-        image_file = os.path.join(self.data_dir, item['image'])
-        image = Image.open(image_file).convert('RGB')
+    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
+        item = self.data[i]
+        image_path = os.path.join(self.data_dir, item['image_path'])
+        image = Image.open(image_path).convert('RGB')
         
         question = item['question']
-        answer = item.get('rationale', item.get('answer', '')) # For CoT, rationale is the answer
-
-        # Construct the conversation in the format required by apply_chat_template
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": question}
-                ]
-            }
-        ]
         
+        if self.coconut:
+            question_id = item['question_id']
+            rationale = self.rationales.get(question_id, "") # Get CoT rationale
+            # Prepend the rationale to the question for the coconut stage
+            question = f"{question} {rationale}"
+
         return {
-            "image": image,
-            "messages": messages,
-            "answer": answer,
-            # Pass metadata for evaluation
-            "original_question": item['question'],
-            "original_answer": item.get('answer', ''),
-            "question_id": item.get('question_id', idx) # Use index as fallback qid
+            'image': image,
+            'question': question,
+            'answer': item.get('direct_answers', [''])[0],
+            'question_id': item.get('question_id'),
+            'original_question': item['question'],
+            'rationale': item.get('rationale', '')
         }
 
-class DataCollatorForCoCo(object):
-    def __init__(self, processor, data_args):
-        self.processor = processor
-        self.cot = data_args.cot
 
-    def __call__(self, instances):
-        # Separate images and conversations
-        images = [ins.pop("image") for ins in instances]
+class DataCollatorForCoCo(object):
+    def __init__(self, tokenizer, image_processor, cot=False):
+        self.tokenizer = tokenizer
+        self.image_processor = image_processor
+        self.cot = cot
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         
-        # We need to add the assistant's response to the conversation for training
-        conversations = []
-        for ins in instances:
-            conv = deepcopy(ins['messages'])
-            conv.append({"role": "assistant", "content": [{"type": "text", "text": ins['answer']}]})
-            conversations.append(conv)
+        # This collator is now significantly different. It manually constructs the input tensors.
+        # We are no longer using `apply_chat_template`.
+
+        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+        im_start_token_id = self.tokenizer.bos_token_id
+        im_end_token_id = self.tokenizer.eos_token_id
         
-        # Use processor to handle both image processing and text tokenization
-        # This will create all necessary inputs including pixel_values, input_ids, attention_mask,
-        # and the model-specific image_flags.
-        # Padding is handled automatically.
-        inputs = self.processor.apply_chat_template(
-            conversations,
-            images=images,
-            tokenize=True,
-            padding=True,
-            return_tensors="pt"
+        batch_input_ids = []
+        batch_labels = []
+        batch_attention_mask = []
+
+        # Keep metadata to pass through
+        questions = []
+        answers = []
+        original_questions = []
+        question_ids = []
+
+        for instance in instances:
+            question = instance['question']
+            answer = instance['answer']
+
+            if self.cot:
+                prompt_text = f"{question} Let's think step by step."
+                full_answer_text = instance.get('rationale', '') + f" The answer is {answer}"
+            else:
+                prompt_text = f"{question} The answer is"
+                full_answer_text = answer
+                
+            prompt_tokens = self.tokenizer(prompt_text, add_special_tokens=False).input_ids
+            answer_tokens = self.tokenizer(full_answer_text, add_special_tokens=False).input_ids
+
+            # [BOS] 256 * <img> <prompt_text> <answer_text> [EOS]
+            input_ids = [im_start_token_id] + [image_token_id] * 256 + prompt_tokens + answer_tokens + [im_end_token_id]
+            
+            # Labels: mask out everything that isn't the answer
+            labels = [-100] * (1 + 256 + len(prompt_tokens)) + answer_tokens + [im_end_token_id]
+
+            batch_input_ids.append(torch.tensor(input_ids))
+            batch_labels.append(torch.tensor(labels))
+            batch_attention_mask.append(torch.ones(len(input_ids), dtype=torch.long))
+
+            # Store metadata
+            questions.append(question)
+            answers.append(answer)
+            original_questions.append(instance.get('original_question'))
+            question_ids.append(instance.get('question_id'))
+
+        # Pad the batches
+        padded_input_ids = torch.nn.utils.rnn.pad_sequence(
+            batch_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+        )
+        padded_labels = torch.nn.utils.rnn.pad_sequence(
+            batch_labels, batch_first=True, padding_value=-100
+        )
+        padded_attention_mask = torch.nn.utils.rnn.pad_sequence(
+            batch_attention_mask, batch_first=True, padding_value=0
         )
 
-        # Create labels for language modeling. We need to mask the prompt part.
-        # The prompt is the conversation up to the assistant's turn.
-        # We can get the prompt length by tokenizing the conversation without the assistant's part.
-        
-        # Create a copy of input_ids for labels
-        labels = inputs['input_ids'].clone()
+        # Create image_flags
+        image_flags = (padded_input_ids == image_token_id).long()
 
-        # To mask the prompt, we find where the assistant's response starts.
-        # The chat template adds special tokens. A common pattern is `...user...<end_of_turn>assistant...`
-        # We can find the start of the assistant's turn by finding the token ids for `<|im_start|>assistant`.
-        # However, a simpler and more robust way is to tokenize the user part of the conversation separately.
-        
-        prompt_lengths = []
-        for i in range(len(instances)):
-            # Get the user-only part of the conversation
-            user_conv = instances[i]['messages']
-            
-            # Tokenize just the prompt part to find its length
-            # Note: The image is not needed here as we only need the text token length
-            prompt_inputs = self.processor.apply_chat_template(
-                user_conv,
-                images=None, 
-                tokenize=True,
-                add_generation_prompt=True # This is key to get the tokens that prompt the assistant
-            )
-            prompt_len = len(prompt_inputs['input_ids'])
-            prompt_lengths.append(prompt_len)
-            
-            # Mask the prompt tokens
-            labels[i, :prompt_len] = -100
+        # Process images
+        images = [instance['image'] for instance in instances]
+        image_data = self.image_processor(images=images, return_tensors="pt")
 
-        inputs['labels'] = labels
-        inputs['prompt_lengths'] = torch.tensor(prompt_lengths)
-        
-        # Pass metadata through for the evaluation loop
-        if 'question_id' in instances[0]:
-            inputs['question_ids'] = [ins['question_id'] for ins in instances]
-            inputs['original_questions'] = [ins['original_question'] for ins in instances]
-            inputs['original_answers'] = [ins['original_answer'] for ins in instances]
-
-        return inputs
+        return {
+            'input_ids': padded_input_ids,
+            'labels': padded_labels,
+            'attention_mask': padded_attention_mask,
+            'pixel_values': image_data['pixel_values'],
+            'image_flags': image_flags,
+            'question_ids': question_ids,
+            'questions': questions,
+            'answers': answers,
+            'original_questions': original_questions,
+            'num_items_in_batch': len(instances)
+        }
