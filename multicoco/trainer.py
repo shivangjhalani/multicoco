@@ -149,19 +149,23 @@ class CoCoTrainer(Trainer):
         
         return super().compute_loss(model, inputs, return_outputs)
 
-    def training_step(self, model, inputs, num_items_in_batch=None):
-        """
-        Override training_step to handle CoCoNut staging.
-        """
-        # Check if we should advance to next stage
-        if self.coconut_enabled and hasattr(self.state, 'epoch'):
-            expected_stage = min(int(self.state.epoch), self.max_latent_stage)
-            if expected_stage != self.current_stage:
-                self.current_stage = expected_stage
-                if self.is_local_process_zero():
-                    print(f"Advanced to CoCoNut stage {self.current_stage}/{self.max_latent_stage}")
-        
-        return super().training_step(model, inputs, num_items_in_batch)
+    # def training_step(self, model, inputs, num_items_in_batch=None):
+    #     """
+    #     Override training_step to handle CoCoNut staging.
+    #     """
+    #     # Check if we should advance to next stage
+    #     if self.coconut_enabled and hasattr(self.state, 'epoch'):
+    #         expected_stage = min(int(self.state.epoch), self.max_latent_stage)
+    #         if expected_stage != self.current_stage:
+    #             self.current_stage = expected_stage
+    #             if self.is_local_process_zero():
+    #                 print(f"Advanced to CoCoNut stage {self.current_stage}/{self.max_latent_stage}")
+    #     
+    #     # Call parent method with all arguments
+    #     if num_items_in_batch is not None:
+    #         return super().training_step(model, inputs, num_items_in_batch)
+    #     else:
+    #         return super().training_step(model, inputs)
 
     def compute_metrics(self, p: EvalPrediction):
         # This is a placeholder. The evaluation_loop calculates and returns metrics directly.
