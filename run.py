@@ -93,7 +93,8 @@ def main():
         model = DDP(model, device_ids=[rank])
     
     # -- Collator
-    collator = DataCollatorForCoCo(tokenizer=tokenizer)
+    hf_model = (model.module if hasattr(model, 'module') else model).model
+    collator = DataCollatorForCoCo(tokenizer=tokenizer, model=hf_model)
 
     # -- DataLoaders
     image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
