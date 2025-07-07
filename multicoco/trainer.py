@@ -7,7 +7,7 @@ import torchvision.transforms as T
 from transformers import Trainer
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, BestRun
 from transformers.trainer_pt_utils import find_batch_size, nested_concat, nested_numpify, nested_truncate, nested_detach
-from transformers.deepspeed import deepspeed_init
+from transformers.integrations.deepspeed import deepspeed_init
 
 
 class CoCoTrainer(Trainer):
