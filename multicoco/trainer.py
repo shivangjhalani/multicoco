@@ -262,7 +262,7 @@ class Trainer:
                             correct += 1
                         
                         # Log to file
-                        log_file.write(f"--- Q: {question.replace('<image>\\n', '')} ---\\n")
+                        log_file.write(f"--- Q: {question.replace('<image>\\n', '')} ---\n")
                         log_file.write(f"GT: {gt}\n")
                         log_file.write(f"PRED: {gen_text}\n")
                         log_file.write(f"EXTRACTED: {extracted_answer}\n")
