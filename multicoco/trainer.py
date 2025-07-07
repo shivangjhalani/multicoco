@@ -71,13 +71,13 @@ class CoCoTrainer(Trainer):
                     user_content_str += " The answer is"
             
                 prompt_messages = [{"role": "user", "content": user_content_str}]
-                prompt = self.processor.tokenizer.apply_chat_template(
+                prompt = self.processor.apply_chat_template(
                     prompt_messages, tokenize=False, add_generation_prompt=True
                 )
                 
                 # Note: For evaluation, we process each item individually.
                 # The processor call here is simpler because the image is already on the device.
-                eval_inputs = self.processor.tokenizer(text=prompt, return_tensors='pt').to(self.args.device)
+                eval_inputs = self.processor(text=prompt, return_tensors='pt').to(self.args.device)
 
                 gen_kwargs = self._gen_kwargs_for_evaluation()
                 if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
@@ -91,7 +91,7 @@ class CoCoTrainer(Trainer):
                 )
                 
                 input_len = eval_inputs.input_ids.shape[1]
-                decoded_pred = self.processor.tokenizer.decode(generated_ids[0][input_len:], skip_special_tokens=True)
+                decoded_pred = self.processor.decode(generated_ids[0][input_len:], skip_special_tokens=True)
                 all_preds_text.append(decoded_pred)
 
         # Post-process and compute metrics

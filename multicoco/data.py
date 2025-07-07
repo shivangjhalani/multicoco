@@ -70,14 +70,14 @@ class DataCollatorForCoCo(object):
                 {'role': 'assistant', 'content': full_answer}
             ]
             # apply_chat_template renders the full conversation string
-            full_conv_str = self.processor.tokenizer.apply_chat_template(
+            full_conv_str = self.processor.apply_chat_template(
                 full_messages, tokenize=False, add_generation_prompt=False
             )
-            full_conversations_text.append(full_conv_str + self.processor.tokenizer.eos_token)
+            full_conversations_text.append(full_conv_str + self.processor.eos_token)
 
             # --- Prompt-only for masking labels ---
             prompt_messages = [{'role': 'user', 'content': user_content_str}]
-            prompt_str = self.processor.tokenizer.apply_chat_template(
+            prompt_str = self.processor.apply_chat_template(
                 prompt_messages, tokenize=False, add_generation_prompt=True
             )
             prompts_for_len_check.append(prompt_str)
@@ -92,7 +92,7 @@ class DataCollatorForCoCo(object):
         )
         
         # Tokenize prompts just to get their length for masking
-        prompt_tokenized = self.processor.tokenizer(
+        prompt_tokenized = self.processor(
             text=prompts_for_len_check,
             return_tensors="pt",
             padding=True
@@ -105,7 +105,7 @@ class DataCollatorForCoCo(object):
             labels[i, :prompt_lengths[i]] = -100
         
         # Also mask padding in labels
-        labels[data['input_ids'] == self.processor.tokenizer.pad_token_id] = -100
+        labels[data['input_ids'] == self.processor.pad_token_id] = -100
         data['labels'] = labels
 
         # Pass along metadata for the evaluation loop
