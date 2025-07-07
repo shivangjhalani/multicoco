@@ -1,99 +1,117 @@
-import os
-import json
-from typing import Dict, Sequence
-
 import torch
 from torch.utils.data import Dataset
+import json
 from PIL import Image
-
+import os
+from copy import deepcopy
 
 class SupervisedDataset(Dataset):
-    """Dataset for supervised fine-tuning."""
-
-    def __init__(self, data_path: str, data_dir: str):
+    def __init__(self, data_args, processor, is_eval=False):
         super(SupervisedDataset, self).__init__()
-        with open(data_path, 'r') as f:
-            self.data = json.load(f)[:20]
-        self.data_dir = data_dir
+        self.data_path = data_args.eval_data_path if is_eval else data_args.train_data_path
+        self.data = json.load(open(self.data_path))
+        self.data_dir = data_args.data_dir
+        self.processor = processor
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        item = self.data[i]
-        image_file = item['image']
-        image_path = os.path.join(self.data_dir, image_file)
-        try:
-            image = Image.open(image_path).convert('RGB')
-        except (FileNotFoundError, OSError) as e:
-            print(f"Warning: Could not open image file {image_path}. Skipping. Error: {e}")
-            return self.__getitem__((i + 1) % len(self))
+    def __getitem__(self, idx):
+        item = self.data[idx]
         
-        rationale = item.get('rationale', '') 
-        return dict(image=image, question=item['question'], answer=item['answer'], rationale=rationale)
+        image_file = os.path.join(self.data_dir, item['image'])
+        image = Image.open(image_file).convert('RGB')
+        
+        question = item['question']
+        answer = item.get('rationale', item.get('answer', '')) # For CoT, rationale is the answer
 
+        # Construct the conversation in the format required by apply_chat_template
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": question}
+                ]
+            }
+        ]
+        
+        return {
+            "image": image,
+            "messages": messages,
+            "answer": answer,
+            # Pass metadata for evaluation
+            "original_question": item['question'],
+            "original_answer": item.get('answer', ''),
+            "question_id": item.get('question_id', idx) # Use index as fallback qid
+        }
 
 class DataCollatorForCoCo(object):
-    def __init__(self, tokenizer, image_processor, cot=False):
-        self.tokenizer = tokenizer
-        self.image_processor = image_processor
-        self.cot = cot
+    def __init__(self, processor, data_args):
+        self.processor = processor
+        self.cot = data_args.cot
 
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+    def __call__(self, instances):
+        # Separate images and conversations
+        images = [ins.pop("image") for ins in instances]
         
-        full_conversations_text = []
-        prompts_for_len_check = []
+        # We need to add the assistant's response to the conversation for training
+        conversations = []
+        for ins in instances:
+            conv = deepcopy(ins['messages'])
+            conv.append({"role": "assistant", "content": [{"type": "text", "text": ins['answer']}]})
+            conversations.append(conv)
         
-        questions = [instance['question'] for instance in instances]
-        answers = [instance['answer'] for instance in instances]
-        original_questions = [instance.get('original_question') for instance in instances]
-        question_ids = [instance.get('question_id') for instance in instances]
+        # Use processor to handle both image processing and text tokenization
+        # This will create all necessary inputs including pixel_values, input_ids, attention_mask,
+        # and the model-specific image_flags.
+        # Padding is handled automatically.
+        inputs = self.processor.apply_chat_template(
+            conversations,
+            images=images,
+            tokenize=True,
+            padding=True,
+            return_tensors="pt"
+        )
 
-        for instance in instances:
-            question = instance['question']
-            answer = instance['answer']
+        # Create labels for language modeling. We need to mask the prompt part.
+        # The prompt is the conversation up to the assistant's turn.
+        # We can get the prompt length by tokenizing the conversation without the assistant's part.
+        
+        # Create a copy of input_ids for labels
+        labels = inputs['input_ids'].clone()
+
+        # To mask the prompt, we find where the assistant's response starts.
+        # The chat template adds special tokens. A common pattern is `...user...<end_of_turn>assistant...`
+        # We can find the start of the assistant's turn by finding the token ids for `<|im_start|>assistant`.
+        # However, a simpler and more robust way is to tokenize the user part of the conversation separately.
+        
+        prompt_lengths = []
+        for i in range(len(instances)):
+            # Get the user-only part of the conversation
+            user_conv = instances[i]['messages']
             
-            user_content_str = f"<img>\n{question}"
+            # Tokenize just the prompt part to find its length
+            # Note: The image is not needed here as we only need the text token length
+            prompt_inputs = self.processor.apply_chat_template(
+                user_conv,
+                images=None, 
+                tokenize=True,
+                add_generation_prompt=True # This is key to get the tokens that prompt the assistant
+            )
+            prompt_len = len(prompt_inputs['input_ids'])
+            prompt_lengths.append(prompt_len)
+            
+            # Mask the prompt tokens
+            labels[i, :prompt_len] = -100
 
-            if self.cot:
-                user_content_str += " Let's think step by step."
-                full_answer = instance.get('rationale', '') + f" The answer is {answer}"
-            else:
-                user_content_str += " The answer is"
-                full_answer = answer
-
-            full_messages = [{'role': 'user', 'content': user_content_str}, {'role': 'assistant', 'content': full_answer}]
-            full_conv_str = self.tokenizer.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False)
-            full_conversations_text.append(full_conv_str + self.tokenizer.eos_token)
-
-            prompt_messages = [{'role': 'user', 'content': user_content_str}]
-            prompt_str = self.tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
-            prompts_for_len_check.append(prompt_str)
-
-        data = self.tokenizer(text=full_conversations_text, return_tensors="pt", padding=True)
+        inputs['labels'] = labels
+        inputs['prompt_lengths'] = torch.tensor(prompt_lengths)
         
-        images = [instance['image'] for instance in instances]
-        image_data = self.image_processor(images=images, return_tensors="pt")
-        data['pixel_values'] = image_data['pixel_values']
+        # Pass metadata through for the evaluation loop
+        if 'question_id' in instances[0]:
+            inputs['question_ids'] = [ins['question_id'] for ins in instances]
+            inputs['original_questions'] = [ins['original_question'] for ins in instances]
+            inputs['original_answers'] = [ins['original_answer'] for ins in instances]
 
-        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-        image_flags = (data['input_ids'] == image_token_id).long()
-        data['image_flags'] = image_flags
-        
-        prompt_tokenized = self.tokenizer(text=prompts_for_len_check, return_tensors="pt", padding=True)
-        prompt_lengths = prompt_tokenized.attention_mask.sum(dim=1)
-
-        labels = data['input_ids'].clone()
-        for i in range(len(labels)):
-            labels[i, :prompt_lengths[i]] = -100
-        
-        labels[data['input_ids'] == self.tokenizer.pad_token_id] = -100
-        data['labels'] = labels
-
-        data['question_ids'] = question_ids
-        data['questions'] = questions
-        data['answers'] = answers
-        data['original_questions'] = original_questions
-        data['num_items_in_batch'] = len(instances)
-
-        return data
+        return inputs
