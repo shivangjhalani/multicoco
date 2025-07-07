@@ -72,16 +72,15 @@ class DataCollatorForCoCo(object):
             padding_value=-100
         )
         
-        attention_mask = input_ids.ne(self.tokenizer.pad_token_id).long()
+        # Create attention mask
+        attention_mask = torch.ones_like(input_ids)
         pixel_values = torch.cat(pixel_values_list, dim=0)
-        image_flags = torch.ones(pixel_values.shape[0], dtype=torch.long)
 
-        return dict(
-            pixel_values=pixel_values,
-            input_ids=input_ids,
-            labels=labels,
-            attention_mask=attention_mask,
-            image_flags=image_flags,
-            original_questions=original_questions,
-            answers=answers
-        )
+        return {
+            'pixel_values': pixel_values,
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels,
+            'original_questions': original_questions,
+            'answers': answers
+        }
