@@ -50,81 +50,14 @@ class MultiCoCo(nn.Module):
     def get_input_embeddings(self):
         return self.model.get_input_embeddings()
 
-    def forward(self, input_ids, attention_mask, labels, pixel_values, **kwargs):
+    def forward(self, **kwargs):
+        # These are arguments from our custom data collator
+        # that are not expected by the model's forward pass during training.
+        kwargs.pop('original_questions', None)
+        kwargs.pop('answers', None)
         
-        latent_indices = (input_ids == self.thought_token_id).nonzero()
-        
-        if latent_indices.shape[0] == 0:  # No latent tokens, standard forward pass
-            kwargs.pop("original_questions", None)
-            outputs = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-                pixel_values=pixel_values,
-                return_dict=True,
-                **kwargs,
-            )
-            return outputs
-
-        inputs_embeds = self.get_input_embeddings()(input_ids)
-
-        latent_lists = [
-            [idx[1].item() for idx in latent_indices if idx[0] == i]
-            for i in range(input_ids.shape[0])
-        ]
-        max_n_latents = max([len(l) for l in latent_lists])
-
-        next_compute_range = (0, latent_indices[:, 1].min().item())
-        kv_cache = None
-        logits_list = []
-
-        for pass_idx in range(max_n_latents):
-            if kv_cache is None:
-                outputs = self.model(
-                    inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                    attention_mask=attention_mask[:, :next_compute_range[1]],
-                    pixel_values=pixel_values,
-                    output_hidden_states=True,
-                )
-                hidden_states_offset = 0
-            else:
-                past_key_values = [(k[:, :, :next_compute_range[0], :], v[:, :, :next_compute_range[0], :]) for k, v in kv_cache]
-                outputs = self.model(
-                    inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                    attention_mask=attention_mask[:, :next_compute_range[1]],
-                    past_key_values=past_key_values,
-                    output_hidden_states=True,
-                )
-                hidden_states_offset = next_compute_range[0]
-            
-            logits_list.append(outputs.logits)
-            kv_cache = outputs.past_key_values
-            hidden_states = outputs.hidden_states[-1]
-
-            filling_indices = [(i, l[pass_idx]) for i, l in enumerate(latent_lists) if len(l) > pass_idx]
-            
-            for i, token_idx in filling_indices:
-                inputs_embeds[i, token_idx, :] = hidden_states[i, token_idx - 1 - hidden_states_offset, :]
-
-            next_compute_range = (next_compute_range[1], next_compute_range[1] + 1 if pass_idx + 1 < max_n_latents else input_ids.shape[1])
-
-        # Final pass
-        past_key_values = [(k[:, :, :next_compute_range[0], :], v[:, :, :next_compute_range[0], :]) for k, v in kv_cache]
-        outputs = self.model(
-            inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-            attention_mask=attention_mask[:, :next_compute_range[1]],
-            past_key_values=past_key_values,
-            output_hidden_states=True,
-        )
-        logits_list.append(outputs.logits)
-        
-        logits = torch.cat(logits_list, dim=1)
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        
-        return Outputs(loss=loss, inputs_embeds=inputs_embeds, logits=logits)
+        # We pass all other arguments to the underlying model.
+        return self.model(**kwargs)
 
     def generate(self, pixel_values, input_ids, attention_mask, image_flags=None, **kwargs):
         """

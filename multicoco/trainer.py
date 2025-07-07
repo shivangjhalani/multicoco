@@ -142,7 +142,7 @@ class CoCoTrainer(Trainer):
                     if predicted_answer.lower() == ground_truths[i].lower():
                         correct += 1
 
-                    log_file.write(f"--- Q: {original_questions[i]} ---\n")
+                    log_file.write(f"Q: {original_questions[i]}\n")
                     log_file.write(f"GT: {ground_truths[i]}\n")
                     log_file.write(f"PRED: {gen_text}\n")
                     log_file.write(f"EXTRACTED: {predicted_answer}\n")
