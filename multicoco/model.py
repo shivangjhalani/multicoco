@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig
+from transformers import AutoModelForCausalLM, AutoConfig, AutoProcessor
 import inspect
 from collections import namedtuple
 # from multicoco.conversation import get_conv_template # No longer needed
@@ -24,10 +24,10 @@ class MultiCoCo(nn.Module):
         )
 
         tok_id = tokenizer_id if tokenizer_id else model_id
-        self.tokenizer = AutoTokenizer.from_pretrained(tok_id, trust_remote_code=True)
-        
-        proc_id = image_processor_id if image_processor_id else model_id
-        self.image_processor = AutoImageProcessor.from_pretrained(proc_id, trust_remote_code=True)
+        # The processor now correctly handles both tokenizer and image processor roles
+        self.processor = AutoProcessor.from_pretrained(tok_id, trust_remote_code=True)
+        # For this model, the processor IS the tokenizer.
+        self.tokenizer = self.processor
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -58,15 +58,9 @@ class MultiCoCo(nn.Module):
         kwargs.pop('original_questions', None)
         kwargs.pop('answers', None)
         kwargs.pop('num_items_in_batch', None)
-        kwargs.pop('image_flags', None)  # This is no longer needed with the new call signature
         
-        # We pass all other arguments to the underlying model using the correct keywords.
-        return self.model(
-            pixel_values=kwargs.get('pixel_values'),
-            input_ids=kwargs.get('input_ids'),
-            attention_mask=kwargs.get('attention_mask'),
-            labels=kwargs.get('labels')
-        )
+        # We pass all other arguments to the underlying model.
+        return self.model(**kwargs)
 
     def generate(self, pixel_values, input_ids, attention_mask, image_flags=None, **kwargs):
         """
