@@ -76,8 +76,15 @@ class DataCollatorForCoCo(object):
         image_data = self.image_processor(images=images, return_tensors="pt")
         data['pixel_values'] = image_data['pixel_values']
 
-        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-        image_flags = (data['input_ids'] == image_token_id).long()
+        # Fix image_flags to match the expected shape for InternVL
+        # InternVL expects image_flags to have shape [batch_size, num_image_patches] 
+        # where each element indicates if that patch is valid (1) or not (0)
+        batch_size = data['pixel_values'].shape[0]
+        num_image_patches = data['pixel_values'].shape[1]  # This should be the number of image patches
+        
+        # Create image_flags with shape [batch_size, num_image_patches] filled with 1s
+        # indicating all image patches are valid
+        image_flags = torch.ones(batch_size, num_image_patches, dtype=torch.long)
         data['image_flags'] = image_flags
         
         prompt_tokenized = self.tokenizer(text=prompts_for_len_check, return_tensors="pt", padding=True)

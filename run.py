@@ -174,6 +174,16 @@ def main():
     # Add custom args to training_args that our custom trainer needs
     training_args.log_dir = args.get('log_dir', 'logs')
     training_args.eval_config = {'coconut': args.get('coconut', False), 'cot': args.get('cot', False)}
+    
+    # Add CoCoNut specific parameters to training_args
+    training_args.c_thought = args.get('c_thought', 0)
+    training_args.max_latent_stage = args.get('max_latent_stage', 0)
+    
+    # Add special token IDs if we're using CoCoNut or CoT
+    if args.get('coconut', False) or args.get('cot', False):
+        training_args.thought_token_id = args.get('thought_token_id')
+        training_args.start_thought_id = args.get('start_thought_id') 
+        training_args.end_thought_id = args.get('end_thought_id')
 
 
     # Trainer

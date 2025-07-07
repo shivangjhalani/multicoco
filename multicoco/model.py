@@ -58,14 +58,14 @@ class MultiCoCo(nn.Module):
         kwargs.pop('original_questions', None)
         kwargs.pop('answers', None)
         kwargs.pop('num_items_in_batch', None)
+        kwargs.pop('image_flags', None)  # Remove image_flags as it's causing issues
         
         # We pass all other arguments to the underlying model.
-        # The key is to pass image_flags explicitly.
+        # Do not pass image_flags to avoid shape mismatch errors
         return self.model(
             pixel_values=kwargs.get('pixel_values'),
             input_ids=kwargs.get('input_ids'),
             attention_mask=kwargs.get('attention_mask'),
-            image_flags=kwargs.get('image_flags'),
             labels=kwargs.get('labels')
         )
 
@@ -76,11 +76,11 @@ class MultiCoCo(nn.Module):
         """
         # The base pretrained model's generate function is called directly.
         # It handles the combination of vision and language embeddings internally.
+        # Do not pass image_flags to avoid compatibility issues
         outputs = self.model.generate(
             pixel_values=pixel_values,
             input_ids=input_ids,
             attention_mask=attention_mask,
-            image_flags=image_flags,
             **kwargs,
         )
         return outputs

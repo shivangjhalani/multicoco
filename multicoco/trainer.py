@@ -19,6 +19,7 @@ import numpy as np
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from transformers.trainer_utils import EvalPrediction
+import random
 
 
 class EvalOutput:
@@ -34,6 +35,133 @@ class CoCoTrainer(Trainer):
             kwargs.pop('processor')
         super().__init__(*args, **kwargs)
         self.best_val_acc = 0.0
+        
+        # CoCoNut training parameters
+        self.coconut_enabled = getattr(self.args, 'eval_config', {}).get('coconut', False)
+        self.c_thought = getattr(self.args, 'c_thought', 0)
+        self.max_latent_stage = getattr(self.args, 'max_latent_stage', 0)
+        self.current_stage = 0
+        
+        # Special token IDs
+        if hasattr(self.args, 'thought_token_id'):
+            self.thought_token_id = self.args.thought_token_id
+            self.start_thought_id = self.args.start_thought_id
+            self.end_thought_id = self.args.end_thought_id
+        else:
+            # Fallback if not provided
+            self.thought_token_id = self.tokenizer.convert_tokens_to_ids('<thought>')
+            self.start_thought_id = self.tokenizer.convert_tokens_to_ids('<start_thought>')
+            self.end_thought_id = self.tokenizer.convert_tokens_to_ids('<end_thought>')
+
+    def _gen_kwargs_for_evaluation(self):
+        """
+        Generate generation kwargs for evaluation.
+        """
+        gen_kwargs = getattr(self.args, "generation_kwargs", {})
+        if gen_kwargs is None:
+            gen_kwargs = {}
+        
+        # Set default generation parameters
+        if "max_new_tokens" not in gen_kwargs and "max_length" not in gen_kwargs:
+            gen_kwargs["max_new_tokens"] = 256
+        if "do_sample" not in gen_kwargs:
+            gen_kwargs["do_sample"] = False
+        if "pad_token_id" not in gen_kwargs and self.tokenizer.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
+        
+        return gen_kwargs
+
+    def apply_coconut_masking(self, input_ids, labels, stage):
+        """
+        Apply CoCoNut masking strategy for latent reasoning.
+        
+        Args:
+            input_ids: Token IDs [batch_size, seq_len]
+            labels: Labels for training [batch_size, seq_len] 
+            stage: Current training stage (0 = no masking, higher = more masking)
+        
+        Returns:
+            Modified input_ids and labels with thought tokens masked according to stage
+        """
+        if not self.coconut_enabled or stage == 0:
+            return input_ids, labels
+        
+        batch_size, seq_len = input_ids.shape
+        modified_input_ids = input_ids.clone()
+        modified_labels = labels.clone()
+        
+        for i in range(batch_size):
+            # Find thought token positions
+            thought_positions = (input_ids[i] == self.thought_token_id).nonzero(as_tuple=True)[0]
+            start_thought_positions = (input_ids[i] == self.start_thought_id).nonzero(as_tuple=True)[0]
+            end_thought_positions = (input_ids[i] == self.end_thought_id).nonzero(as_tuple=True)[0]
+            
+            # Apply progressive masking based on stage
+            if len(thought_positions) > 0:
+                # Determine how many thought tokens to mask based on stage and c_thought
+                total_thoughts = len(thought_positions)
+                mask_ratio = min(stage / self.max_latent_stage, 1.0)
+                num_to_mask = int(total_thoughts * mask_ratio * self.c_thought / 10.0)  # c_thought is a scaling factor
+                
+                if num_to_mask > 0:
+                    # Randomly select which thought tokens to mask
+                    mask_indices = random.sample(thought_positions.tolist(), min(num_to_mask, total_thoughts))
+                    
+                    for pos in mask_indices:
+                        # Replace thought token with a special mask token or skip in loss
+                        modified_labels[i, pos] = -100  # Ignore in loss calculation
+                        
+            # Handle start/end thought token pairs
+            if len(start_thought_positions) > 0 and len(end_thought_positions) > 0:
+                for start_pos, end_pos in zip(start_thought_positions, end_thought_positions):
+                    if start_pos < end_pos:
+                        # Apply masking to thought content based on stage
+                        thought_length = end_pos - start_pos - 1
+                        if thought_length > 0 and stage > 0:
+                            mask_ratio = min(stage / self.max_latent_stage, 1.0)
+                            num_to_mask = int(thought_length * mask_ratio)
+                            
+                            if num_to_mask > 0:
+                                # Mask random positions within the thought
+                                thought_range = list(range(start_pos + 1, end_pos))
+                                mask_positions = random.sample(thought_range, min(num_to_mask, len(thought_range)))
+                                
+                                for pos in mask_positions:
+                                    modified_labels[i, pos] = -100
+        
+        return modified_input_ids, modified_labels
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        """
+        Override compute_loss to implement CoCoNut training logic.
+        """
+        if self.coconut_enabled:
+            # Apply CoCoNut masking strategy
+            input_ids = inputs.get('input_ids')
+            labels = inputs.get('labels')
+            
+            if input_ids is not None and labels is not None:
+                modified_input_ids, modified_labels = self.apply_coconut_masking(
+                    input_ids, labels, self.current_stage
+                )
+                inputs['input_ids'] = modified_input_ids
+                inputs['labels'] = modified_labels
+        
+        return super().compute_loss(model, inputs, return_outputs)
+
+    def training_step(self, model, inputs):
+        """
+        Override training_step to handle CoCoNut staging.
+        """
+        # Check if we should advance to next stage
+        if self.coconut_enabled and hasattr(self.state, 'epoch'):
+            expected_stage = min(int(self.state.epoch), self.max_latent_stage)
+            if expected_stage != self.current_stage:
+                self.current_stage = expected_stage
+                if self.is_local_process_zero():
+                    print(f"Advanced to CoCoNut stage {self.current_stage}/{self.max_latent_stage}")
+        
+        return super().training_step(model, inputs)
 
     def compute_metrics(self, p: EvalPrediction):
         # This is a placeholder. The evaluation_loop calculates and returns metrics directly.
@@ -60,18 +188,21 @@ class CoCoTrainer(Trainer):
             questions = inputs.pop("questions")
             answers = inputs.pop("answers")
             pixel_values = inputs["pixel_values"].to(self.args.device)
-            # image_flags are passed implicitly with the rest of `inputs` to the model
             
             all_labels_text.extend(answers)
             
             is_cot = self.args.eval_config.get('cot', False)
+            is_coconut = self.args.eval_config.get('coconut', False)
 
             for i, q in enumerate(questions):
                 
                 user_content_str = f"<img>\n{q}"
                 if is_cot:
                     user_content_str += " Let's think step by step."
-                else: # This case may not be used if coconut is separate
+                elif is_coconut:
+                    # For CoCoNut evaluation, we use thought tokens to encourage latent reasoning
+                    user_content_str += " <start_thought>Let me think about this step by step.<end_thought> The answer is"
+                else:
                     user_content_str += " The answer is"
             
                 prompt_messages = [{"role": "user", "content": user_content_str}]
@@ -85,9 +216,6 @@ class CoCoTrainer(Trainer):
                 if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
                     gen_kwargs["max_new_tokens"] = 256 # Default value
 
-                # The `image_flags` are part of `inputs` but not used explicitly in the generate call here
-                # since we're passing the full `pixel_values` for the batch. This is a simplification
-                # for this specific evaluation loop. The model's forward pass during training uses it correctly.
                 generated_ids = model.generate(
                     pixel_values=pixel_values[i:i+1],
                     input_ids=eval_inputs.input_ids,
@@ -97,6 +225,14 @@ class CoCoTrainer(Trainer):
                 
                 input_len = eval_inputs.input_ids.shape[1]
                 decoded_pred = self.tokenizer.decode(generated_ids[0][input_len:], skip_special_tokens=True)
+                
+                # Clean up thought tokens from prediction if they appear
+                if is_coconut:
+                    # Remove any thought tokens that might have been generated
+                    for token in ['<thought>', '<start_thought>', '<end_thought>']:
+                        decoded_pred = decoded_pred.replace(token, '')
+                    decoded_pred = decoded_pred.strip()
+                
                 all_preds_text.append(decoded_pred)
 
         # Post-process and compute metrics
@@ -113,8 +249,17 @@ class CoCoTrainer(Trainer):
         
         accuracy = correct / len(all_labels_text) if len(all_labels_text) > 0 else 0.0
         
-        # This is a simplified metric calculation. `self.log` would be better.
-        metrics = {f"{metric_key_prefix}_accuracy": accuracy, f"{metric_key_prefix}_loss": -1.0}
+        # Log CoCoNut stage information
+        stage_info = {}
+        if self.coconut_enabled:
+            stage_info[f"{metric_key_prefix}_coconut_stage"] = self.current_stage
+            stage_info[f"{metric_key_prefix}_max_latent_stage"] = self.max_latent_stage
+        
+        metrics = {
+            f"{metric_key_prefix}_accuracy": accuracy, 
+            f"{metric_key_prefix}_loss": -1.0,
+            **stage_info
+        }
         
         self.log(metrics)
 
@@ -140,7 +285,6 @@ class CoCoTrainer(Trainer):
             pixel_values=inputs["pixel_values"],
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            image_flags=inputs.get("image_flags"),
             **gen_kwargs,
         )
 
