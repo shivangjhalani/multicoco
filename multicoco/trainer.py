@@ -221,9 +221,19 @@ class CoCoTrainer(Trainer):
                 # Access the underlying InternVL model from our wrapper
                 underlying_model = model.model if hasattr(model, 'model') else model
                 
+                # Ensure pixel_values have the correct dtype matching the model
+                current_pixel_values = pixel_values[i:i+1]
+                if hasattr(underlying_model, 'dtype'):
+                    current_pixel_values = current_pixel_values.to(underlying_model.dtype)
+                elif hasattr(underlying_model, 'vision_model') and hasattr(underlying_model.vision_model, 'dtype'):
+                    current_pixel_values = current_pixel_values.to(underlying_model.vision_model.dtype)
+                else:
+                    # Default to bfloat16 if we can't determine the model dtype
+                    current_pixel_values = current_pixel_values.to(torch.bfloat16)
+                
                 decoded_pred = underlying_model.chat(
                     self.tokenizer,
-                    pixel_values[i:i+1],
+                    current_pixel_values,
                     user_content_str,
                     generation_config
                 )
