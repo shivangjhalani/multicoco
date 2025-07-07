@@ -85,8 +85,9 @@ class CoCoTrainer(Trainer):
                 ground_truths = batch.pop("answers")
 
                 with torch.no_grad():
-                    if hasattr(self.model, 'dtype'):
-                        pixel_values = pixel_values.to(self.model.dtype)
+                    # Ensure pixel_values have the same dtype as the model's parameters
+                    model_dtype = next(self.model.parameters()).dtype
+                    pixel_values = pixel_values.to(dtype=model_dtype)
 
                     outputs = self.model.generate(
                         pixel_values=pixel_values,
