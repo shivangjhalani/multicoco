@@ -66,7 +66,7 @@ class CoCoTrainer(Trainer):
             answers = inputs.pop("answers") # Ground truth answers
 
             # Re-create the prompt string for generation
-            image_token_placeholder = '<img>' * 256
+            image_token_placeholder = ' '.join(['<img>'] * 256)
             is_cot = self.args.eval_config.get('cot', False)
             prompts = []
             for q in original_questions:
@@ -86,7 +86,7 @@ class CoCoTrainer(Trainer):
             inputs['attention_mask'] = tokenized_prompts.attention_mask.to(self.args.device)
             
             # Re-create image_flags for the new inputs
-            image_token_id = 32000
+            image_token_id = self.processor.convert_tokens_to_ids('<img>')
             inputs['image_flags'] = (inputs['input_ids'] == image_token_id).long()
             
             # Move pixel_values to the correct device

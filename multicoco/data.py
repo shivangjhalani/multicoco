@@ -54,7 +54,7 @@ class DataCollatorForCoCo(object):
             question = instance['question']
             answer = instance['answer']
 
-            image_token_placeholder = '<img>' * 256
+            image_token_placeholder = ' '.join(['<img>'] * 256)
             
             if self.cot:
                 prompt = f"{image_token_placeholder}\n{question} Let's think step by step."
@@ -96,7 +96,7 @@ class DataCollatorForCoCo(object):
         pixel_values = torch.cat(pixel_values_list, dim=0)
 
         # Create image_flags
-        image_token_id = 32000  # The ID for the '<img>' token
+        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
         image_flags = (input_ids == image_token_id).long()
 
         return {
