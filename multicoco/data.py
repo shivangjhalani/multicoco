@@ -54,7 +54,7 @@ class DataCollatorForCoCo(object):
             question = instance['question']
             answer = instance['answer']
             
-            image_token_placeholder = '<IMG_CONTEXT>' * 256
+            image_token_placeholder = '<img>' * 256
             if self.cot:
                 # For CoT, the rationale is part of the answer.
                 # The prompt guides the model to generate its thought process.
