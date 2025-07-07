@@ -71,13 +71,12 @@ def main():
         )
 
     # --- 6. Decode and Print Output ---
-    input_token_len = input_ids.shape[1]
-    generated_tokens = outputs[:, input_token_len:]
-    generated_text = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+    # The previous slice was incorrect. It seems this model's generate function
+    # returns *only* the new tokens, not the full sequence.
+    generated_text = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
 
     print(f"\n--- Output ---")
     print(f"Raw output tokens shape: {outputs.shape}")
-    print(f"Generated tokens shape: {generated_tokens.shape}")
     print(f"Generated Text: '{generated_text}'")
 
 
