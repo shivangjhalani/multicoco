@@ -226,8 +226,10 @@ class Trainer:
 
             for batch in pbar:
                 pixel_values = batch.pop("pixel_values").to(self.device)
-                num_patches_list = batch.pop("num_patches_list")
-                questions = batch.pop("questions")
+                input_ids = batch.pop("input_ids").to(self.device)
+                attention_mask = batch.pop("attention_mask").to(self.device)
+                image_flags = batch.pop("image_flags").to(self.device)
+                original_questions = batch.pop("original_questions")
                 ground_truths = batch.pop("answers")
 
                 if self.args.get('bf16'):
@@ -240,38 +242,42 @@ class Trainer:
                         'max_new_tokens': self.args.get('max_new_tokens', 500),
                         'temperature': 0.0,
                         'do_sample': False,
+                        'pad_token_id': model_to_eval.tokenizer.pad_token_id,
+                        'eos_token_id': model_to_eval.tokenizer.eos_token_id,
                     }
 
-                    generated_texts = model_to_eval.batch_chat(
+                    outputs = model_to_eval.generate(
                         pixel_values=pixel_values,
-                        num_patches_list=num_patches_list,
-                        questions=questions,
-                        generation_config=generation_config
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        image_flags=image_flags,
+                        **generation_config
                     )
                     
-                    total += len(questions)
+                    generated_texts = model_to_eval.tokenizer.batch_decode(outputs, skip_special_tokens=True)
                     
-                    for i in range(len(questions)):
-                        question = questions[i]
-                        gen_text = generated_texts[i]
-                        gt = ground_truths[i]
+                    total += len(original_questions)
+                    
+                    for i, gen_text in enumerate(generated_texts):
+                        question = original_questions[i]
+                        gt_answer = ground_truths[i]
                         
-                        extracted_answer = self.extract_answer_choice(gen_text, mode=mode)
+                        prompt_len = len(model_to_eval.tokenizer.decode(input_ids[i], skip_special_tokens=False).replace('<s>', '').replace('</s>',''))
+                        generated_answer = gen_text[prompt_len:].strip()
+                        extracted_answer = self.extract_answer_choice(generated_answer, mode=mode)
                         
-                        if str(extracted_answer).strip() == str(gt).strip():
+                        if str(extracted_answer).strip() == str(gt_answer).strip():
                             correct += 1
-                        
-                        # Log to file
+
                         cleaned_question = question.replace('<image>\\n', '')
                         log_file.write(f"--- Q: {cleaned_question} ---\n")
-                        log_file.write(f"GT: {gt}\n")
-                        log_file.write(f"PRED: {gen_text}\n")
+                        log_file.write(f"GT: {gt_answer}\n")
+                        log_file.write(f"PRED: {generated_answer}\n")
                         log_file.write(f"EXTRACTED: {extracted_answer}\n")
-                        log_file.write(f"Correct: {str(extracted_answer).strip() == str(gt).strip()}\n\n")
+                        log_file.write(f"Correct: {str(extracted_answer).strip() == str(gt_answer).strip()}\n\n")
 
                 pbar.set_postfix({"acc": f"{correct/total:.4f}"})
 
-        # Final accuracy
         accuracy = correct / total if total > 0 else 0
         if not dist.is_initialized() or dist.get_rank() == 0:
             print(f"Final {mode.upper()} Accuracy: {accuracy:.4f}")
@@ -280,7 +286,7 @@ class Trainer:
         return accuracy
 
     def count_tokens(self, text: str) -> int:
-        """Count the number of tokens in a text string."""
+        """Counts tokens in a given string using the model's tokenizer."""
         tokenizer = self.val_loader.collate_fn.tokenizer
         tokens = tokenizer.encode(text, add_special_tokens=False)
         return len(tokens)

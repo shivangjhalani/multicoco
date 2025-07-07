@@ -3,75 +3,8 @@ import json
 from typing import Dict, Sequence
 
 import torch
-import numpy as np
-import torchvision.transforms as T
 from torch.utils.data import Dataset
 from PIL import Image
-from torchvision.transforms.functional import InterpolationMode
-
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
-
-
-def build_transform(input_size):
-    MEAN, STD = IMAGENET_MEAN, IMAGENET_STD
-    transform = T.Compose([
-        T.Lambda(lambda img: img.convert('RGB') if img.mode != 'RGB' else img),
-        T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
-        T.ToTensor(),
-        T.Normalize(mean=MEAN, std=STD)
-    ])
-    return transform
-
-
-def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
-    best_ratio_diff = float('inf')
-    best_ratio = (1, 1)
-    area = width * height
-    for ratio in target_ratios:
-        target_aspect_ratio = ratio[0] / ratio[1]
-        ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-        if ratio_diff < best_ratio_diff:
-            best_ratio_diff = ratio_diff
-            best_ratio = ratio
-        elif ratio_diff == best_ratio_diff:
-            if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
-                best_ratio = ratio
-    return best_ratio
-
-
-def dynamic_preprocess(image, min_num=1, max_num=12, image_size=448, use_thumbnail=False):
-    orig_width, orig_height = image.size
-    aspect_ratio = orig_width / orig_height
-
-    target_ratios = set(
-        (i, j) for n in range(min_num, max_num + 1) for i in range(1, n + 1) for j in range(1, n + 1) if
-        i * j <= max_num and i * j >= min_num)
-    target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
-
-    target_aspect_ratio = find_closest_aspect_ratio(
-        aspect_ratio, target_ratios, orig_width, orig_height, image_size)
-
-    target_width = image_size * target_aspect_ratio[0]
-    target_height = image_size * target_aspect_ratio[1]
-    blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
-
-    resized_img = image.resize((target_width, target_height))
-    processed_images = []
-    for i in range(blocks):
-        box = (
-            (i % (target_width // image_size)) * image_size,
-            (i // (target_width // image_size)) * image_size,
-            ((i % (target_width // image_size)) + 1) * image_size,
-            ((i // (target_width // image_size)) + 1) * image_size
-        )
-        split_img = resized_img.crop(box)
-        processed_images.append(split_img)
-    assert len(processed_images) == blocks
-    if use_thumbnail and len(processed_images) != 1:
-        thumbnail_img = image.resize((image_size, image_size))
-        processed_images.append(thumbnail_img)
-    return processed_images
 
 
 class SupervisedDataset(Dataset):
@@ -101,27 +34,54 @@ class SupervisedDataset(Dataset):
 class DataCollatorForCoCo(object):
     """Collate examples for supervised fine-tuning."""
 
-    def __init__(self):
-        self.transform = build_transform(input_size=448)
+    def __init__(self, tokenizer, model, image_processor):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.image_processor = image_processor
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        pixel_values_list, num_patches_list, questions, answers = [], [], [], []
+        
+        pixel_values_list, input_ids_list, labels_list = [], [], []
+        original_questions = [instance['question'] for instance in instances]
+        answers = [instance['answer'] for instance in instances]
 
         for instance in instances:
             image = instance['image']
+            question = instance['question']
+            answer = instance['answer']
             
-            processed_tiles = dynamic_preprocess(image, image_size=448, use_thumbnail=True)
-            tiles = [self.transform(tile) for tile in processed_tiles]
-            pixel_values = torch.stack(tiles)
+            image_token_len = self.model.num_image_token
+            prompt = "<IMG_CONTEXT>" * image_token_len + " " + question
 
+            input_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
+            labels = self.tokenizer(answer, return_tensors='pt').input_ids
+            pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
+            
             pixel_values_list.append(pixel_values)
-            num_patches_list.append(pixel_values.shape[0])
-            questions.append("<image>\n" + instance['question'])
-            answers.append(instance['answer'])
+            input_ids_list.append(input_ids)
+            labels_list.append(labels)
+
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            [ids.squeeze(0) for ids in input_ids_list],
+            batch_first=True,
+            padding_value=self.tokenizer.pad_token_id
+        )
+        labels = torch.nn.utils.rnn.pad_sequence(
+            [l.squeeze(0) for l in labels_list],
+            batch_first=True,
+            padding_value=-100
+        )
         
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id).long()
+        pixel_values = torch.cat(pixel_values_list, dim=0)
+        image_flags = torch.ones(pixel_values.shape[0], dtype=torch.long)
+
         return dict(
-            pixel_values=torch.cat(pixel_values_list, dim=0),
-            num_patches_list=num_patches_list,
-            questions=questions,
+            pixel_values=pixel_values,
+            input_ids=input_ids,
+            labels=labels,
+            attention_mask=attention_mask,
+            image_flags=image_flags,
+            original_questions=original_questions,
             answers=answers
         )
