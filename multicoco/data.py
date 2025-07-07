@@ -54,12 +54,16 @@ class DataCollatorForCoCo(object):
         for i in range(len(instances)):
             question = instances[i]['question']
             answer = instances[i]['answer']
+            
+            # The user message must contain a placeholder for the image.
+            # The chat template will replace `<img>` with the special token.
+            user_content_with_image = f"<img>{question}"
 
             if self.cot:
-                prompt_question = f"{question} Let's think step by step."
+                prompt_question = f"{user_content_with_image} Let's think step by step."
                 full_answer = instances[i].get('rationale', '') + f" The answer is {answer}"
             else:
-                prompt_question = f"{question} The answer is"
+                prompt_question = f"{user_content_with_image} The answer is"
                 full_answer = answer
 
             full_messages = [
@@ -77,6 +81,11 @@ class DataCollatorForCoCo(object):
         data = self.tokenizer(text=full_conversations, return_tensors="pt", padding=True)
         image_data = self.image_processor(images=images, return_tensors="pt")
         data['pixel_values'] = image_data['pixel_values']
+        
+        # Create image_flags
+        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+        image_flags = (data['input_ids'] == image_token_id).long()
+        data['image_flags'] = image_flags
         
         prompt_only_data = self.tokenizer(text=eval_conversations, return_tensors="pt", padding=True)
         prompt_lengths = prompt_only_data['attention_mask'].sum(dim=1)
