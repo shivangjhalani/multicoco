@@ -5,57 +5,32 @@ from typing import Dict, Sequence
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
-import transformers
 
 
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
-    def __init__(self, data_path: str, data_dir: str, cot=False, coconut=False):
+    def __init__(self, data_path: str, data_dir: str):
         super(SupervisedDataset, self).__init__()
-        self.data = json.load(open(data_path))
+        with open(data_path, 'r') as f:
+            self.data = json.load(f)[:20]
         self.data_dir = data_dir
-        self.cot = cot
-        self.coconut = coconut
-
-        if self.coconut:
-            # For the coconut stage, we need to load the rationales from the CoT stage.
-            # We assume they are saved in a predictable location.
-            cot_predictions_path = "multicoco/aokvqa-cot/all_results.json"
-            if not os.path.exists(cot_predictions_path):
-                raise FileNotFoundError(
-                    f"Coconut stage requires CoT predictions, but file not found at: {cot_predictions_path}"
-                )
-            
-            cot_preds = json.load(open(cot_predictions_path))
-            # Create a mapping from question_id to rationale for quick lookup
-            self.rationales = {item['question_id']: item['prediction'] for item in cot_preds}
-
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         item = self.data[i]
-        image_path = os.path.join(self.data_dir, item['image_path'])
-        image = Image.open(image_path).convert('RGB')
+        image_file = item['image']
+        image_path = os.path.join(self.data_dir, image_file)
+        try:
+            image = Image.open(image_path).convert('RGB')
+        except (FileNotFoundError, OSError) as e:
+            print(f"Warning: Could not open image file {image_path}. Skipping. Error: {e}")
+            return self.__getitem__((i + 1) % len(self))
         
-        question = item['question']
-        
-        if self.coconut:
-            question_id = item['question_id']
-            rationale = self.rationales.get(question_id, "") # Get CoT rationale
-            # Prepend the rationale to the question for the coconut stage
-            question = f"{question} {rationale}"
-
-        return {
-            'image': image,
-            'question': question,
-            'answer': item.get('direct_answers', [''])[0],
-            'question_id': item.get('question_id'),
-            'original_question': item['question'],
-            'rationale': item.get('rationale', '')
-        }
+        rationale = item.get('rationale', '') 
+        return dict(image=image, question=item['question'], answer=item['answer'], rationale=rationale)
 
 
 class DataCollatorForCoCo(object):
@@ -66,80 +41,59 @@ class DataCollatorForCoCo(object):
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         
-        # This collator is now significantly different. It manually constructs the input tensors.
-        # We are no longer using `apply_chat_template`.
-
-        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-        im_start_token_id = self.tokenizer.bos_token_id
-        im_end_token_id = self.tokenizer.eos_token_id
+        full_conversations_text = []
+        prompts_for_len_check = []
         
-        batch_input_ids = []
-        batch_labels = []
-        batch_attention_mask = []
-
-        # Keep metadata to pass through
-        questions = []
-        answers = []
-        original_questions = []
-        question_ids = []
+        questions = [instance['question'] for instance in instances]
+        answers = [instance['answer'] for instance in instances]
+        original_questions = [instance.get('original_question') for instance in instances]
+        question_ids = [instance.get('question_id') for instance in instances]
 
         for instance in instances:
             question = instance['question']
             answer = instance['answer']
+            
+            user_content_str = f"<img>\n{question}"
 
             if self.cot:
-                prompt_text = f"{question} Let's think step by step."
-                full_answer_text = instance.get('rationale', '') + f" The answer is {answer}"
+                user_content_str += " Let's think step by step."
+                full_answer = instance.get('rationale', '') + f" The answer is {answer}"
             else:
-                prompt_text = f"{question} The answer is"
-                full_answer_text = answer
-                
-            prompt_tokens = self.tokenizer(prompt_text, add_special_tokens=False).input_ids
-            answer_tokens = self.tokenizer(full_answer_text, add_special_tokens=False).input_ids
+                user_content_str += " The answer is"
+                full_answer = answer
 
-            # [BOS] 256 * <img> <prompt_text> <answer_text> [EOS]
-            input_ids = [im_start_token_id] + [image_token_id] * 256 + prompt_tokens + answer_tokens + [im_end_token_id]
-            
-            # Labels: mask out everything that isn't the answer
-            labels = [-100] * (1 + 256 + len(prompt_tokens)) + answer_tokens + [im_end_token_id]
+            full_messages = [{'role': 'user', 'content': user_content_str}, {'role': 'assistant', 'content': full_answer}]
+            full_conv_str = self.tokenizer.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False)
+            full_conversations_text.append(full_conv_str + self.tokenizer.eos_token)
 
-            batch_input_ids.append(torch.tensor(input_ids))
-            batch_labels.append(torch.tensor(labels))
-            batch_attention_mask.append(torch.ones(len(input_ids), dtype=torch.long))
+            prompt_messages = [{'role': 'user', 'content': user_content_str}]
+            prompt_str = self.tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+            prompts_for_len_check.append(prompt_str)
 
-            # Store metadata
-            questions.append(question)
-            answers.append(answer)
-            original_questions.append(instance.get('original_question'))
-            question_ids.append(instance.get('question_id'))
-
-        # Pad the batches
-        padded_input_ids = torch.nn.utils.rnn.pad_sequence(
-            batch_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
-        )
-        padded_labels = torch.nn.utils.rnn.pad_sequence(
-            batch_labels, batch_first=True, padding_value=-100
-        )
-        padded_attention_mask = torch.nn.utils.rnn.pad_sequence(
-            batch_attention_mask, batch_first=True, padding_value=0
-        )
-
-        # Create image_flags
-        image_flags = (padded_input_ids == image_token_id).long()
-
-        # Process images
+        data = self.tokenizer(text=full_conversations_text, return_tensors="pt", padding=True)
+        
         images = [instance['image'] for instance in instances]
         image_data = self.image_processor(images=images, return_tensors="pt")
+        data['pixel_values'] = image_data['pixel_values']
 
-        return {
-            'input_ids': padded_input_ids,
-            'labels': padded_labels,
-            'attention_mask': padded_attention_mask,
-            'pixel_values': image_data['pixel_values'],
-            'image_flags': image_flags,
-            'question_ids': question_ids,
-            'questions': questions,
-            'answers': answers,
-            'original_questions': original_questions,
-            'num_items_in_batch': len(instances)
-        }
+        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+        image_flags = (data['input_ids'] == image_token_id).long()
+        data['image_flags'] = image_flags
+        
+        prompt_tokenized = self.tokenizer(text=prompts_for_len_check, return_tensors="pt", padding=True)
+        prompt_lengths = prompt_tokenized.attention_mask.sum(dim=1)
+
+        labels = data['input_ids'].clone()
+        for i in range(len(labels)):
+            labels[i, :prompt_lengths[i]] = -100
+        
+        labels[data['input_ids'] == self.tokenizer.pad_token_id] = -100
+        data['labels'] = labels
+
+        data['question_ids'] = question_ids
+        data['questions'] = questions
+        data['answers'] = answers
+        data['original_questions'] = original_questions
+        data['num_items_in_batch'] = len(instances)
+
+        return data

@@ -107,9 +107,7 @@ def main():
     if not is_eval_only:
         train_dataset = SupervisedDataset(
             data_path=args['train_path'],
-            data_dir=args['data_dir'],
-            cot=args.get('cot', False),
-            coconut=args.get('coconut', False)
+            data_dir=args['data_dir']
         )
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
         train_loader = DataLoader(
@@ -123,9 +121,7 @@ def main():
     # Always create val_loader
     val_dataset = SupervisedDataset(
         data_path=args['val_path'],
-        data_dir=args['data_dir'],
-        cot=args.get('cot', False),
-        coconut=args.get('coconut', False)
+        data_dir=args['data_dir']
     )
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
     val_loader = DataLoader(

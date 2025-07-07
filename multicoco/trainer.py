@@ -55,46 +55,47 @@ class CoCoTrainer(Trainer):
 
         all_preds_text = []
         all_labels_text = []
-        
-        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-        im_start_token_id = self.tokenizer.bos_token_id
 
         for step, inputs in enumerate(tqdm(dataloader, desc=description)):
-            # We get original questions and answers from the metadata passed by our collator
             questions = inputs.pop("questions")
             answers = inputs.pop("answers")
             pixel_values = inputs["pixel_values"].to(self.args.device)
-
+            # image_flags are passed implicitly with the rest of `inputs` to the model
+            
             all_labels_text.extend(answers)
             
             is_cot = self.args.eval_config.get('cot', False)
 
             for i, q in enumerate(questions):
+                
+                user_content_str = f"<img>\n{q}"
                 if is_cot:
-                    prompt_text = f"{q} Let's think step by step."
-                else:
-                    prompt_text = f"{q} The answer is"
+                    user_content_str += " Let's think step by step."
+                else: # This case may not be used if coconut is separate
+                    user_content_str += " The answer is"
+            
+                prompt_messages = [{"role": "user", "content": user_content_str}]
+                prompt = self.tokenizer.apply_chat_template(
+                    prompt_messages, tokenize=False, add_generation_prompt=True
+                )
+                
+                eval_inputs = self.tokenizer(text=prompt, return_tensors='pt').to(self.args.device)
 
-                prompt_tokens = self.tokenizer(prompt_text, add_special_tokens=False).input_ids
-                
-                # Manually construct the prompt for generation
-                input_ids = [im_start_token_id] + [image_token_id] * 256 + prompt_tokens
-                input_ids_tensor = torch.tensor([input_ids], device=self.args.device)
-                
                 gen_kwargs = self._gen_kwargs_for_evaluation()
                 if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
-                    gen_kwargs["max_new_tokens"] = 256 
-                
-                # The image_flags are implicitly handled by the model's forward pass
-                # when it sees the image tokens in input_ids.
+                    gen_kwargs["max_new_tokens"] = 256 # Default value
+
+                # The `image_flags` are part of `inputs` but not used explicitly in the generate call here
+                # since we're passing the full `pixel_values` for the batch. This is a simplification
+                # for this specific evaluation loop. The model's forward pass during training uses it correctly.
                 generated_ids = model.generate(
                     pixel_values=pixel_values[i:i+1],
-                    input_ids=input_ids_tensor,
-                    attention_mask=torch.ones_like(input_ids_tensor),
+                    input_ids=eval_inputs.input_ids,
+                    attention_mask=eval_inputs.attention_mask,
                     **gen_kwargs,
                 )
                 
-                input_len = input_ids_tensor.shape[1]
+                input_len = eval_inputs.input_ids.shape[1]
                 decoded_pred = self.tokenizer.decode(generated_ids[0][input_len:], skip_special_tokens=True)
                 all_preds_text.append(decoded_pred)
 
