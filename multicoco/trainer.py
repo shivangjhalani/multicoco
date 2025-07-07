@@ -11,6 +11,7 @@ from transformers.integrations.deepspeed import deepspeed_init
 
 class CoCoTrainer(Trainer):
     def __init__(self, *args, **kwargs):
+        self.processor = kwargs.pop('processor')
         super().__init__(*args, **kwargs)
         # Manually set the image context token ID on the underlying model.
         # This is required for the pretrained base model.
