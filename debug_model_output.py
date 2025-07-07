@@ -32,7 +32,7 @@ def main():
     
     # Let's take the first sample
     sample = aokvqa_data[0]
-    image_path = f"data/{sample['image']}"
+    image_path = f"{sample['image']}"
     question = sample['question']
     
     image = Image.open(image_path).convert('RGB')
