@@ -4,6 +4,7 @@ from typing import Dict, Sequence
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
+import json
 
 
 class SupervisedDataset(Dataset):
@@ -11,7 +12,8 @@ class SupervisedDataset(Dataset):
 
     def __init__(self, data_path: str, data_dir: str):
         super(SupervisedDataset, self).__init__()
-        self.data = torch.load(data_path)
+        with open(data_path, 'r') as f:
+            self.data = json.load(f)
         self.data_dir = data_dir
 
     def __len__(self):
