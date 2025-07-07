@@ -33,14 +33,8 @@ class CoCoTrainer(Trainer):
         self.best_val_acc = 0.0
 
     def compute_metrics(self, p: EvalPrediction):
-        # The predictions are the generated token IDs.
-        # The labels are the ground truth answer token IDs, which are not directly available here
-        # in the same format. We need to decode the predictions and compare to the original answers.
-        # This requires a custom post-processing step.
-        
-        # For now, let's return a placeholder accuracy.
-        # The actual implementation will depend on how we align predictions and labels.
-        return {"accuracy": 0.0}
+        # This is a placeholder. The evaluation_loop calculates and returns metrics directly.
+        return {}
 
     def evaluation_loop(
         self,
@@ -51,86 +45,69 @@ class CoCoTrainer(Trainer):
         metric_key_prefix: str = "eval",
     ):
         
-        # We need to manually reconstruct the prompt for generation because our
-        # data collator is designed for training, where input_ids include the answer.
-        # For generation, we need input_ids that only contain the prompt.
-        
         model = self._wrap_model(self.model, training=False, dataloader=dataloader)
+        model.eval()
+        
         self.callback_handler.eval_dataloader = dataloader
 
-        all_preds = []
-        all_labels = [] # We'll need to handle labels differently for generation
+        all_preds_text = []
+        all_labels_text = []
 
-        for step, inputs in enumerate(dataloader):
-            original_questions = inputs.pop("original_questions")
-            answers = inputs.pop("answers") # Ground truth answers
+        for step, inputs in enumerate(tqdm(dataloader, desc=description)):
+            questions = inputs.pop("questions")
+            answers = inputs.pop("answers")
+            pixel_values = inputs["pixel_values"].to(self.args.device)
 
-            prompts = []
-            images = [img for img in inputs['pixel_values']] # We need to handle images per instance
+            all_labels_text.extend(answers)
             
             is_cot = self.args.eval_config.get('cot', False)
 
-            for i, q in enumerate(original_questions):
+            for i, q in enumerate(questions):
                 if is_cot:
-                    user_content = [{"type": "image"}, {"type": "text", "text": f"{q} Let's think step by step."}]
-                else: # Vanilla
-                    user_content = [{"type": "image"}, {"type": "text", "text": f"{q} The answer is"}]
-                
-                prompt_messages = [{"role": "user", "content": user_content}]
-                
-                # We pass add_generation_prompt=True to prime the model for a response.
-                formatted_prompt = self.processor.apply_chat_template(
+                    prompt_text = q # Already formatted by preprocessor for CoT
+                else:
+                    prompt_text = f"{q} The answer is"
+            
+                prompt_messages = [{"role": "user", "content": prompt_text}]
+                prompt = self.processor.apply_chat_template(
                     prompt_messages, tokenize=False, add_generation_prompt=True
                 )
-                prompts.append(formatted_prompt)
+                
+                eval_inputs = self.processor(text=prompt, return_tensors='pt').to(self.args.device)
 
-            # The processor handles tokenization and image processing together
-            eval_batch = self.processor(
-                text=prompts,
-                images=images,
-                padding=True,
-                return_tensors='pt'
-            )
+                gen_kwargs = self._gen_kwargs_for_evaluation()
+                if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
+                    gen_kwargs["max_new_tokens"] = 256 # Default value
 
-            # Move all tensors to the correct device
-            for k, v in eval_batch.items():
-                if isinstance(v, torch.Tensor):
-                    eval_batch[k] = v.to(self.args.device)
+                generated_ids = model.generate(
+                    pixel_values=pixel_values[i:i+1],
+                    input_ids=eval_inputs.input_ids,
+                    attention_mask=eval_inputs.attention_mask,
+                    **gen_kwargs,
+                )
+                
+                input_len = eval_inputs.input_ids.shape[1]
+                decoded_pred = self.processor.decode(generated_ids[0][input_len:], skip_special_tokens=True)
+                all_preds_text.append(decoded_pred)
 
-            # We don't have ground truth labels in the same way for generation
-            if 'labels' in eval_batch:
-                eval_batch.pop('labels')
+        # Post-process and compute metrics
+        correct = 0
+        is_cot = self.args.eval_config.get('cot', False)
+        for pred, label in zip(all_preds_text, all_labels_text):
+            pred_processed = pred.strip().lower()
+            if is_cot:
+                if "the answer is" in pred_processed:
+                    pred_processed = pred_processed.split("the answer is")[-1].strip()
             
-            _, logits, _ = self.prediction_step(model, eval_batch, prediction_loss_only, ignore_keys=ignore_keys)
-
-            if logits is not None:
-                all_preds.append(logits.detach().cpu())
-            # We will need a way to associate the original answers with the predictions
-            all_labels.extend(answers)
-
-        if len(all_preds) > 0:
-            # Decode predictions
-            decoded_preds = self.processor.batch_decode(torch.cat(all_preds, dim=0), skip_special_tokens=True)
-            
-            # Simple accuracy calculation
-            correct = 0
-            for pred, label in zip(decoded_preds, all_labels):
-                if is_cot:
-                    # For CoT, extract the final answer
-                    if "the answer is" in pred.lower():
-                        pred = pred.lower().split("the answer is")[-1].strip()
-                if pred.strip().lower() == label.strip().lower():
-                    correct += 1
-            accuracy = correct / len(all_labels)
-            metrics = {"accuracy": accuracy}
-        else:
-            metrics = {}
-
-        metrics[f"{metric_key_prefix}_loss"] = -1.0 # No loss computed
-
-        for key in list(metrics.keys()):
-            if not key.startswith(f"{metric_key_prefix}_"):
-                metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
+            if pred_processed == label.strip().lower():
+                correct += 1
+        
+        accuracy = correct / len(all_labels_text) if len(all_labels_text) > 0 else 0.0
+        
+        # This is a simplified metric calculation. `self.log` would be better.
+        metrics = {f"{metric_key_prefix}_accuracy": accuracy, f"{metric_key_prefix}_loss": -1.0}
+        
+        self.log(metrics)
 
         return metrics
 

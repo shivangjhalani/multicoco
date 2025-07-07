@@ -82,6 +82,7 @@ def main():
         model = MultiCoCo(primary_path, special_tokens=special_tokens).to(device)
 
     tokenizer = model.tokenizer
+    processor = (model.module if hasattr(model, 'module') else model).processor
     
     if not is_eval_only:
         # Add special tokens to args to be accessible in the trainer for training
@@ -94,10 +95,8 @@ def main():
         model = DDP(model, device_ids=[rank])
     
     # -- Collator
-    hf_model = (model.module if hasattr(model, 'module') else model).model
-    image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
     collator = DataCollatorForCoCo(
-        tokenizer=tokenizer,
+        processor=processor,
         cot=args.get('cot', False)
     )
 
@@ -181,7 +180,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset if not is_eval_only else None,
         eval_dataset=val_dataset,
-        processor=tokenizer,
+        processor=processor,
         data_collator=collator
     )
 

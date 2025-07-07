@@ -36,61 +36,60 @@ class SupervisedDataset(Dataset):
 class DataCollatorForCoCo(object):
     """Collate examples for supervised fine-tuning by applying the model's chat template."""
 
-    def __init__(self, tokenizer, cot=False):
-        self.processor = tokenizer # In our case, the tokenizer is the processor
+    def __init__(self, processor, cot=False):
+        self.processor = processor
         self.cot = cot
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         
-        images = [instance['image'] for instance in instances]
-        prompts_for_len_check = []
         full_conversations = []
+        eval_conversations = []
+        
+        questions = [instance['question'] for instance in instances]
+        answers = [instance['answer'] for instance in instances]
+        original_questions = [instance.get('original_question') for instance in instances]
+        question_ids = [instance.get('question_id') for instance in instances]
 
-        for instance in instances:
-            question = instance['question']
-            answer = instance['answer']
-            
+        for i in range(len(instances)):
+            question = instances[i]['question']
+            answer = instances[i]['answer']
+
             if self.cot:
-                full_answer = instance.get('rationale', '') + f" The answer is {answer}"
-                user_content = [{"type": "image"}, {"type": "text", "text": f"{question} Let's think step by step."}]
-            else: # Vanilla
+                prompt_question = f"{question} Let's think step by step."
+                full_answer = instances[i].get('rationale', '') + f" The answer is {answer}"
+            else:
+                prompt_question = f"{question} The answer is"
                 full_answer = answer
-                user_content = [{"type": "image"}, {"type": "text", "text": f"{question} The answer is"}]
 
-            # Messages for the full conversation (prompt + response)
             full_messages = [
-                {"role": "user", "content": user_content},
-                {"role": "assistant", "content": [{"type": "text", "text": full_answer}]}
+                {'role': 'user', 'content': prompt_question},
+                {'role': 'assistant', 'content': full_answer}
             ]
-            full_conversations.append(self.processor.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False))
+            full_conversations.append(self.processor.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False) + self.processor.tokenizer.eos_token)
 
-            # Messages for just the prompt, to calculate its length for masking labels
-            prompt_messages = [
-                {"role": "user", "content": user_content}
+            eval_messages = [
+                {'role': 'user', 'content': prompt_question}
             ]
-            # `add_generation_prompt=True` adds the 'assistant' role to prime the model for generation,
-            # which is what we need to mask correctly.
-            prompts_for_len_check.append(self.processor.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True))
+            eval_conversations.append(self.processor.apply_chat_template(eval_messages, tokenize=False, add_generation_prompt=True))
 
-        # Tokenize full conversations for model input
-        batch = self.processor(text=full_conversations, images=images, padding=True, return_tensors='pt')
+        images = [instance['image'] for instance in instances]
+        data = self.processor(text=full_conversations, images=images, return_tensors="pt", padding=True)
         
-        # Tokenize prompts to get their length
-        prompt_tokenized = self.processor(text=prompts_for_len_check, padding=True, return_tensors='pt')
-        prompt_lengths = torch.sum(prompt_tokenized.attention_mask, dim=1)
+        prompt_only_data = self.processor(text=eval_conversations, return_tensors="pt", padding=True)
+        prompt_lengths = prompt_only_data['attention_mask'].sum(dim=1)
 
-        # Create labels and mask out the prompt part
-        labels = batch.input_ids.clone()
-        for i, prompt_len in enumerate(prompt_lengths):
-            labels[i, :prompt_len] = -100
+        labels = data['input_ids'].clone()
+        for i in range(len(labels)):
+            labels[i, :prompt_lengths[i]] = -100
         
-        # Also mask padding in labels
-        labels[labels == self.processor.tokenizer.pad_token_id] = -100
+        labels[data['input_ids'] == self.processor.tokenizer.pad_token_id] = -100
+        data['labels'] = labels
 
-        batch['labels'] = labels
+        # Pass along metadata
+        data['question_ids'] = question_ids
+        data['questions'] = questions
+        data['answers'] = answers
+        data['original_questions'] = original_questions
+        data['num_items_in_batch'] = len(instances)
 
-        # Keep original questions and answers for evaluation
-        batch['original_questions'] = [instance['question'] for instance in instances]
-        batch['answers'] = [instance['answer'] for instance in instances]
-
-        return batch
+        return data
