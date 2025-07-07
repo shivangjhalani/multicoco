@@ -23,6 +23,11 @@ def debug_generate():
     ).cuda().eval()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     
+    # Manually set the image context token ID
+    IMG_CONTEXT_TOKEN_ID = tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+    model.img_context_token_id = IMG_CONTEXT_TOKEN_ID
+    print(f"Manually set model.img_context_token_id to: {model.img_context_token_id}")
+
     print("Loading image processor...")
     image_processor = CLIPImageProcessor.from_pretrained(MODEL_ID)
 
