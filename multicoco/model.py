@@ -50,6 +50,17 @@ class MultiCoCo(nn.Module):
     def get_input_embeddings(self):
         return self.model.get_input_embeddings()
 
+    def _ensure_dtype_consistency(self, **kwargs):
+        """Ensure all input tensors match the model's dtype"""
+        # Get the model's dtype (should be bfloat16)
+        model_dtype = next(self.model.parameters()).dtype
+        
+        # Convert pixel_values to model dtype if present
+        if 'pixel_values' in kwargs and kwargs['pixel_values'] is not None:
+            kwargs['pixel_values'] = kwargs['pixel_values'].to(dtype=model_dtype)
+            
+        return kwargs
+
     def forward(self, **kwargs):
         # These are arguments from our custom data collator
         # that are not expected by the model's forward pass during training.
@@ -59,6 +70,9 @@ class MultiCoCo(nn.Module):
         kwargs.pop('answers', None)
         kwargs.pop('num_items_in_batch', None)
         kwargs.pop('image_flags', None)  # Remove image_flags as it's causing issues
+        
+        # Ensure dtype consistency
+        kwargs = self._ensure_dtype_consistency(**kwargs)
         
         # We pass all other arguments to the underlying model.
         # Do not pass image_flags to avoid shape mismatch errors
@@ -74,6 +88,11 @@ class MultiCoCo(nn.Module):
         Custom generate function to handle the CoCo methodology.
         This will be called by the Trainer's evaluate method.
         """
+        # Ensure dtype consistency for inputs
+        model_dtype = next(self.model.parameters()).dtype
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(dtype=model_dtype)
+        
         # The base pretrained model's generate function is called directly.
         # It handles the combination of vision and language embeddings internally.
         # Do not pass image_flags to avoid compatibility issues

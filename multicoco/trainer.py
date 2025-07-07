@@ -149,7 +149,7 @@ class CoCoTrainer(Trainer):
         
         return super().compute_loss(model, inputs, return_outputs)
 
-    def training_step(self, model, inputs):
+    def training_step(self, model, inputs, num_items_in_batch=None):
         """
         Override training_step to handle CoCoNut staging.
         """
@@ -161,7 +161,7 @@ class CoCoTrainer(Trainer):
                 if self.is_local_process_zero():
                     print(f"Advanced to CoCoNut stage {self.current_stage}/{self.max_latent_stage}")
         
-        return super().training_step(model, inputs)
+        return super().training_step(model, inputs, num_items_in_batch)
 
     def compute_metrics(self, p: EvalPrediction):
         # This is a placeholder. The evaluation_loop calculates and returns metrics directly.
