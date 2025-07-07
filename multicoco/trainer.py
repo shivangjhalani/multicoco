@@ -76,7 +76,9 @@ class CoCoTrainer(Trainer):
                 else: # Vanilla
                     text_prompt = f"\n{q} The answer is"
                 
-                text_prompt_with_bos = self.processor.tokenizer.bos_token + text_prompt
+                # The Qwen2 tokenizer `bos_token` attribute is None, but the convention
+                # is to use `<|im_start|>` to begin a prompt.
+                text_prompt_with_bos = '<|im_start|>' + text_prompt
                 text_prompt_ids = self.processor(text_prompt_with_bos, return_tensors='pt', add_special_tokens=False).input_ids
                 prompt_ids = torch.cat([image_ids, text_prompt_ids], dim=1)
                 input_ids_batch.append(prompt_ids)

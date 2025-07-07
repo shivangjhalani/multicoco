@@ -64,8 +64,9 @@ class DataCollatorForCoCo(object):
                 text_prompt = f"\n{question} The answer is"
                 full_answer = answer
 
-            # Add BOS token to the beginning of the text prompt
-            text_prompt_with_bos = self.tokenizer.bos_token + text_prompt
+            # The Qwen2 tokenizer `bos_token` attribute is None, but the convention
+            # is to use `<|im_start|>` to begin a prompt.
+            text_prompt_with_bos = '<|im_start|>' + text_prompt
             text_prompt_ids = self.tokenizer(text_prompt_with_bos, return_tensors='pt', add_special_tokens=False).input_ids
             answer_ids = self.tokenizer(full_answer, return_tensors='pt', add_special_tokens=False).input_ids
 
