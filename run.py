@@ -94,20 +94,17 @@ def main():
     
     # -- Collator
     hf_model = (model.module if hasattr(model, 'module') else model).model
-    collator = DataCollatorForCoCo(tokenizer=tokenizer, model=hf_model)
+    image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
+    collator = DataCollatorForCoCo(tokenizer=tokenizer, model=hf_model, image_processor=image_processor)
 
     # -- DataLoaders
-    image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
-    
     train_loader = None
     if not is_eval_only:
         train_dataset = SupervisedDataset(
             data_path=args['train_path'],
-            tokenizer=tokenizer,
-            image_processor=image_processor,
             data_dir=args['data_dir']
         )
-        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
+        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
         train_loader = DataLoader(
             train_dataset,
             batch_size=args['batch_size_training'],
@@ -119,11 +116,9 @@ def main():
     # Always create val_loader
     val_dataset = SupervisedDataset(
         data_path=args['val_path'],
-        tokenizer=tokenizer,
-        image_processor=image_processor,
         data_dir=args['data_dir']
     )
-    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
+    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.get('batch_size_evaluation', 1),

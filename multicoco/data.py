@@ -1,58 +1,17 @@
 import os
-import json
-from dataclasses import dataclass
 from typing import Dict, Sequence
 
 import torch
-import transformers
 from torch.utils.data import Dataset
 from PIL import Image
 
 
-def preprocess(image, question, answer, image_processor, tokenizer):
-    """
-    Preprocesses a single data sample.
-
-    Args:
-        image (PIL.Image): The input image.
-        question (str): The question text.
-        answer (str): The answer text.
-        image_processor: The Hugging Face image processor.
-        tokenizer: The Hugging Face tokenizer.
-
-    Returns:
-        A dictionary containing the processed data.
-    """
-    # Prepare the text prompt
-    image_token_len = image_processor.num_image_tokens
-    prompt = "<img>" * image_token_len + " " + question
-
-    # Tokenize the prompt
-    input_ids = tokenizer(prompt, return_tensors='pt').input_ids
-
-    # Process the image
-    pixel_values = image_processor(image, return_tensors="pt").pixel_values
-    
-    # The 'labels' are the tokenized answer
-    # This is what the model will learn to predict
-    labels = tokenizer(answer, return_tensors='pt').input_ids if answer is not None else None
-
-    return {
-        "input_ids": input_ids.squeeze(0),
-        "pixel_values": pixel_values.squeeze(0),
-        "labels": labels.squeeze(0) if labels is not None else None,
-        "image_flags": torch.tensor([1], dtype=torch.long)
-    }
-
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
-    def __init__(self, data_path: str, tokenizer: transformers.PreTrainedTokenizer,
-                 image_processor: transformers.ProcessorMixin, data_dir: str):
+    def __init__(self, data_path: str, data_dir: str):
         super(SupervisedDataset, self).__init__()
-        self.data = json.load(open(data_path))
-        self.tokenizer = tokenizer
-        self.image_processor = image_processor
+        self.data = torch.load(data_path)
         self.data_dir = data_dir
 
     def __len__(self):
@@ -72,84 +31,70 @@ class SupervisedDataset(Dataset):
             # Return the next item to avoid crashing the whole batch
             return self.__getitem__((i + 1) % len(self))
             
-        # Extract question and answer from the correct keys
-        question = item['question']
-        answer = item.get('answer') # Use .get for safety, might not be present
-
-        # Preprocess using the shared function
-        return preprocess(
+        return dict(
             image=image,
-            question=question,
-            answer=answer,
-            image_processor=self.image_processor,
-            tokenizer=self.tokenizer
+            question=item['question'],
+            answer=item['answer']
         )
 
 
-@dataclass
 class DataCollatorForCoCo(object):
     """Collate examples for supervised fine-tuning."""
 
-    tokenizer: transformers.PreTrainedTokenizer
-    model: transformers.PreTrainedModel
+    def __init__(self, tokenizer, model, image_processor):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.image_processor = image_processor
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        questions = [instance['question'] for instance in instances]
-        answers = [instance['answer'] for instance in instances]
-        images = [instance['image'] for instance in instances]
-        images = torch.cat(images, dim=0)
+        
+        pixel_values_list, input_ids_list, labels_list = [], [], []
 
-        all_input_ids = []
-        all_labels = []
+        for instance in instances:
+            image = instance['image']
+            question = instance['question']
+            answer = instance['answer']
+            
+            # Preprocess each sample
+            image_token_len = self.model.num_image_token
+            prompt = "<IMG_CONTEXT>" * image_token_len + " " + question
 
-        for q, a in zip(questions, answers):
-            # The base model expects a specific number of `<IMG_CONTEXT>` tokens
-            image_token_str = '<IMG_CONTEXT>' * self.model.num_image_token
-            prompt = image_token_str + q
+            # Tokenize prompt and answer
+            input_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
+            labels = self.tokenizer(answer, return_tensors='pt').input_ids
+            
+            # Process image
+            pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
+            
+            pixel_values_list.append(pixel_values)
+            input_ids_list.append(input_ids)
+            labels_list.append(labels)
 
-            # The full sequence includes the answer for the language model to learn
-            full_text = prompt + ' ' + a + self.tokenizer.eos_token
-
-            # Tokenize the full sequence
-            tokenized_full = self.tokenizer(
-                full_text,
-                return_tensors="pt",
-                padding="longest",
-                max_length=self.tokenizer.model_max_length,
-                truncation=True,
-            )
-            input_ids = tokenized_full.input_ids[0]
-
-            # Tokenize the prompt separately to determine its length for masking
-            tokenized_prompt = self.tokenizer(
-                prompt,
-                return_tensors="pt",
-                padding="longest",
-                max_length=self.tokenizer.model_max_length,
-                truncation=True,
-            )
-            prompt_len = tokenized_prompt.input_ids[0].ne(self.tokenizer.pad_token_id).sum().item()
-
-            # Create labels, masking the prompt part
-            labels = input_ids.clone()
-            labels[:prompt_len] = -100
-
-            all_input_ids.append(input_ids)
-            all_labels.append(labels)
-
-        # Pad the sequences to form a batch
+        # Pad the sequences
         input_ids = torch.nn.utils.rnn.pad_sequence(
-            all_input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+            [ids.squeeze(0) for ids in input_ids_list],
+            batch_first=True,
+            padding_value=self.tokenizer.pad_token_id
         )
         labels = torch.nn.utils.rnn.pad_sequence(
-            all_labels, batch_first=True, padding_value=-100
+            [l.squeeze(0) for l in labels_list],
+            batch_first=True,
+            padding_value=-100 # Use -100 to ignore padding in loss calculation
         )
+        
+        # Create attention mask
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id).long()
+        
+        # Concatenate pixel values
+        pixel_values = torch.cat(pixel_values_list, dim=0)
+        
+        # Create image_flags
+        image_flags = torch.ones(pixel_values.shape[0], dtype=torch.long)
 
-        batch = dict(
+        return dict(
+            pixel_values=pixel_values,
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
-            pixel_values=images,
-            image_flags=torch.ones(images.shape[0], 1) # Signal that all samples have an image
+            attention_mask=attention_mask,
+            image_flags=image_flags,
         )
-        return batch
