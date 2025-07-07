@@ -200,7 +200,9 @@ class CoCoTrainer(Trainer):
 
             for i, q in enumerate(questions):
                 
-                user_content_str = f"<img>\n{q}"
+                # For InternVL, we don't manually add <img> tokens
+                # The model handles image processing internally
+                user_content_str = q
                 if is_cot:
                     user_content_str += " Let's think step by step."
                 elif is_coconut:
@@ -209,12 +211,8 @@ class CoCoTrainer(Trainer):
                 else:
                     user_content_str += " The answer is"
             
-                prompt_messages = [{"role": "user", "content": user_content_str}]
-                prompt = self.tokenizer.apply_chat_template(
-                    prompt_messages, tokenize=False, add_generation_prompt=True
-                )
-                
-                eval_inputs = self.tokenizer(text=prompt, return_tensors='pt').to(self.args.device)
+                # For InternVL, use direct text input - the model will handle image integration
+                eval_inputs = self.tokenizer(text=user_content_str, return_tensors='pt').to(self.args.device)
 
                 gen_kwargs = self._gen_kwargs_for_evaluation()
                 if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:

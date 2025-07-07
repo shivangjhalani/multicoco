@@ -25,14 +25,14 @@ class SupervisedDataset(Dataset):
         image_path = os.path.join(self.data_dir, image_file)
         try:
             image = Image.open(image_path).convert('RGB')
-            # For InternVL, we need to properly format the conversation
-            # The question should include the <image> token where the image should be placed
-            conversation = f"<image>\n{item['question']}"
+            # For InternVL, we don't manually add <image> tokens
+            # The model will handle image processing internally
+            question = item['question']
             answer = item.get('answer', item.get('direct_answer', ''))
             
             return {
                 'image': image,
-                'conversation': conversation,
+                'question': question,
                 'answer': answer
             }
         except Exception as e:
@@ -40,7 +40,7 @@ class SupervisedDataset(Dataset):
             # Return a default item if image loading fails
             return {
                 'image': Image.new('RGB', (224, 224), color=(0, 0, 0)),
-                'conversation': "<image>\nWhat is in this image?",
+                'question': "What is in this image?",
                 'answer': "I cannot see the image."
             }
 
@@ -51,79 +51,76 @@ def collate_fn(batch, tokenizer, image_processor):
     """
     # Separate the batch into components
     images = [item['image'] for item in batch]
-    conversations = [item['conversation'] for item in batch]
+    questions = [item['question'] for item in batch]
     answers = [item['answer'] for item in batch]
     
-    # Process images
-    # For InternVL, we need to process images to get pixel_values
+    # Process images for InternVL
     pixel_values = image_processor(images, return_tensors='pt')['pixel_values']
     
-    # Process text for InternVL conversation format
-    # InternVL expects a specific conversation format
+    # For InternVL, we need to create proper conversation format
+    # The model expects text input without manual <image> tokens
+    # During generation, the model will handle image placement
+    
+    # For training, we create input-output pairs
     input_texts = []
-    target_texts = []
+    for question in questions:
+        # Simple question format - let the model handle image processing
+        input_texts.append(question)
     
-    for conversation, answer in zip(conversations, answers):
-        # For training, we need to format as conversation
-        # InternVL format: conversation includes <image> token, followed by assistant response
-        input_text = conversation
-        target_text = answer
-        
-        input_texts.append(input_text)
-        target_texts.append(target_text)
-    
-    # Tokenize inputs and targets
+    # Tokenize questions (input)
     input_encodings = tokenizer(
         input_texts,
         padding=True,
         truncation=True,
         max_length=512,
-        return_tensors='pt'
+        return_tensors='pt',
+        add_special_tokens=True
     )
     
+    # Tokenize answers (targets)
     target_encodings = tokenizer(
-        target_texts,
+        answers,
         padding=True,
         truncation=True,
-        max_length=512,
-        return_tensors='pt'
+        max_length=256,
+        return_tensors='pt',
+        add_special_tokens=True
     )
     
-    # For InternVL, we need to create labels for the full sequence
-    # Create full conversation text for proper training
-    full_conversations = []
-    for conv, ans in zip(conversations, answers):
-        # Create a complete conversation format that InternVL expects
-        full_conv = f"{conv}\n{ans}"
-        full_conversations.append(full_conv)
+    # For training, we need to create labels
+    # We'll create a simple format where we concatenate question and answer
+    full_texts = []
+    for question, answer in zip(questions, answers):
+        # Create training text: question + answer
+        full_text = f"{question} {answer}"
+        full_texts.append(full_text)
     
-    # Tokenize full conversations for labels
     full_encodings = tokenizer(
-        full_conversations,
+        full_texts,
         padding=True,
         truncation=True,
-        max_length=1024,  # longer for full conversation
-        return_tensors='pt'
+        max_length=768,
+        return_tensors='pt',
+        add_special_tokens=True
     )
     
-    # Create labels - mask input tokens, only train on response tokens
+    # Create labels for training - mask the question part
     labels = full_encodings['input_ids'].clone()
     
-    # For each item in the batch, mask the input part
-    for i, (conv, ans) in enumerate(zip(conversations, answers)):
-        # Tokenize just the input part to know where to mask
-        input_only = tokenizer(conv, add_special_tokens=False)['input_ids']
-        input_len = len(input_only)
+    for i, (question, answer) in enumerate(zip(questions, answers)):
+        # Tokenize just the question to know where to mask
+        question_tokens = tokenizer(question, add_special_tokens=False)['input_ids']
+        question_len = len(question_tokens)
         
-        # Mask the input tokens in labels (set to -100)
-        if input_len < labels.shape[1]:
-            labels[i, :input_len] = -100
+        # Mask question tokens in labels (set to -100 to ignore in loss)
+        if question_len < labels.shape[1]:
+            labels[i, :question_len] = -100
     
     return {
         'pixel_values': pixel_values,
         'input_ids': full_encodings['input_ids'],
         'attention_mask': full_encodings['attention_mask'],
         'labels': labels,
-        'questions': conversations,  # Preserve original questions for evaluation
-        'answers': answers           # Preserve original answers for evaluation
+        'questions': questions,  # Preserve for evaluation
+        'answers': answers       # Preserve for evaluation
     }
