@@ -22,7 +22,7 @@ except ImportError:
 
 def download_and_patch_model():
     # Define paths
-    hub_model_id = "OpenGVLab/InternVL3-1B"
+    hub_model_id = "OpenGVLab/InternVL3-1B-Pretrained"
     local_model_dir = "local_internvl_model"
     
     # Use a relative path for the patch file to make it more robust

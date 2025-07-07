@@ -52,7 +52,7 @@ wandb login
 
 3. Run training:
 ```bash
-torchrun --nnodes 1 --nproc_per_node 8 run.py args/aokvqa_cot.yaml
+torchrun --nnodes 1 --nproc_per_node 1 run.py args/aokvqa_cot.yaml
 ```
 
 ## Training Pipeline
