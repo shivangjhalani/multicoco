@@ -52,18 +52,20 @@ class MultiCoCo(nn.Module):
 
     def forward(self, input_ids, attention_mask, labels, pixel_values, **kwargs):
         
-        inputs_embeds = self.get_input_embeddings()(input_ids)
         latent_indices = (input_ids == self.thought_token_id).nonzero()
         
-        if latent_indices.shape[0] == 0: # No latent tokens, standard forward pass
+        if latent_indices.shape[0] == 0:  # No latent tokens, standard forward pass
             outputs = self.model(
-                inputs_embeds=inputs_embeds,
+                input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels,
                 pixel_values=pixel_values,
-                return_dict=True
+                return_dict=True,
+                **kwargs,
             )
-            return Outputs(loss=outputs.loss, inputs_embeds=inputs_embeds, logits=outputs.logits)
+            return outputs
+
+        inputs_embeds = self.get_input_embeddings()(input_ids)
 
         latent_lists = [
             [idx[1].item() for idx in latent_indices if idx[0] == i]
