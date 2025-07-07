@@ -123,5 +123,7 @@ def collate_fn(batch, tokenizer, image_processor):
         'pixel_values': pixel_values,
         'input_ids': full_encodings['input_ids'],
         'attention_mask': full_encodings['attention_mask'],
-        'labels': labels
+        'labels': labels,
+        'questions': conversations,  # Preserve original questions for evaluation
+        'answers': answers           # Preserve original answers for evaluation
     }
