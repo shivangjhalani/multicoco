@@ -5,7 +5,6 @@ from tqdm import tqdm
 from PIL import Image
 import torchvision.transforms as T
 from transformers import Trainer
-from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, BestRun
 from transformers.trainer_pt_utils import find_batch_size, nested_concat, nested_numpify, nested_truncate, nested_detach
 from transformers.integrations.deepspeed import deepspeed_init
 
@@ -23,7 +22,8 @@ class CoCoTrainer(Trainer):
         hf_model = unwrapped_model.model
 
         if hasattr(hf_model, 'img_context_token_id'):
-            IMG_CONTEXT_TOKEN_ID = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+            # The processor is the tokenizer in our case
+            IMG_CONTEXT_TOKEN_ID = self.processor.convert_tokens_to_ids('<IMG_CONTEXT>')
             hf_model.img_context_token_id = IMG_CONTEXT_TOKEN_ID
             
         self.best_val_acc = 0.0
@@ -81,6 +81,7 @@ class CoCoTrainer(Trainer):
         
         correct = 0
         total = 0
+        accuracy = 0.0
 
         with open(log_file_path, 'w') as log_file:
             log_file.write(f"InternVL3-1B A-OKVQA Evaluation Log ({mode.upper()} mode)\n")
@@ -106,12 +107,12 @@ class CoCoTrainer(Trainer):
                         do_sample=False,
                     )
                 
-                generated_text = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                generated_text = self.processor.batch_decode(outputs, skip_special_tokens=True)
 
                 total += len(original_questions)
 
                 for i, gen_text in enumerate(generated_text):
-                    prompt_len = len(self.tokenizer.decode(input_ids[i], skip_special_tokens=False))
+                    prompt_len = len(self.processor.decode(input_ids[i], skip_special_tokens=False))
                     gen_text = gen_text[prompt_len-1:].strip()
                     
                     if "what is the answer" in original_questions[i].lower():
@@ -133,9 +134,9 @@ class CoCoTrainer(Trainer):
                     log_file.write(f"EXTRACTED: {predicted_answer}\n")
                     log_file.write(f"Correct: {predicted_answer.lower() == ground_truths[i].lower()}\n\n")
 
-        accuracy = correct / total if total > 0 else 0
-        print(f"Final {mode.upper()} Accuracy: {accuracy:.4f}")
-        log_file.write(f"Final {mode.upper()} Accuracy: {accuracy:.4f}\n")
+            accuracy = correct / total if total > 0 else 0
+            print(f"Final {mode.upper()} Accuracy: {accuracy:.4f}")
+            log_file.write(f"Final {mode.upper()} Accuracy: {accuracy:.4f}\n")
 
         metrics = {f"{metric_key_prefix}_accuracy": accuracy}
         self.log(metrics)

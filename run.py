@@ -178,7 +178,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset if not is_eval_only else None,
         eval_dataset=val_dataset,
-        tokenizer=tokenizer,
+        processor=tokenizer,
         data_collator=collator
     )
 
