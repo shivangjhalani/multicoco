@@ -66,6 +66,12 @@ def debug_generate():
     print(f"image_flags:  shape={image_flags.shape}, dtype={image_flags.dtype}, device={image_flags.device}")
     print("----------------------\n")
 
+    # --- Add detailed print statements for debugging ---
+    print(f"Value of image_token_len: {image_token_len}")
+    print(f"Prompt being tokenized: '{prompt[:50]}...'")
+    print(f"Number of 1s in image_flags: {torch.sum(image_flags)}")
+    print(f"Number of 0s in image_flags: {torch.sum(image_flags == 0)}")
+    
     # --- Call Generate ---
     print("Calling model.generate...")
     try:
@@ -81,6 +87,8 @@ def debug_generate():
         print("Output:", tokenizer.batch_decode(outputs, skip_special_tokens=True))
     except AssertionError as e:
         print(f"FAILURE: Caught AssertionError: {e}")
+        import traceback
+        traceback.print_exc()
         print("This confirms the issue lies in how the inputs are prepared or passed.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
