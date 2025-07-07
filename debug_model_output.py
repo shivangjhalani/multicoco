@@ -42,7 +42,9 @@ def main():
     
     # From data.py: Build the prompt
     # The base model requires the <IMG_CONTEXT> token to know where to place the image.
-    prompt = f"<IMG_CONTEXT>\n{question} The answer is"
+    # The vision tower produces 256 tokens, so we need 256 placeholders.
+    image_token_placeholder = '<IMG_CONTEXT>' * 256
+    prompt = f"{image_token_placeholder}\n{question} The answer is"
     
     # Process image and text
     pixel_values = image_processor(images=image, return_tensors='pt').pixel_values
