@@ -13,7 +13,7 @@ class SupervisedDataset(Dataset):
     def __init__(self, data_path: str, data_dir: str):
         super(SupervisedDataset, self).__init__()
         with open(data_path, 'r') as f:
-            self.data = json.load(f)
+            self.data = json.load(f)[:20]
         self.data_dir = data_dir
 
     def __len__(self):

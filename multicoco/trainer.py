@@ -228,6 +228,7 @@ class Trainer:
                 pixel_values = batch.pop("pixel_values").to(self.device)
                 input_ids = batch.pop("input_ids").to(self.device)
                 attention_mask = batch.pop("attention_mask").to(self.device)
+                image_flags = batch.pop("image_flags").to(self.device)
                 original_questions = batch.pop("original_questions")
                 ground_truths = batch.pop("answers")
 
@@ -249,6 +250,7 @@ class Trainer:
                         pixel_values=pixel_values,
                         input_ids=input_ids,
                         attention_mask=attention_mask,
+                        image_flags=image_flags,
                         **generation_config
                     )
                     
