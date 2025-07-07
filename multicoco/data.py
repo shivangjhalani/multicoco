@@ -50,8 +50,8 @@ class DataCollatorForCoCo(object):
             question = instance['question']
             answer = instance['answer']
             
-            image_token_len = self.model.num_image_token
-            prompt = "<IMG_CONTEXT>" * image_token_len + " " + question
+            image_token_placeholder = '<IMG_CONTEXT>' * 256
+            prompt = f"{image_token_placeholder}\n{question} The answer is"
 
             input_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
             labels = self.tokenizer(answer, return_tensors='pt').input_ids
@@ -73,7 +73,7 @@ class DataCollatorForCoCo(object):
         )
         
         # Create attention mask
-        attention_mask = torch.ones_like(input_ids)
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
         pixel_values = torch.cat(pixel_values_list, dim=0)
 
         return {

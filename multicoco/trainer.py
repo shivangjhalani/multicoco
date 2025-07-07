@@ -119,8 +119,7 @@ class CoCoTrainer(Trainer):
                         do_sample=False,
                     )
 
-                generated_tokens = outputs[:, input_ids.shape[1]:]
-                generated_text = self.processor.batch_decode(generated_tokens, skip_special_tokens=True)
+                generated_text = self.processor.batch_decode(outputs, skip_special_tokens=True)
 
                 total += len(original_questions)
 
