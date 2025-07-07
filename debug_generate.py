@@ -84,7 +84,6 @@ def debug_generate():
             pixel_values=pixel_values,
             input_ids=input_ids,
             attention_mask=attention_mask,
-            image_flags=image_flags,
             max_new_tokens=100,
             do_sample=False
         )
