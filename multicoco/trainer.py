@@ -200,9 +200,9 @@ class CoCoTrainer(Trainer):
 
             for i, q in enumerate(questions):
                 
-                # For InternVL, we don't manually add <img> tokens
-                # The model handles image processing internally
-                user_content_str = q
+                # For InternVL, we need to include <image> token in the text
+                # The model uses this token to know where to inject visual features
+                user_content_str = f"<image>\n{q}"
                 if is_cot:
                     user_content_str += " Let's think step by step."
                 elif is_coconut:
@@ -211,7 +211,7 @@ class CoCoTrainer(Trainer):
                 else:
                     user_content_str += " The answer is"
             
-                # For InternVL, use direct text input - the model will handle image integration
+                # Tokenize the text with image token included
                 eval_inputs = self.tokenizer(text=user_content_str, return_tensors='pt').to(self.args.device)
 
                 gen_kwargs = self._gen_kwargs_for_evaluation()
