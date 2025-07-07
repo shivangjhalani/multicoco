@@ -123,15 +123,18 @@ class MultiCoCo(nn.Module):
         
         return Outputs(loss=loss, inputs_embeds=inputs_embeds, logits=logits)
 
-    def generate(self, pixel_values, input_ids, attention_mask, **kwargs):
+    def generate(self, pixel_values, input_ids, attention_mask, image_flags=None, **kwargs):
         """
-        A simple wrapper around the base model's generate function.
+        Custom generate function to handle the CoCo methodology.
+        This will be called by the Trainer's evaluate method.
         """
-        with torch.no_grad():
-            outputs = self.model.generate(
-                pixel_values=pixel_values,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                **kwargs
-            )
+        # The base pretrained model's generate function is called directly.
+        # It handles the combination of vision and language embeddings internally.
+        outputs = self.model.generate(
+            pixel_values=pixel_values,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            image_flags=image_flags,
+            **kwargs,
+        )
         return outputs
