@@ -13,7 +13,7 @@ class SupervisedDataset(Dataset):
     def __init__(self, data_path: str, data_dir: str):
         super(SupervisedDataset, self).__init__()
         with open(data_path, 'r') as f:
-            self.data = json.load(f)[:20]
+            self.data = json.load(f)[:20]  # limit for testing
         self.data_dir = data_dir
 
     def __len__(self):
@@ -25,82 +25,103 @@ class SupervisedDataset(Dataset):
         image_path = os.path.join(self.data_dir, image_file)
         try:
             image = Image.open(image_path).convert('RGB')
-        except (FileNotFoundError, OSError) as e:
-            print(f"Warning: Could not open image file {image_path}. Skipping. Error: {e}")
-            return self.__getitem__((i + 1) % len(self))
-        
-        rationale = item.get('rationale', '') 
-        return dict(image=image, question=item['question'], answer=item['answer'], rationale=rationale)
-
-
-class DataCollatorForCoCo(object):
-    def __init__(self, tokenizer, image_processor, cot=False):
-        self.tokenizer = tokenizer
-        self.image_processor = image_processor
-        self.cot = cot
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        
-        full_conversations_text = []
-        prompts_for_len_check = []
-        
-        questions = [instance['question'] for instance in instances]
-        answers = [instance['answer'] for instance in instances]
-        original_questions = [instance.get('original_question') for instance in instances]
-        question_ids = [instance.get('question_id') for instance in instances]
-
-        for instance in instances:
-            question = instance['question']
-            answer = instance['answer']
+            # For InternVL, we need to properly format the conversation
+            # The question should include the <image> token where the image should be placed
+            conversation = f"<image>\n{item['question']}"
+            answer = item.get('answer', item.get('direct_answer', ''))
             
-            user_content_str = f"<img>\n{question}"
+            return {
+                'image': image,
+                'conversation': conversation,
+                'answer': answer
+            }
+        except Exception as e:
+            print(f"Error loading image {image_path}: {e}")
+            # Return a default item if image loading fails
+            return {
+                'image': Image.new('RGB', (224, 224), color=(0, 0, 0)),
+                'conversation': "<image>\nWhat is in this image?",
+                'answer': "I cannot see the image."
+            }
 
-            if self.cot:
-                user_content_str += " Let's think step by step."
-                full_answer = instance.get('rationale', '') + f" The answer is {answer}"
-            else:
-                user_content_str += " The answer is"
-                full_answer = answer
 
-            full_messages = [{'role': 'user', 'content': user_content_str}, {'role': 'assistant', 'content': full_answer}]
-            full_conv_str = self.tokenizer.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False)
-            full_conversations_text.append(full_conv_str + self.tokenizer.eos_token)
-
-            prompt_messages = [{'role': 'user', 'content': user_content_str}]
-            prompt_str = self.tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
-            prompts_for_len_check.append(prompt_str)
-
-        data = self.tokenizer(text=full_conversations_text, return_tensors="pt", padding=True)
+def collate_fn(batch, tokenizer, image_processor):
+    """
+    Collate function for the SupervisedDataset.
+    """
+    # Separate the batch into components
+    images = [item['image'] for item in batch]
+    conversations = [item['conversation'] for item in batch]
+    answers = [item['answer'] for item in batch]
+    
+    # Process images
+    # For InternVL, we need to process images to get pixel_values
+    pixel_values = image_processor(images, return_tensors='pt')['pixel_values']
+    
+    # Process text for InternVL conversation format
+    # InternVL expects a specific conversation format
+    input_texts = []
+    target_texts = []
+    
+    for conversation, answer in zip(conversations, answers):
+        # For training, we need to format as conversation
+        # InternVL format: conversation includes <image> token, followed by assistant response
+        input_text = conversation
+        target_text = answer
         
-        images = [instance['image'] for instance in instances]
-        image_data = self.image_processor(images=images, return_tensors="pt")
-        data['pixel_values'] = image_data['pixel_values']
-
-        # Fix image_flags to match the expected shape for InternVL
-        # InternVL expects image_flags to have shape [batch_size, num_image_patches] 
-        # where each element indicates if that patch is valid (1) or not (0)
-        batch_size = data['pixel_values'].shape[0]
-        num_image_patches = data['pixel_values'].shape[1]  # This should be the number of image patches
+        input_texts.append(input_text)
+        target_texts.append(target_text)
+    
+    # Tokenize inputs and targets
+    input_encodings = tokenizer(
+        input_texts,
+        padding=True,
+        truncation=True,
+        max_length=512,
+        return_tensors='pt'
+    )
+    
+    target_encodings = tokenizer(
+        target_texts,
+        padding=True,
+        truncation=True,
+        max_length=512,
+        return_tensors='pt'
+    )
+    
+    # For InternVL, we need to create labels for the full sequence
+    # Create full conversation text for proper training
+    full_conversations = []
+    for conv, ans in zip(conversations, answers):
+        # Create a complete conversation format that InternVL expects
+        full_conv = f"{conv}\n{ans}"
+        full_conversations.append(full_conv)
+    
+    # Tokenize full conversations for labels
+    full_encodings = tokenizer(
+        full_conversations,
+        padding=True,
+        truncation=True,
+        max_length=1024,  # longer for full conversation
+        return_tensors='pt'
+    )
+    
+    # Create labels - mask input tokens, only train on response tokens
+    labels = full_encodings['input_ids'].clone()
+    
+    # For each item in the batch, mask the input part
+    for i, (conv, ans) in enumerate(zip(conversations, answers)):
+        # Tokenize just the input part to know where to mask
+        input_only = tokenizer(conv, add_special_tokens=False)['input_ids']
+        input_len = len(input_only)
         
-        # Create image_flags with shape [batch_size, num_image_patches] filled with 1s
-        # indicating all image patches are valid
-        image_flags = torch.ones(batch_size, num_image_patches, dtype=torch.long)
-        data['image_flags'] = image_flags
-        
-        prompt_tokenized = self.tokenizer(text=prompts_for_len_check, return_tensors="pt", padding=True)
-        prompt_lengths = prompt_tokenized.attention_mask.sum(dim=1)
-
-        labels = data['input_ids'].clone()
-        for i in range(len(labels)):
-            labels[i, :prompt_lengths[i]] = -100
-        
-        labels[data['input_ids'] == self.tokenizer.pad_token_id] = -100
-        data['labels'] = labels
-
-        data['question_ids'] = question_ids
-        data['questions'] = questions
-        data['answers'] = answers
-        data['original_questions'] = original_questions
-        data['num_items_in_batch'] = len(instances)
-
-        return data
+        # Mask the input tokens in labels (set to -100)
+        if input_len < labels.shape[1]:
+            labels[i, :input_len] = -100
+    
+    return {
+        'pixel_values': pixel_values,
+        'input_ids': full_encodings['input_ids'],
+        'attention_mask': full_encodings['attention_mask'],
+        'labels': labels
+    }

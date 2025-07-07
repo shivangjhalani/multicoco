@@ -1,31 +1,28 @@
-# Main configuration for the first stage (CoT) training.
+# Configuration for CoT (Chain-of-Thought) training on AOKVQA dataset
+model_name: 'OpenGVLab/InternVL3-1B-Pretrained'
+output_dir: './output/aokvqa_cot'
 
-project: multicoco
-name: aokvqa-cot
-save_path: checkpoints
-model_id: OpenGVLab/InternVL3-1B-Pretrained
-load_model_path: null
+# Dataset configuration
+train_data_path: './data/aokvqa_train.json'
+val_data_path: './data/aokvqa_validation.json'
+data_dir: './data'
 
-# Staging
-cot: True
-coconut: False
-c_thought: 0
-max_latent_stage: 0
-epochs_per_stage: 1
+# Training settings
+eval_only: false
+batch_size: 2
+eval_batch_size: 1
 
-# Data
-data_dir: data/
-train_path: data/aokvqa_train.json
-val_path: data/aokvqa_validation.json
+# Model settings
+coconut: false
+cot: true
 
-# Training
-batch_size_training: 8
+# Training arguments
+learning_rate: 5e-5
+num_epochs: 3
 gradient_accumulation_steps: 2
-lr: !!float 5e-5
-weight_decay: 0.01 
-bf16: True
-save_only_improve: True
-reset_optimizer: False
-seed: 42
-debug: False
-only_eval: False 
+warmup_steps: 500
+logging_steps: 10
+save_steps: 500
+eval_steps: 500
+evaluation_strategy: 'steps'
+save_strategy: 'steps' 

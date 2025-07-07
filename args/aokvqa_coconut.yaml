@@ -1,31 +1,30 @@
-# Main configuration for the second stage (Coconut) training.
+# Configuration for CoCoNut training on AOKVQA dataset
+model_name: 'OpenGVLab/InternVL3-1B-Pretrained'
+output_dir: './output/aokvqa_coconut'
 
-project: multicoco
-name: aokvqa-coconut
-save_path: checkpoints
-model_id: OpenGVLab/InternVL3-1B-Pretrained
-load_model_path: "checkpoints/stage_0/YOUR_COT_CHECKPOINT.pt" # IMPORTANT: Update this path
+# Dataset configuration
+train_data_path: './data/aokvqa_train.json'
+val_data_path: './data/aokvqa_validation.json'
+data_dir: './data'
 
-# Staging
-cot: False
-coconut: True
-c_thought: 2
+# Training settings
+eval_only: false
+batch_size: 2
+eval_batch_size: 1
+
+# Model settings
+coconut: true
+cot: false
+c_thought: 0.5
 max_latent_stage: 3
-epochs_per_stage: 1
 
-# Data
-data_dir: data/
-train_path: data/aokvqa_train.json
-val_path: data/aokvqa_validation.json
-
-# Training
-batch_size_training: 8
+# Training arguments
+learning_rate: 5e-5
+num_epochs: 5
 gradient_accumulation_steps: 2
-lr: !!float 5e-5
-weight_decay: 0.01
-bf16: True
-save_only_improve: False
-reset_optimizer: True
-seed: 42
-debug: False
-only_eval: False 
+warmup_steps: 500
+logging_steps: 10
+save_steps: 500
+eval_steps: 500
+evaluation_strategy: 'steps'
+save_strategy: 'steps' 
