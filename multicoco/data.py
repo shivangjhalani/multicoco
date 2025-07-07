@@ -51,6 +51,8 @@ class DataCollatorForCoCo(object):
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         
         pixel_values_list, input_ids_list, labels_list = [], [], []
+        original_questions = [instance['question'] for instance in instances]
+        answers = [instance['answer'] for instance in instances]
 
         for instance in instances:
             image = instance['image']
@@ -99,4 +101,6 @@ class DataCollatorForCoCo(object):
             labels=labels,
             attention_mask=attention_mask,
             image_flags=image_flags,
+            original_questions=original_questions,
+            answers=answers
         )
