@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, CLIPImageProcessor
 from PIL import Image
 import os
 
@@ -23,8 +23,8 @@ def debug_generate():
     ).cuda().eval()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     
-    # The image processor is attached to the loaded model object
-    image_processor = model.image_processor
+    print("Loading image processor...")
+    image_processor = CLIPImageProcessor.from_pretrained(MODEL_ID)
 
     print(f"Loading image from: {IMAGE_PATH}")
     if not os.path.exists(IMAGE_PATH):
