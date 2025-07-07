@@ -28,16 +28,20 @@ class SupervisedDataset(Dataset):
         except (FileNotFoundError, OSError) as e:
             print(f"Warning: Could not open image file {image_path}. Skipping. Error: {e}")
             return self.__getitem__((i + 1) % len(self))
-        return dict(image=image, question=item['question'], answer=item['answer'])
+        
+        # For CoT, the rationale is required. For vanilla, it can be missing.
+        rationale = item.get('rationale', '') 
+        return dict(image=image, question=item['question'], answer=item['answer'], rationale=rationale)
 
 
 class DataCollatorForCoCo(object):
     """Collate examples for supervised fine-tuning."""
 
-    def __init__(self, tokenizer, model, image_processor):
+    def __init__(self, tokenizer, model, image_processor, cot=False):
         self.tokenizer = tokenizer
         self.model = model
         self.image_processor = image_processor
+        self.cot = cot
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         
@@ -51,10 +55,20 @@ class DataCollatorForCoCo(object):
             answer = instance['answer']
             
             image_token_placeholder = '<IMG_CONTEXT>' * 256
-            prompt = f"{image_token_placeholder}\n{question} The answer is"
+            if self.cot:
+                # For CoT, the rationale is part of the answer.
+                # The prompt guides the model to generate its thought process.
+                prompt = f"{image_token_placeholder}\n{question} Let's think step by step."
+                # In CoT, the full generation (thought + answer) is the label.
+                # We need to get the rationale from the dataset if available, or construct it.
+                # For now, let's assume the 'answer' field contains the full thought + answer.
+                cot_answer = instance['rationale'] + f" The answer is {answer}"
+                labels = self.tokenizer(cot_answer, return_tensors='pt').input_ids
+            else:
+                prompt = f"{image_token_placeholder}\n{question} The answer is"
+                labels = self.tokenizer(answer, return_tensors='pt').input_ids
 
             input_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
-            labels = self.tokenizer(answer, return_tensors='pt').input_ids
             pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
             
             pixel_values_list.append(pixel_values)

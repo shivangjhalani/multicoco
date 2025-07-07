@@ -125,16 +125,19 @@ class CoCoTrainer(Trainer):
 
                 for i, gen_text in enumerate(generated_text):
                     gen_text = gen_text.strip()
+                    predicted_answer = ""
 
-                    if "what is the answer" in original_questions[i].lower():
-                        answer_prefix = "The answer is"
-                        if answer_prefix in gen_text:
-                            gen_text = gen_text.split(answer_prefix)[1].strip()
-
-                    if gen_text:
+                    # For CoT, the answer is at the end of the rationale.
+                    answer_prefix = "The answer is"
+                    if answer_prefix in gen_text:
+                        # Take the text after the prefix
+                        answer_part = gen_text.split(answer_prefix, 1)[-1].strip()
+                        if answer_part:
+                            predicted_answer = answer_part[0]
+                    # For vanilla, the whole generation is the answer
+                    elif gen_text:
                         predicted_answer = gen_text.strip()[0]
-                    else:
-                        predicted_answer = ""
+
 
                     if predicted_answer.lower() == ground_truths[i].lower():
                         correct += 1
