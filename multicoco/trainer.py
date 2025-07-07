@@ -211,22 +211,22 @@ class CoCoTrainer(Trainer):
                 else:
                     user_content_str += " The answer is"
             
-                # Tokenize the text with image token included
-                eval_inputs = self.tokenizer(text=user_content_str, return_tensors='pt').to(self.args.device)
-
-                gen_kwargs = self._gen_kwargs_for_evaluation()
-                if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
-                    gen_kwargs["max_new_tokens"] = 256 # Default value
-
-                generated_ids = model.generate(
-                    pixel_values=pixel_values[i:i+1],
-                    input_ids=eval_inputs.input_ids,
-                    attention_mask=eval_inputs.attention_mask,
-                    **gen_kwargs,
-                )
+                # Use InternVL's chat method which handles the conversation format properly
+                generation_config = {
+                    'max_new_tokens': 256,
+                    'do_sample': False,
+                    'num_beams': 1,
+                }
                 
-                input_len = eval_inputs.input_ids.shape[1]
-                decoded_pred = self.tokenizer.decode(generated_ids[0][input_len:], skip_special_tokens=True)
+                # Access the underlying InternVL model from our wrapper
+                underlying_model = model.model if hasattr(model, 'model') else model
+                
+                decoded_pred = underlying_model.chat(
+                    self.tokenizer,
+                    pixel_values[i:i+1],
+                    user_content_str,
+                    generation_config
+                )
                 
                 # Clean up thought tokens from prediction if they appear
                 if is_coconut:
