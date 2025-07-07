@@ -27,12 +27,12 @@ def main():
     print(f"Set model.img_context_token_id to: {model.img_context_token_id}")
 
     # --- 3. Load a single data sample ---
-    with open('multicoco/data/aokvqa_test.json', 'r') as f:
+    with open('data/aokvqa_test.json', 'r') as f:
         aokvqa_data = json.load(f)
     
     # Let's take the first sample
     sample = aokvqa_data[0]
-    image_path = f"multicoco/data/{sample['image_path']}"
+    image_path = f"data/{sample['image_path']}"
     question = sample['question']
     
     image = Image.open(image_path).convert('RGB')
