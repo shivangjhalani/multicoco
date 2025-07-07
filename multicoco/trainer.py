@@ -276,6 +276,22 @@ class CoCoTrainer(Trainer):
         if self.is_local_process_zero():
             print(f"Final Accuracy: {accuracy:.4f} ({correct}/{len(all_labels_text)})")
             print("=" * 50)
+            
+            # Also write to log file
+            log_dir = getattr(self.args, 'log_dir', 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Determine log file name based on evaluation type
+            eval_type = "coconut" if self.args.eval_config.get('coconut', False) else "cot" if self.args.eval_config.get('cot', False) else "vanilla"
+            log_file = os.path.join(log_dir, f'evaluation_{eval_type}.log')
+            
+            with open(log_file, 'a') as f:
+                f.write(f"\n=== EVALUATION RESULTS ({eval_type.upper()}) ===\n")
+                f.write(f"Total samples: {len(all_labels_text)}\n")
+                f.write(f"Correct predictions: {correct}\n")
+                f.write(f"Final Accuracy: {accuracy:.4f}\n")
+                f.write(f"Timestamp: {torch.cuda.Event().query() if torch.cuda.is_available() else 'N/A'}\n")
+                f.write("=" * 50 + "\n")
         
         # Log CoCoNut stage information
         stage_info = {}

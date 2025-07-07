@@ -8,8 +8,7 @@ import yaml
 from PIL import Image
 from torch.utils.data import DataLoader
 
-# Disable wandb explicitly
-os.environ["WANDB_DISABLED"] = "true"
+# We'll conditionally disable wandb for eval only later
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -81,6 +80,10 @@ def main():
     logger.info(f"Model initialized with {sum(p.numel() for p in model.parameters())} parameters")
     
     # Create training arguments
+    # Conditionally disable wandb for evaluation only
+    eval_only = args.get('eval_only', False)
+    report_to = None if eval_only else "wandb"
+    
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=args.get('num_epochs', 3),
@@ -100,7 +103,7 @@ def main():
         remove_unused_columns=False,
         dataloader_pin_memory=False,
         bf16=True if torch.cuda.is_available() else False,
-        report_to=None,  # Disable wandb for now
+        report_to=report_to,  # Enable wandb for training, disable for eval
     )
     
     # Add custom args to training_args that our custom trainer needs
