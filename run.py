@@ -35,7 +35,7 @@ def main():
     parser = HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments)
     )
-    model_args, data_args, training_args = parser.parse_args_into_hacls()
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
     processor = AutoProcessor.from_pretrained(
         model_args.model_name_or_path,
