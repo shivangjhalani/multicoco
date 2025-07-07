@@ -25,7 +25,8 @@ if internvl_chat_path not in sys.path:
 
 from multicoco.data import SupervisedDataset, DataCollatorForCoCo
 from multicoco.model import MultiCoCo
-from multicoco.trainer import Trainer
+from multicoco.trainer import CoCoTrainer
+from transformers import TrainingArguments
 
 def setup(rank, world_size):
     """Initializes the distributed environment."""
@@ -141,23 +142,52 @@ def main():
     else:
         text_table = None
 
+    # Training Arguments
+    training_args = TrainingArguments(
+        output_dir=args.get('save_path', './results'),
+        num_train_epochs=args.get('epochs_per_stage', 1),
+        per_device_train_batch_size=args.get('batch_size_training', 1),
+        per_device_eval_batch_size=args.get('batch_size_evaluation', 1),
+        gradient_accumulation_steps=args.get('gradient_accumulation_steps', 1),
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        learning_rate=args.get('lr', 5e-5),
+        weight_decay=args.get('weight_decay', 0.01),
+        warmup_steps=args.get('warmup_steps', 500),
+        logging_dir=args.get('log_dir', './logs'),
+        logging_steps=10,
+        do_train=not is_eval_only,
+        do_eval=True,
+        bf16=args.get('bf16', False),
+        report_to="wandb" if wandb_run else "none",
+        load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
+        remove_unused_columns=False, # We need to keep original_questions and answers
+        label_names=["labels"], # Explicitly tell the trainer what the labels are
+        deepspeed=args.get('deepspeed_config')
+    )
+    
+    # Add custom args to training_args that our custom trainer needs
+    training_args.log_dir = args.get('log_dir', 'logs')
+    training_args.eval_config = {'coconut': args.get('coconut', False), 'cot': args.get('cot', False)}
+
+
     # Trainer
-    trainer = Trainer(
+    trainer = CoCoTrainer(
         model=model,
-        optimizer=None if is_eval_only else optimizer,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        args=args,
-        wandb_run=wandb_run if rank == 0 else None,
-        text_table=text_table if rank == 0 else None
+        args=training_args,
+        train_dataset=train_dataset if not is_eval_only else None,
+        eval_dataset=val_dataset,
+        tokenizer=tokenizer,
+        data_collator=collator
     )
 
     # Start training or evaluation
     if is_eval_only:
         print("--- Starting Evaluation Only ---")
-        val_acc = trainer.evaluate()
+        metrics = trainer.evaluate()
         if rank == 0:
-            print(f"Final Validation Accuracy: {val_acc:.4f}")
+            print(f"Final Validation Metrics: {metrics}")
     else:
         trainer.train()
 
