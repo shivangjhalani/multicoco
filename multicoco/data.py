@@ -53,26 +53,31 @@ class DataCollatorForCoCo(object):
             image = instance['image']
             question = instance['question']
             answer = instance['answer']
-            
+
             image_token_placeholder = '<img>' * 256
+            
             if self.cot:
-                # For CoT, the rationale is part of the answer.
-                # The prompt guides the model to generate its thought process.
                 prompt = f"{image_token_placeholder}\n{question} Let's think step by step."
-                # In CoT, the full generation (thought + answer) is the label.
-                # We need to get the rationale from the dataset if available, or construct it.
-                # For now, let's assume the 'answer' field contains the full thought + answer.
-                cot_answer = instance['rationale'] + f" The answer is {answer}"
-                labels = self.tokenizer(cot_answer, return_tensors='pt').input_ids
+                full_answer = instance['rationale'] + f" The answer is {answer}"
             else:
                 prompt = f"{image_token_placeholder}\n{question} The answer is"
-                labels = self.tokenizer(answer, return_tensors='pt').input_ids
+                full_answer = answer
 
-            input_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
+            prompt_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
+            answer_ids = self.tokenizer(full_answer, return_tensors='pt', add_special_tokens=False).input_ids
+
+            # Concatenate prompt and answer to form the full input
+            combined_ids = torch.cat([prompt_ids, answer_ids], dim=1)
+            
+            # Create labels, masking out the prompt part
+            prompt_len = prompt_ids.shape[1]
+            labels = combined_ids.clone()
+            labels[:, :prompt_len] = -100 # Mask out the prompt
+
             pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
             
             pixel_values_list.append(pixel_values)
-            input_ids_list.append(input_ids)
+            input_ids_list.append(combined_ids)
             labels_list.append(labels)
 
         input_ids = torch.nn.utils.rnn.pad_sequence(
