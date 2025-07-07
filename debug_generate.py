@@ -49,7 +49,8 @@ def debug_generate():
     
     # 4. Create the attention mask and image flags
     attention_mask = torch.ones_like(input_ids)
-    image_flags = torch.ones(pixel_values.shape[0], dtype=torch.long)
+    image_flags = torch.zeros_like(input_ids)
+    image_flags[:, :image_token_len] = 1
     
     # --- Move to GPU and set correct dtype ---
     pixel_values = pixel_values.to(torch.bfloat16).cuda()
