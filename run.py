@@ -23,7 +23,7 @@ internvl_chat_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'in
 if internvl_chat_path not in sys.path:
     sys.path.insert(0, internvl_chat_path)
 
-from multicoco.data import MultiCoCoDataset, DataCollatorForInternVL
+from multicoco.data import SupervisedDataset, DataCollatorForCoCo
 from multicoco.model import MultiCoCo
 from multicoco.trainer import Trainer
 
@@ -93,20 +93,17 @@ def main():
         model = DDP(model, device_ids=[rank])
     
     # -- Collator
-    # The collator needs access to the model and tokenizer, which might be wrapped in DDP
-    hf_model = (model.module if hasattr(model, 'module') else model).model
-    image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
-    collator = DataCollatorForInternVL(
-        tokenizer=tokenizer,
-        model=hf_model,
-        image_processor=image_processor
-    )
+    collator = DataCollatorForCoCo(tokenizer=tokenizer)
 
     # -- DataLoaders
+    image_processor = model.image_processor if not hasattr(model, 'module') else model.module.image_processor
+    
     train_loader = None
     if not is_eval_only:
-        train_dataset = MultiCoCoDataset(
+        train_dataset = SupervisedDataset(
             data_path=args['train_path'],
+            tokenizer=tokenizer,
+            image_processor=image_processor,
             data_dir=args['data_dir']
         )
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
@@ -119,7 +116,12 @@ def main():
         )
 
     # Always create val_loader
-    val_dataset = MultiCoCoDataset(data_path=args['val_path'], data_dir=args['data_dir'])
+    val_dataset = SupervisedDataset(
+        data_path=args['val_path'],
+        tokenizer=tokenizer,
+        image_processor=image_processor,
+        data_dir=args['data_dir']
+    )
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank) if is_ddp else None
     val_loader = DataLoader(
         val_dataset,
