@@ -64,7 +64,9 @@ class DataCollatorForCoCo(object):
                 text_prompt = f"\n{question} The answer is"
                 full_answer = answer
 
-            text_prompt_ids = self.tokenizer(text_prompt, return_tensors='pt', add_special_tokens=False).input_ids
+            # Add BOS token to the beginning of the text prompt
+            text_prompt_with_bos = self.tokenizer.bos_token + text_prompt
+            text_prompt_ids = self.tokenizer(text_prompt_with_bos, return_tensors='pt', add_special_tokens=False).input_ids
             answer_ids = self.tokenizer(full_answer, return_tensors='pt', add_special_tokens=False).input_ids
 
             prompt_ids = torch.cat([image_ids, text_prompt_ids], dim=1)
@@ -73,6 +75,9 @@ class DataCollatorForCoCo(object):
             prompt_len = prompt_ids.shape[1]
             labels = combined_ids.clone()
             labels[:, :prompt_len] = -100
+            
+            # Also mask out the image tokens in the labels
+            labels[labels == image_token_id] = -100
 
             pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
             
