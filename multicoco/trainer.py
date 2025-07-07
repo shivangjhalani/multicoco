@@ -6,7 +6,6 @@ from PIL import Image
 import torchvision.transforms as T
 from transformers import Trainer
 from transformers.trainer_pt_utils import (
-    EvalLoopOutput,
     find_batch_size,
     nested_concat,
     nested_numpify,
@@ -151,4 +150,4 @@ class CoCoTrainer(Trainer):
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
         self._memory_tracker.stop_and_update_metrics(metrics)
 
-        return EvalLoopOutput(predictions=None, label_ids=None, metrics=metrics, num_samples=total)
+        return metrics
