@@ -14,7 +14,7 @@ from transformers.trainer_pt_utils import (
 )
 from transformers.integrations.deepspeed import deepspeed_init
 from transformers.trainer_pt_utils import LabelSmoother
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 import numpy as np
 import torch.nn as nn
 from torch.utils.data import DataLoader
