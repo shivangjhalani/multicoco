@@ -29,88 +29,68 @@ class SupervisedDataset(Dataset):
             print(f"Warning: Could not open image file {image_path}. Skipping. Error: {e}")
             return self.__getitem__((i + 1) % len(self))
         
-        # For CoT, the rationale is required. For vanilla, it can be missing.
         rationale = item.get('rationale', '') 
         return dict(image=image, question=item['question'], answer=item['answer'], rationale=rationale)
 
 
 class DataCollatorForCoCo(object):
-    """Collate examples for supervised fine-tuning."""
+    """Collate examples for supervised fine-tuning by applying the model's chat template."""
 
-    def __init__(self, tokenizer, model, image_processor, cot=False):
-        self.tokenizer = tokenizer
-        self.model = model
-        self.image_processor = image_processor
+    def __init__(self, tokenizer, cot=False):
+        self.processor = tokenizer # In our case, the tokenizer is the processor
         self.cot = cot
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         
-        pixel_values_list, input_ids_list, labels_list = [], [], []
-        original_questions = [instance['question'] for instance in instances]
-        answers = [instance['answer'] for instance in instances]
+        images = [instance['image'] for instance in instances]
+        prompts_for_len_check = []
+        full_conversations = []
 
         for instance in instances:
-            image = instance['image']
             question = instance['question']
             answer = instance['answer']
-
-            image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-            image_ids = torch.tensor([image_token_id] * 256).unsqueeze(0)
             
             if self.cot:
-                text_prompt = f"\n{question} Let's think step by step."
-                full_answer = instance['rationale'] + f" The answer is {answer}"
-            else:
-                text_prompt = f"\n{question} The answer is"
+                full_answer = instance.get('rationale', '') + f" The answer is {answer}"
+                user_content = [{"type": "image"}, {"type": "text", "text": f"{question} Let's think step by step."}]
+            else: # Vanilla
                 full_answer = answer
+                user_content = [{"type": "image"}, {"type": "text", "text": f"{question} The answer is"}]
 
-            # The Qwen2 tokenizer `bos_token` attribute is None, but the convention
-            # is to use `<|im_start|>` to begin a prompt.
-            text_prompt_with_bos = '<|im_start|>' + text_prompt
-            text_prompt_ids = self.tokenizer(text_prompt_with_bos, return_tensors='pt', add_special_tokens=False).input_ids
-            answer_ids = self.tokenizer(full_answer, return_tensors='pt', add_special_tokens=False).input_ids
+            # Messages for the full conversation (prompt + response)
+            full_messages = [
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": [{"type": "text", "text": full_answer}]}
+            ]
+            full_conversations.append(self.processor.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False))
 
-            prompt_ids = torch.cat([image_ids, text_prompt_ids], dim=1)
-            combined_ids = torch.cat([prompt_ids, answer_ids], dim=1)
-            
-            prompt_len = prompt_ids.shape[1]
-            labels = combined_ids.clone()
-            labels[:, :prompt_len] = -100
-            
-            # Also mask out the image tokens in the labels
-            labels[labels == image_token_id] = -100
+            # Messages for just the prompt, to calculate its length for masking labels
+            prompt_messages = [
+                {"role": "user", "content": user_content}
+            ]
+            # `add_generation_prompt=True` adds the 'assistant' role to prime the model for generation,
+            # which is what we need to mask correctly.
+            prompts_for_len_check.append(self.processor.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True))
 
-            pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
-            
-            pixel_values_list.append(pixel_values)
-            input_ids_list.append(combined_ids)
-            labels_list.append(labels)
-
-        input_ids = torch.nn.utils.rnn.pad_sequence(
-            [ids.squeeze(0) for ids in input_ids_list],
-            batch_first=True,
-            padding_value=self.tokenizer.pad_token_id
-        )
-        labels = torch.nn.utils.rnn.pad_sequence(
-            [l.squeeze(0) for l in labels_list],
-            batch_first=True,
-            padding_value=-100
-        )
+        # Tokenize full conversations for model input
+        batch = self.processor(text=full_conversations, images=images, padding=True, return_tensors='pt')
         
-        # Create attention mask
-        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
-        pixel_values = torch.cat(pixel_values_list, dim=0)
+        # Tokenize prompts to get their length
+        prompt_tokenized = self.processor(text=prompts_for_len_check, padding=True, return_tensors='pt')
+        prompt_lengths = torch.sum(prompt_tokenized.attention_mask, dim=1)
 
-        # Create image_flags
-        image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
-        image_flags = (input_ids == image_token_id).long()
+        # Create labels and mask out the prompt part
+        labels = batch.input_ids.clone()
+        for i, prompt_len in enumerate(prompt_lengths):
+            labels[i, :prompt_len] = -100
+        
+        # Also mask padding in labels
+        labels[labels == self.processor.tokenizer.pad_token_id] = -100
 
-        return {
-            'pixel_values': pixel_values,
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'labels': labels,
-            'image_flags': image_flags,
-            'original_questions': original_questions,
-            'answers': answers
-        }
+        batch['labels'] = labels
+
+        # Keep original questions and answers for evaluation
+        batch['original_questions'] = [instance['question'] for instance in instances]
+        batch['answers'] = [instance['answer'] for instance in instances]
+
+        return batch

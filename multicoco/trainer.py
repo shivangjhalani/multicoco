@@ -65,42 +65,43 @@ class CoCoTrainer(Trainer):
             original_questions = inputs.pop("original_questions")
             answers = inputs.pop("answers") # Ground truth answers
 
-            image_token_id = self.processor.convert_tokens_to_ids('<img>')
-            image_ids = torch.tensor([image_token_id] * 256).unsqueeze(0)
+            prompts = []
+            images = [img for img in inputs['pixel_values']] # We need to handle images per instance
+            
             is_cot = self.args.eval_config.get('cot', False)
-            
-            input_ids_batch = []
-            for q in original_questions:
-                if is_cot:
-                    text_prompt = f"\n{q} Let's think step by step."
-                else: # Vanilla
-                    text_prompt = f"\n{q} The answer is"
-                
-                # The Qwen2 tokenizer `bos_token` attribute is None, but the convention
-                # is to use `<|im_start|>` to begin a prompt.
-                text_prompt_with_bos = '<|im_start|>' + text_prompt
-                text_prompt_ids = self.processor(text_prompt_with_bos, return_tensors='pt', add_special_tokens=False).input_ids
-                prompt_ids = torch.cat([image_ids, text_prompt_ids], dim=1)
-                input_ids_batch.append(prompt_ids)
 
-            padded_input_ids = torch.nn.utils.rnn.pad_sequence(
-                [ids.squeeze(0) for ids in input_ids_batch],
-                batch_first=True,
-                padding_value=self.processor.pad_token_id
+            for i, q in enumerate(original_questions):
+                if is_cot:
+                    user_content = [{"type": "image"}, {"type": "text", "text": f"{q} Let's think step by step."}]
+                else: # Vanilla
+                    user_content = [{"type": "image"}, {"type": "text", "text": f"{q} The answer is"}]
+                
+                prompt_messages = [{"role": "user", "content": user_content}]
+                
+                # We pass add_generation_prompt=True to prime the model for a response.
+                formatted_prompt = self.processor.apply_chat_template(
+                    prompt_messages, tokenize=False, add_generation_prompt=True
+                )
+                prompts.append(formatted_prompt)
+
+            # The processor handles tokenization and image processing together
+            eval_batch = self.processor(
+                text=prompts,
+                images=images,
+                padding=True,
+                return_tensors='pt'
             )
-            
-            inputs['input_ids'] = padded_input_ids.to(self.args.device)
-            inputs['attention_mask'] = (inputs['input_ids'] != self.processor.pad_token_id).long()
-            inputs['image_flags'] = (inputs['input_ids'] == image_token_id).long()
-            
-            # Move pixel_values to the correct device
-            inputs['pixel_values'] = inputs['pixel_values'].to(self.args.device)
+
+            # Move all tensors to the correct device
+            for k, v in eval_batch.items():
+                if isinstance(v, torch.Tensor):
+                    eval_batch[k] = v.to(self.args.device)
 
             # We don't have ground truth labels in the same way for generation
-            if 'labels' in inputs:
-                inputs.pop('labels')
+            if 'labels' in eval_batch:
+                eval_batch.pop('labels')
             
-            _, logits, _ = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+            _, logits, _ = self.prediction_step(model, eval_batch, prediction_loss_only, ignore_keys=ignore_keys)
 
             if logits is not None:
                 all_preds.append(logits.detach().cpu())
