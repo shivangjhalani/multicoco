@@ -119,13 +119,13 @@ class CoCoTrainer(Trainer):
                         do_sample=False,
                     )
 
-                generated_text = self.processor.batch_decode(outputs, skip_special_tokens=True)
+                generated_tokens = outputs[:, input_ids.shape[1]:]
+                generated_text = self.processor.batch_decode(generated_tokens, skip_special_tokens=True)
 
                 total += len(original_questions)
 
                 for i, gen_text in enumerate(generated_text):
-                    prompt_len = len(self.processor.decode(input_ids[i], skip_special_tokens=False))
-                    gen_text = gen_text[prompt_len-1:].strip()
+                    gen_text = gen_text.strip()
 
                     if "what is the answer" in original_questions[i].lower():
                         answer_prefix = "The answer is"
