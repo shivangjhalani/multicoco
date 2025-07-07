@@ -97,6 +97,9 @@ class Trainer:
                         if isinstance(v, torch.Tensor):
                             batch[k] = v.to(self.device)
                 
+                    if self.args.get('bf16'):
+                        batch['pixel_values'] = batch['pixel_values'].to(torch.bfloat16)
+
                     # Remove fields that are not model inputs before passing to the model
                     batch.pop("answers", None)
                     batch.pop("original_questions", None)
@@ -227,6 +230,9 @@ class Trainer:
                 attention_mask = batch.pop("attention_mask").to(self.device)
                 original_questions = batch.pop("original_questions")
                 ground_truths = batch.pop("answers")
+
+                if self.args.get('bf16'):
+                    pixel_values = pixel_values.to(torch.bfloat16)
 
                 with torch.no_grad():
                     model_to_eval = self.model.module if hasattr(self.model, 'module') else self.model
