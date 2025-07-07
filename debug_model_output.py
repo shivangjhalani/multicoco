@@ -41,7 +41,8 @@ def main():
     # This mimics the logic in data.py and trainer.py
     
     # From data.py: Build the prompt
-    prompt = f"{question} The answer is"
+    # The base model requires the <IMG_CONTEXT> token to know where to place the image.
+    prompt = f"<IMG_CONTEXT>\n{question} The answer is"
     
     # Process image and text
     pixel_values = image_processor(images=image, return_tensors='pt').pixel_values
