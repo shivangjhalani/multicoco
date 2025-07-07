@@ -90,11 +90,16 @@ class DataCollatorForCoCo(object):
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
         pixel_values = torch.cat(pixel_values_list, dim=0)
 
+        # Create image_flags
+        image_token_id = 32000  # The ID for the '<img>' token
+        image_flags = (input_ids == image_token_id).long()
+
         return {
             'pixel_values': pixel_values,
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'labels': labels,
+            'image_flags': image_flags,
             'original_questions': original_questions,
             'answers': answers
         }
