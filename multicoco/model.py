@@ -55,6 +55,7 @@ class MultiCoCo(nn.Module):
         latent_indices = (input_ids == self.thought_token_id).nonzero()
         
         if latent_indices.shape[0] == 0:  # No latent tokens, standard forward pass
+            kwargs.pop("original_questions", None)
             outputs = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
