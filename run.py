@@ -89,7 +89,7 @@ def main():
         logging_steps=args.get('logging_steps', 10),
         save_steps=args.get('save_steps', 500),
         eval_steps=args.get('eval_steps', 500),
-        evaluation_strategy=args.get('evaluation_strategy', 'steps'),
+        eval_strategy=args.get('eval_strategy', 'steps'),
         save_strategy=args.get('save_strategy', 'steps'),
         load_best_model_at_end=True,
         metric_for_best_model='eval_loss',

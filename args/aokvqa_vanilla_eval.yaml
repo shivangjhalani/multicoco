@@ -23,5 +23,5 @@ warmup_steps: 0
 logging_steps: 10
 save_steps: 1000
 eval_steps: 1000
-evaluation_strategy: 'steps'
+eval_strategy: 'steps'
 save_strategy: 'steps' 
