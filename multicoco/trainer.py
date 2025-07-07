@@ -28,10 +28,7 @@ class EvalOutput:
 
 class CoCoTrainer(Trainer):
     def __init__(self, *args, **kwargs):
-        # The processor is no longer needed here, the base Trainer
-        # correctly handles the tokenizer.
-        if 'processor' in kwargs:
-            kwargs.pop('processor')
+        self.processor = kwargs.pop('processor')
         super().__init__(*args, **kwargs)
         self.best_val_acc = 0.0
 
@@ -60,8 +57,7 @@ class CoCoTrainer(Trainer):
             questions = inputs.pop("questions")
             answers = inputs.pop("answers")
             pixel_values = inputs["pixel_values"].to(self.args.device)
-            # image_flags are passed implicitly with the rest of `inputs` to the model
-            
+
             all_labels_text.extend(answers)
             
             is_cot = self.args.eval_config.get('cot', False)
@@ -75,19 +71,18 @@ class CoCoTrainer(Trainer):
                     user_content_str += " The answer is"
             
                 prompt_messages = [{"role": "user", "content": user_content_str}]
-                prompt = self.tokenizer.apply_chat_template(
+                prompt = self.processor.apply_chat_template(
                     prompt_messages, tokenize=False, add_generation_prompt=True
                 )
                 
-                eval_inputs = self.tokenizer(text=prompt, return_tensors='pt').to(self.args.device)
+                # Note: For evaluation, we process each item individually.
+                # The processor call here is simpler because the image is already on the device.
+                eval_inputs = self.processor(text=prompt, return_tensors='pt').to(self.args.device)
 
                 gen_kwargs = self._gen_kwargs_for_evaluation()
                 if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
                     gen_kwargs["max_new_tokens"] = 256 # Default value
 
-                # The `image_flags` are part of `inputs` but not used explicitly in the generate call here
-                # since we're passing the full `pixel_values` for the batch. This is a simplification
-                # for this specific evaluation loop. The model's forward pass during training uses it correctly.
                 generated_ids = model.generate(
                     pixel_values=pixel_values[i:i+1],
                     input_ids=eval_inputs.input_ids,
@@ -96,7 +91,7 @@ class CoCoTrainer(Trainer):
                 )
                 
                 input_len = eval_inputs.input_ids.shape[1]
-                decoded_pred = self.tokenizer.decode(generated_ids[0][input_len:], skip_special_tokens=True)
+                decoded_pred = self.processor.decode(generated_ids[0][input_len:], skip_special_tokens=True)
                 all_preds_text.append(decoded_pred)
 
         # Post-process and compute metrics
