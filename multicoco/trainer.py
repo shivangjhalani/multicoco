@@ -28,7 +28,6 @@ class EvalOutput:
 
 class CoCoTrainer(Trainer):
     def __init__(self, *args, **kwargs):
-        self.processor = kwargs.pop('processor')
         super().__init__(*args, **kwargs)
         self.best_val_acc = 0.0
 
@@ -69,11 +68,11 @@ class CoCoTrainer(Trainer):
                     prompt_text = f"{q} The answer is"
             
                 prompt_messages = [{"role": "user", "content": prompt_text}]
-                prompt = self.processor.apply_chat_template(
+                prompt = self.tokenizer.apply_chat_template(
                     prompt_messages, tokenize=False, add_generation_prompt=True
                 )
                 
-                eval_inputs = self.processor(text=prompt, return_tensors='pt').to(self.args.device)
+                eval_inputs = self.tokenizer(text=prompt, return_tensors='pt').to(self.args.device)
 
                 gen_kwargs = self._gen_kwargs_for_evaluation()
                 if "max_length" not in gen_kwargs and "max_new_tokens" not in gen_kwargs:
@@ -87,7 +86,7 @@ class CoCoTrainer(Trainer):
                 )
                 
                 input_len = eval_inputs.input_ids.shape[1]
-                decoded_pred = self.processor.decode(generated_ids[0][input_len:], skip_special_tokens=True)
+                decoded_pred = self.tokenizer.decode(generated_ids[0][input_len:], skip_special_tokens=True)
                 all_preds_text.append(decoded_pred)
 
         # Post-process and compute metrics

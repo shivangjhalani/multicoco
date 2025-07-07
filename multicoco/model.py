@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig, AutoProcessor
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoImageProcessor, AutoConfig
 import inspect
 from collections import namedtuple
 # from multicoco.conversation import get_conv_template # No longer needed
@@ -24,12 +24,10 @@ class MultiCoCo(nn.Module):
         )
 
         tok_id = tokenizer_id if tokenizer_id else model_id
-        # The processor combines the tokenizer and image processor
-        self.processor = AutoProcessor.from_pretrained(tok_id, trust_remote_code=True)
-        self.tokenizer = self.processor.tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(tok_id, trust_remote_code=True)
         
-        # The image_processor is now part of the processor
-        # self.image_processor = AutoImageProcessor.from_pretrained(proc_id, trust_remote_code=True)
+        proc_id = image_processor_id if image_processor_id else model_id
+        self.image_processor = AutoImageProcessor.from_pretrained(proc_id, trust_remote_code=True)
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token

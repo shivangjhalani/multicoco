@@ -36,8 +36,9 @@ class SupervisedDataset(Dataset):
 class DataCollatorForCoCo(object):
     """Collate examples for supervised fine-tuning by applying the model's chat template."""
 
-    def __init__(self, processor, cot=False):
-        self.processor = processor
+    def __init__(self, tokenizer, image_processor, cot=False):
+        self.tokenizer = tokenizer
+        self.image_processor = image_processor
         self.cot = cot
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
@@ -65,24 +66,26 @@ class DataCollatorForCoCo(object):
                 {'role': 'user', 'content': prompt_question},
                 {'role': 'assistant', 'content': full_answer}
             ]
-            full_conversations.append(self.processor.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False) + self.processor.tokenizer.eos_token)
+            full_conversations.append(self.tokenizer.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False) + self.tokenizer.eos_token)
 
             eval_messages = [
                 {'role': 'user', 'content': prompt_question}
             ]
-            eval_conversations.append(self.processor.apply_chat_template(eval_messages, tokenize=False, add_generation_prompt=True))
+            eval_conversations.append(self.tokenizer.apply_chat_template(eval_messages, tokenize=False, add_generation_prompt=True))
 
         images = [instance['image'] for instance in instances]
-        data = self.processor(text=full_conversations, images=images, return_tensors="pt", padding=True)
+        data = self.tokenizer(text=full_conversations, return_tensors="pt", padding=True)
+        image_data = self.image_processor(images=images, return_tensors="pt")
+        data['pixel_values'] = image_data['pixel_values']
         
-        prompt_only_data = self.processor(text=eval_conversations, return_tensors="pt", padding=True)
+        prompt_only_data = self.tokenizer(text=eval_conversations, return_tensors="pt", padding=True)
         prompt_lengths = prompt_only_data['attention_mask'].sum(dim=1)
 
         labels = data['input_ids'].clone()
         for i in range(len(labels)):
             labels[i, :prompt_lengths[i]] = -100
         
-        labels[data['input_ids'] == self.processor.tokenizer.pad_token_id] = -100
+        labels[data['input_ids'] == self.tokenizer.pad_token_id] = -100
         data['labels'] = labels
 
         # Pass along metadata
