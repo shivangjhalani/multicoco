@@ -55,6 +55,7 @@ class MultiCoCo(nn.Module):
         # that are not expected by the model's forward pass during training.
         kwargs.pop('original_questions', None)
         kwargs.pop('answers', None)
+        kwargs.pop('num_items_in_batch', None) # Added by the trainer
         
         # We pass all other arguments to the underlying model.
         return self.model(**kwargs)
