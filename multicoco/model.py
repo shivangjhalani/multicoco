@@ -57,10 +57,16 @@ class MultiCoCo(nn.Module):
         kwargs.pop('questions', None)
         kwargs.pop('original_questions', None)
         kwargs.pop('answers', None)
-        kwargs.pop('num_items_in_batch', None) # Added by the trainer
+        kwargs.pop('num_items_in_batch', None)
+        kwargs.pop('image_flags', None)  # This is no longer needed with the new call signature
         
-        # We pass all other arguments to the underlying model.
-        return self.model(**kwargs)
+        # We pass all other arguments to the underlying model using the correct keywords.
+        return self.model(
+            pixel_values=kwargs.get('pixel_values'),
+            input_ids=kwargs.get('input_ids'),
+            attention_mask=kwargs.get('attention_mask'),
+            labels=kwargs.get('labels')
+        )
 
     def generate(self, pixel_values, input_ids, attention_mask, image_flags=None, **kwargs):
         """
