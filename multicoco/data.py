@@ -54,25 +54,25 @@ class DataCollatorForCoCo(object):
             question = instance['question']
             answer = instance['answer']
 
-            image_token_placeholder = ' '.join(['<img>'] * 256)
+            image_token_id = self.tokenizer.convert_tokens_to_ids('<img>')
+            image_ids = torch.tensor([image_token_id] * 256).unsqueeze(0)
             
             if self.cot:
-                prompt = f"{image_token_placeholder}\n{question} Let's think step by step."
+                text_prompt = f"\n{question} Let's think step by step."
                 full_answer = instance['rationale'] + f" The answer is {answer}"
             else:
-                prompt = f"{image_token_placeholder}\n{question} The answer is"
+                text_prompt = f"\n{question} The answer is"
                 full_answer = answer
 
-            prompt_ids = self.tokenizer(prompt, return_tensors='pt').input_ids
+            text_prompt_ids = self.tokenizer(text_prompt, return_tensors='pt', add_special_tokens=False).input_ids
             answer_ids = self.tokenizer(full_answer, return_tensors='pt', add_special_tokens=False).input_ids
 
-            # Concatenate prompt and answer to form the full input
+            prompt_ids = torch.cat([image_ids, text_prompt_ids], dim=1)
             combined_ids = torch.cat([prompt_ids, answer_ids], dim=1)
             
-            # Create labels, masking out the prompt part
             prompt_len = prompt_ids.shape[1]
             labels = combined_ids.clone()
-            labels[:, :prompt_len] = -100 # Mask out the prompt
+            labels[:, :prompt_len] = -100
 
             pixel_values = self.image_processor(image, return_tensors="pt").pixel_values
             

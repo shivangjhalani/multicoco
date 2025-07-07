@@ -65,28 +65,29 @@ class CoCoTrainer(Trainer):
             original_questions = inputs.pop("original_questions")
             answers = inputs.pop("answers") # Ground truth answers
 
-            # Re-create the prompt string for generation
-            image_token_placeholder = ' '.join(['<img>'] * 256)
+            image_token_id = self.processor.convert_tokens_to_ids('<img>')
+            image_ids = torch.tensor([image_token_id] * 256).unsqueeze(0)
             is_cot = self.args.eval_config.get('cot', False)
-            prompts = []
+            
+            input_ids_batch = []
             for q in original_questions:
                 if is_cot:
-                    prompt = f"{image_token_placeholder}\n{q} Let's think step by step."
+                    text_prompt = f"\n{q} Let's think step by step."
                 else: # Vanilla
-                    prompt = f"{image_token_placeholder}\n{q} The answer is"
-                prompts.append(prompt)
+                    text_prompt = f"\n{q} The answer is"
+                
+                text_prompt_ids = self.processor(text_prompt, return_tensors='pt', add_special_tokens=False).input_ids
+                prompt_ids = torch.cat([image_ids, text_prompt_ids], dim=1)
+                input_ids_batch.append(prompt_ids)
 
-            # Tokenize the prompts to create new input_ids and attention_mask
-            tokenized_prompts = self.processor(
-                prompts, 
-                return_tensors="pt", 
-                padding=True,
+            padded_input_ids = torch.nn.utils.rnn.pad_sequence(
+                [ids.squeeze(0) for ids in input_ids_batch],
+                batch_first=True,
+                padding_value=self.processor.pad_token_id
             )
-            inputs['input_ids'] = tokenized_prompts.input_ids.to(self.args.device)
-            inputs['attention_mask'] = tokenized_prompts.attention_mask.to(self.args.device)
             
-            # Re-create image_flags for the new inputs
-            image_token_id = self.processor.convert_tokens_to_ids('<img>')
+            inputs['input_ids'] = padded_input_ids.to(self.args.device)
+            inputs['attention_mask'] = (inputs['input_ids'] != self.processor.pad_token_id).long()
             inputs['image_flags'] = (inputs['input_ids'] == image_token_id).long()
             
             # Move pixel_values to the correct device
