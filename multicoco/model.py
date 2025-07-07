@@ -53,6 +53,8 @@ class MultiCoCo(nn.Module):
     def forward(self, **kwargs):
         # These are arguments from our custom data collator
         # that are not expected by the model's forward pass during training.
+        kwargs.pop('question_ids', None)
+        kwargs.pop('questions', None)
         kwargs.pop('original_questions', None)
         kwargs.pop('answers', None)
         kwargs.pop('num_items_in_batch', None) # Added by the trainer
