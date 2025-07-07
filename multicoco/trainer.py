@@ -226,10 +226,8 @@ class Trainer:
 
             for batch in pbar:
                 pixel_values = batch.pop("pixel_values").to(self.device)
-                input_ids = batch.pop("input_ids").to(self.device)
-                attention_mask = batch.pop("attention_mask").to(self.device)
-                image_flags = batch.pop("image_flags").to(self.device)
-                original_questions = batch.pop("original_questions")
+                num_patches_list = batch.pop("num_patches_list")
+                questions = batch.pop("questions")
                 ground_truths = batch.pop("answers")
 
                 if self.args.get('bf16'):
@@ -242,63 +240,41 @@ class Trainer:
                         'max_new_tokens': self.args.get('max_new_tokens', 500),
                         'temperature': 0.0,
                         'do_sample': False,
-                        'pad_token_id': model_to_eval.tokenizer.pad_token_id,
-                        'eos_token_id': model_to_eval.tokenizer.eos_token_id,
                     }
 
-                    outputs = model_to_eval.generate(
+                    generated_texts = model_to_eval.batch_chat(
                         pixel_values=pixel_values,
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        image_flags=image_flags,
-                        **generation_config
+                        num_patches_list=num_patches_list,
+                        questions=questions,
+                        generation_config=generation_config
                     )
                     
-                    generated_texts = model_to_eval.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-
-                for i, gen_text in enumerate(generated_texts):
-                    question = original_questions[i]
-                    gt_answers = ground_truths[i]
+                    total += len(questions)
                     
-                    # The generated text is the full completion, remove the prompt part
-                    prompt_len = len(model_to_eval.tokenizer.decode(input_ids[i], skip_special_tokens=True))
-                    generated_answer = gen_text[prompt_len:].strip()
+                    for i in range(len(questions)):
+                        question = questions[i]
+                        gen_text = generated_texts[i]
+                        gt = ground_truths[i]
+                        
+                        extracted_answer = self.extract_answer_choice(gen_text, mode=mode)
+                        
+                        if str(extracted_answer).strip() == str(gt).strip():
+                            correct += 1
+                        
+                        # Log to file
+                        log_file.write(f"--- Q: {question.replace('<image>\\n', '')} ---\n")
+                        log_file.write(f"GT: {gt}\n")
+                        log_file.write(f"PRED: {gen_text}\n")
+                        log_file.write(f"EXTRACTED: {extracted_answer}\n")
+                        log_file.write(f"Correct: {str(extracted_answer).strip() == str(gt).strip()}\n\n")
 
-                    extracted_answer = self.extract_answer_choice(generated_answer, mode)
-                    is_correct = extracted_answer in gt_answers
+                pbar.set_postfix({"acc": f"{correct/total:.4f}"})
 
-                    if is_correct:
-                        correct += 1
-                    total += 1
-                    
-                    tokens_generated = len(outputs[i]) - len(input_ids[i])
-                    total_tokens += tokens_generated
-                    
-                    log_file.write("="*80 + "\n\n")
-                    log_file.write(f"Sample {total}:\n")
-                    log_file.write("-"*40 + "\n")
-                    log_file.write(f"Question: {question}\n")
-                    log_file.write(f"Generated Answer: {generated_answer}\n")
-                    log_file.write(f"Extracted Answer: {extracted_answer}\n")
-                    log_file.write(f"Ground Truth Answer: {gt_answers}\n")
-                    log_file.write(f"Tokens Generated: {tokens_generated}\n")
-                    log_file.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
-                    log_file.write("-"*40 + "\n\n")
-
-            accuracy = correct / total if total > 0 else 0
-            avg_tokens = total_tokens / total if total > 0 else 0
-            
-            summary = (
-                f"\n{'='*80}\n"
-                f"Evaluation Summary ({mode.upper()} mode)\n"
-                f"Total samples: {total}\n"
-                f"Accuracy: {accuracy:.4f}\n"
-                f"Average tokens generated: {avg_tokens:.2f}\n"
-                f"{'='*80}\n"
-            )
-            log_file.write(summary)
-            if not dist.is_initialized() or dist.get_rank() == 0:
-                print(summary)
+        # Final accuracy
+        accuracy = correct / total if total > 0 else 0
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            print(f"Final {mode.upper()} Accuracy: {accuracy:.4f}")
+            log_file.write(f"Final {mode.upper()} Accuracy: {accuracy:.4f}\n")
 
         return accuracy
 
