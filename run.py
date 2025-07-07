@@ -149,7 +149,7 @@ def main():
         per_device_train_batch_size=args.get('batch_size_training', 1),
         per_device_eval_batch_size=args.get('batch_size_evaluation', 1),
         gradient_accumulation_steps=args.get('gradient_accumulation_steps', 1),
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         learning_rate=args.get('lr', 5e-5),
         weight_decay=args.get('weight_decay', 0.01),
