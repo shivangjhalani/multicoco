@@ -15,6 +15,10 @@ from transformers.trainer_pt_utils import (
 from transformers.integrations.deepspeed import deepspeed_init
 
 
+class EvalOutput:
+    def __init__(self, metrics):
+        self.metrics = metrics
+
 class CoCoTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         self.processor = kwargs.pop('processor')
@@ -150,4 +154,4 @@ class CoCoTrainer(Trainer):
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
         self._memory_tracker.stop_and_update_metrics(metrics)
 
-        return metrics
+        return EvalOutput(metrics=metrics)
