@@ -8,6 +8,9 @@ import yaml
 from PIL import Image
 from torch.utils.data import DataLoader
 
+# Disable wandb explicitly
+os.environ["WANDB_DISABLED"] = "true"
+
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 

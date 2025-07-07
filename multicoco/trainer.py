@@ -250,6 +250,18 @@ class CoCoTrainer(Trainer):
         # Post-process and compute metrics
         correct = 0
         is_cot = self.args.eval_config.get('cot', False)
+        
+        # Log some examples for debugging
+        if self.is_local_process_zero():
+            print(f"\n=== EVALUATION RESULTS ===")
+            print(f"Total samples: {len(all_labels_text)}")
+            for i, (pred, label) in enumerate(zip(all_preds_text[:5], all_labels_text[:5])):  # Show first 5
+                print(f"Sample {i+1}:")
+                print(f"  Prediction: '{pred}'")
+                print(f"  Ground Truth: '{label}'")
+                print(f"  Correct: {pred.strip().lower() == label.strip().lower()}")
+                print()
+        
         for pred, label in zip(all_preds_text, all_labels_text):
             pred_processed = pred.strip().lower()
             if is_cot:
@@ -260,6 +272,10 @@ class CoCoTrainer(Trainer):
                 correct += 1
         
         accuracy = correct / len(all_labels_text) if len(all_labels_text) > 0 else 0.0
+        
+        if self.is_local_process_zero():
+            print(f"Final Accuracy: {accuracy:.4f} ({correct}/{len(all_labels_text)})")
+            print("=" * 50)
         
         # Log CoCoNut stage information
         stage_info = {}
@@ -275,7 +291,13 @@ class CoCoTrainer(Trainer):
         
         self.log(metrics)
 
-        return metrics
+        # Return in the format expected by Trainer.evaluate()
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            metrics=metrics,
+            num_samples=len(all_labels_text),
+            eval_preds=None
+        )
 
     def prediction_step(
         self,
