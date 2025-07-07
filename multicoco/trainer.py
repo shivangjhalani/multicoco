@@ -54,8 +54,6 @@ class CoCoTrainer(Trainer):
             if model is not self.model:
                 self.model_wrapped = model
 
-            self.accelerator.verify_aligned_processes()
-
         if self.is_fsdp_enabled and getattr(self.model, "require_backward_grad_sync", True):
             self.model.require_backward_grad_sync = False
 
