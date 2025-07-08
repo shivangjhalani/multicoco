@@ -337,39 +337,60 @@ class CoCoTrainer(Trainer):
                 description = " | ".join(description_parts)
                 self._current_progress_bar.set_description(description)
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, **kwargs):
+    def training_step(self, model, inputs):
         """
-        Override to capture tqdm progress bar reference and ensure loss logging.
+        Override training step to update progress bar with loss information.
         """
-        # Store current loss for progress bar updates
-        if tr_loss is not None:
-            self._current_train_loss = tr_loss.item() if hasattr(tr_loss, 'item') else tr_loss
+        # Perform the actual training step
+        loss = super().training_step(model, inputs)
         
-        # Try to find and store reference to the progress bar
-        import inspect
-        for frame_info in inspect.stack():
-            frame_locals = frame_info.frame.f_locals
-            for var_name, var_value in frame_locals.items():
-                if hasattr(var_value, 'set_description') and hasattr(var_value, 'update'):
-                    # This looks like a tqdm progress bar
-                    self._current_progress_bar = var_value
-                    
-                    # Update description with current loss
-                    if hasattr(self, '_current_train_loss'):
+        # Try to find and update the progress bar
+        self._update_progress_bar_with_loss(loss)
+        
+        return loss
+    
+    def _update_progress_bar_with_loss(self, loss):
+        """
+        Find and update the tqdm progress bar with current loss.
+        """
+        try:
+            import inspect
+            
+            # Extract loss value
+            loss_value = loss.item() if hasattr(loss, 'item') else loss
+            
+            # Look for tqdm progress bar in the call stack
+            for frame_info in inspect.stack():
+                frame_locals = frame_info.frame.f_locals
+                for var_name, var_value in frame_locals.items():
+                    if (hasattr(var_value, 'set_description') and 
+                        hasattr(var_value, 'update') and
+                        hasattr(var_value, 'n')):  # More specific tqdm check
+                        
+                        # Build description with current information
                         description_parts = []
+                        
+                        # Add epoch information
                         if hasattr(self.state, 'epoch') and self.state.epoch is not None:
                             description_parts.append(f"Epoch {self.state.epoch:.1f}")
-                        description_parts.append(f"Loss: {self._current_train_loss:.4f}")
                         
-                        # Add learning rate if available in kwargs
-                        if 'learning_rate' in kwargs:
-                            description_parts.append(f"LR: {kwargs['learning_rate']:.2e}")
+                        # Add current loss
+                        description_parts.append(f"Loss: {loss_value:.4f}")
                         
+                        # Add learning rate if available
+                        if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                            current_lr = self.lr_scheduler.get_last_lr()[0] if self.lr_scheduler.get_last_lr() else None
+                            if current_lr:
+                                description_parts.append(f"LR: {current_lr:.2e}")
+                        
+                        # Update progress bar description
                         description = " | ".join(description_parts)
                         var_value.set_description(description)
-                    break
-        
-        return super()._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, **kwargs)
+                        return
+                        
+        except Exception as e:
+            # Silently fail to avoid disrupting training
+            pass
 
     def _apply_coconut_masking_to_inputs(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Apply CoCoNut masking to input batch."""
