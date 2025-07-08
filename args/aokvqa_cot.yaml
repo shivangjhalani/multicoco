@@ -13,7 +13,7 @@ low_cpu_mem_usage: true
 
 # Training Configuration
 eval_only: false
-output_dir: "./output/aokvqa_cot"
+output_dir: "output/aokvqa_cot"
 batch_size: 2
 eval_batch_size: 1
 learning_rate: 5.0e-5
@@ -36,9 +36,9 @@ dataloader_num_workers: 4
 remove_unused_columns: false
 
 # Data Configuration
-train_data_path: "./data/aokvqa_train.json"
-eval_data_path: "./data/aokvqa_validation.json"
-data_dir: "./data"
+train_data_path: "data/aokvqa_train.json"
+eval_data_path: "data/aokvqa_validation.json"
+data_dir: "data"
 limit_for_testing: false
 
 # Evaluation Configuration
