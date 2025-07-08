@@ -123,7 +123,7 @@ class MultiCoCoRunner:
                     logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'))
                 ]
             )
-        else:
+    else:
             # File logging only
             logging.basicConfig(
                 level=getattr(logging, log_config.log_level),
