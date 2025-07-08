@@ -304,15 +304,16 @@ class CoCoTrainer(Trainer):
         
         return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
-    def log(self, logs: Dict[str, float]) -> None:
+    def log(self, logs: Dict[str, float], **kwargs) -> None:
         """
         Override log method to update tqdm progress bar with current loss.
         
         Args:
             logs: Dictionary of metrics to log
+            **kwargs: Additional arguments passed to parent log method
         """
-        # Call parent log method first
-        super().log(logs)
+        # Call parent log method first with all arguments
+        super().log(logs, **kwargs)
         
         # Try to update progress bar with current metrics
         self._update_progress_bar_with_metrics(logs)
