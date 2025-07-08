@@ -8,7 +8,6 @@ import yaml
 from PIL import Image
 from torch.utils.data import DataLoader
 
-# We'll conditionally disable wandb for eval only later
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
