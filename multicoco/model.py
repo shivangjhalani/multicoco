@@ -221,9 +221,10 @@ class MultiCoCo(nn.Module):
         """
         # These are custom arguments from our data collator that should not
         # be passed to the underlying model's forward method
+        # Note: image_flags is needed by InternVL models, so we keep it
         custom_args = {
             'question_ids', 'questions', 'original_questions', 
-            'answers', 'num_items_in_batch', 'image_flags'
+            'answers', 'num_items_in_batch'
         }
         
         cleaned_kwargs = {k: v for k, v in kwargs.items() if k not in custom_args}
@@ -243,12 +244,22 @@ class MultiCoCo(nn.Module):
         kwargs = self._clean_forward_kwargs(**kwargs)
         kwargs = self._ensure_dtype_consistency(**kwargs)
         
+        # Generate image_flags if not provided (InternVL models require this)
+        if 'image_flags' not in kwargs and 'pixel_values' in kwargs:
+            pixel_values = kwargs['pixel_values']
+            if pixel_values is not None:
+                batch_size = pixel_values.shape[0]
+                device = pixel_values.device
+                # Create image_flags indicating all samples have images
+                kwargs['image_flags'] = torch.ones(batch_size, dtype=torch.bool, device=device).unsqueeze(-1)
+        
         # Forward pass through the underlying model
         return self.model(
             pixel_values=kwargs.get('pixel_values'),
             input_ids=kwargs.get('input_ids'),
             attention_mask=kwargs.get('attention_mask'),
-            labels=kwargs.get('labels')
+            labels=kwargs.get('labels'),
+            image_flags=kwargs.get('image_flags')
         )
 
     def generate(
