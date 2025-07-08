@@ -587,9 +587,16 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair."""
         try:
-            # Add task-specific prompting like InternVL
-            base_prompt = "Answer the question using a single word or phrase."
-            user_content = f"{IMAGE_TOKEN}\n{question}\n{base_prompt}"
+            # For multiple choice questions, we need choice numbers, not literal answers
+            # Check if this is a multiple choice question
+            if "choices are" in question.lower() or ": " in question:
+                # Multiple choice - ask for choice number
+                prompt = "Select the correct choice number (0, 1, 2, or 3)."
+            else:
+                # Open-ended - ask for literal answer
+                prompt = "Answer the question using a single word or phrase."
+            
+            user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
             
             # Create generation config
             generation_config = self._create_generation_config()
