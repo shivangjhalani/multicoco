@@ -416,6 +416,7 @@ class CoCoTrainer(Trainer):
     ) -> SimpleNamespace:
         """
         Custom evaluation loop with detailed logging and answer extraction.
+        Supports distributed evaluation for multi-GPU setups.
         
         Args:
             dataloader: DataLoader for evaluation
@@ -438,14 +439,19 @@ class CoCoTrainer(Trainer):
             all_labels = []
             all_questions = []
 
-            # Set up logging
-            log_file_path = self._setup_evaluation_logging()
+            # Set up logging (only on main process for distributed)
+            is_main_process = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
+            log_file_path = None
+            log_file = None
             
-            # Run evaluation loop
-            with open(log_file_path, 'w', encoding='utf-8') as log_file:
+            if is_main_process:
+                log_file_path = self._setup_evaluation_logging()
+                log_file = open(log_file_path, 'w', encoding='utf-8')
                 self._write_evaluation_header(log_file)
-                
-                for step, inputs in enumerate(tqdm(dataloader, desc=description)):
+
+            try:
+                # Run evaluation loop
+                for step, inputs in enumerate(tqdm(dataloader, desc=description, disable=not is_main_process)):
                     # Process batch
                     batch_results = self._process_evaluation_batch(inputs, model, log_file)
                     
@@ -454,16 +460,48 @@ class CoCoTrainer(Trainer):
                     all_labels.extend(batch_results['labels'])
                     all_questions.extend(batch_results['questions'])
 
-                # Compute final metrics
-                metrics = self._compute_final_metrics(
-                    all_predictions, all_labels, metric_key_prefix
-                )
-                
-                # Write summary
-                self._write_evaluation_summary(log_file, metrics, len(all_labels))
+                # Gather results from all processes if using distributed training
+                if torch.distributed.is_initialized():
+                    # Synchronize all processes
+                    torch.distributed.barrier()
+                    
+                    # Gather results from all processes
+                    world_size = torch.distributed.get_world_size()
+                    gathered_predictions = [None for _ in range(world_size)]
+                    gathered_labels = [None for _ in range(world_size)]
+                    
+                    torch.distributed.all_gather_object(gathered_predictions, all_predictions)
+                    torch.distributed.all_gather_object(gathered_labels, all_labels)
+                    
+                    if is_main_process:
+                        # Flatten gathered results
+                        all_predictions = [pred for sublist in gathered_predictions for pred in sublist]
+                        all_labels = [label for sublist in gathered_labels for label in sublist]
+
+                # Compute final metrics (only on main process)
+                metrics = {}
+                if is_main_process:
+                    metrics = self._compute_final_metrics(
+                        all_predictions, all_labels, metric_key_prefix
+                    )
+                    
+                    # Write summary
+                    if log_file:
+                        self._write_evaluation_summary(log_file, metrics, len(all_labels))
+
+                # Broadcast metrics to all processes
+                if torch.distributed.is_initialized():
+                    metrics_list = [metrics] if is_main_process else [{}]
+                    torch.distributed.broadcast_object_list(metrics_list, src=0)
+                    metrics = metrics_list[0]
+
+            finally:
+                if log_file:
+                    log_file.close()
 
             # Log metrics
-            self.log(metrics)
+            if metrics:
+                self.log(metrics)
 
             return SimpleNamespace(
                 metrics=metrics,
@@ -549,8 +587,9 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair."""
         try:
-            # Format input text with image token
-            user_content = f"{IMAGE_TOKEN}\n{question}"
+            # Add task-specific prompting like InternVL
+            base_prompt = "Answer the question using a single word or phrase."
+            user_content = f"{IMAGE_TOKEN}\n{question}\n{base_prompt}"
             
             # Create generation config
             generation_config = self._create_generation_config()
