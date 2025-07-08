@@ -26,7 +26,6 @@ training:
   load_best_model_at_end: true
   metric_for_best_model: "eval_accuracy"
   greater_is_better: true
-  save_total_limit: 8  # Keep all epoch checkpoints
   seed: 42
   data_seed: 42
   bf16: true
