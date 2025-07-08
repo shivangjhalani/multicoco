@@ -701,12 +701,12 @@ class CoCoTrainer(Trainer):
         gen_kwargs = self._create_generation_config()
 
         try:
-        generated_tokens = self.model.generate(
-            pixel_values=inputs["pixel_values"],
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            **gen_kwargs,
-        )
+            generated_tokens = self.model.generate(
+                pixel_values=inputs["pixel_values"],
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                **gen_kwargs,
+            )
 
             # In generation mode, there's no loss
         return (None, generated_tokens, None)
