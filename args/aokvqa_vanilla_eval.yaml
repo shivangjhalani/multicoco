@@ -8,7 +8,7 @@ data_dir: './data'
 
 # Evaluation settings
 eval_only: true
-eval_batch_size: 8
+eval_batch_size: 32
 
 # Model settings
 coconut: false
