@@ -30,6 +30,9 @@ def test_data_loading():
             trust_remote_code=config.model.trust_remote_code,
             low_cpu_mem_usage=config.model.low_cpu_mem_usage
         )
+        # Move model to GPU if available
+        if torch.cuda.is_available():
+            model = model.cuda()
         processor = model.tokenizer  # Use the tokenizer as processor
         print(f"✓ Model loaded: {config.model.model_name}")
         
@@ -94,11 +97,16 @@ def test_model_forward(model, collated):
         # Test forward pass
         model.eval()
         with torch.no_grad():
+            # InternVL models expect image_flags parameter - create it based on pixel_values
+            batch_size = batch['pixel_values'].shape[0]
+            image_flags = torch.ones(batch_size, dtype=torch.bool, device=device).unsqueeze(-1)
+            
             outputs = model(
                 pixel_values=batch['pixel_values'],
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
-                labels=batch['labels']
+                labels=batch['labels'],
+                image_flags=image_flags
             )
         
         print(f"✓ Forward pass successful")
