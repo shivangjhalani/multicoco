@@ -222,6 +222,7 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self.trainer.args.c_thought = self.config.coconut.c_thought
                 self.trainer.args.max_latent_stage = self.config.coconut.max_latent_stage
+                self.trainer.args.epochs_per_stage = self.config.coconut.epochs_per_stage
             
             logger.info("Trainer created successfully")
             

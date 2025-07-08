@@ -226,6 +226,7 @@ class MultiCoCoConfig:
             enabled=config_dict.get('coconut', False),
             c_thought=config_dict.get('c_thought', DEFAULT_C_THOUGHT),
             max_latent_stage=config_dict.get('max_latent_stage', DEFAULT_MAX_LATENT_STAGE),
+            epochs_per_stage=config_dict.get('epochs_per_stage', 1),
         )
         
         logging_config = LoggingConfig(

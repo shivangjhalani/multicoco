@@ -12,6 +12,8 @@ import logging
 from types import SimpleNamespace
 from typing import Optional, List, Tuple, Dict, Any, Union
 import random
+import gc
+import time
 
 # ** Core libraries
 import torch
@@ -34,6 +36,8 @@ from transformers.trainer_pt_utils import (
 from transformers.integrations.deepspeed import deepspeed_init
 from transformers.trainer_pt_utils import LabelSmoother
 from transformers.trainer_utils import EvalPrediction
+from transformers.trainer_utils import TrainOutput
+from transformers.training_args import TrainingArguments
 
 # ** Local imports
 from .constants import (
@@ -72,6 +76,7 @@ class CoCoTrainer(Trainer):
     - Sophisticated answer extraction for multiple choice questions
     - Detailed evaluation logging
     - Proper dtype handling for multimodal inputs
+    - Epoch-based training with individual progress bars and evaluation
     
     Attributes:
         best_val_acc: Best validation accuracy achieved
@@ -82,6 +87,7 @@ class CoCoTrainer(Trainer):
         thought_token_id: ID for thought tokens
         start_thought_id: ID for start thought tokens
         end_thought_id: ID for end thought tokens
+        total_train_steps: Total training steps across all epochs
     """
 
     def __init__(self, *args, **kwargs):
@@ -100,6 +106,7 @@ class CoCoTrainer(Trainer):
         
         # Initialize trainer state
         self.best_val_acc = 0.0
+        self.total_train_steps = 0
 
         # Initialize CoCoNut parameters
         self._initialize_coconut_config()
@@ -108,6 +115,274 @@ class CoCoTrainer(Trainer):
         self._initialize_special_tokens()
         
         logger.info(f"CoCoTrainer initialized with CoCoNut={'enabled' if self.coconut_enabled else 'disabled'}")
+
+    def train(
+        self,
+        resume_from_checkpoint: Optional[Union[str, bool]] = None,
+        trial=None,
+        ignore_keys_for_eval: Optional[List[str]] = None,
+        **kwargs,
+    ) -> TrainOutput:
+        """
+        Custom training loop with epoch-based progress bars and evaluation.
+        
+        This method implements training similar to the coconut approach:
+        - Individual progress bars for each epoch
+        - Evaluation and checkpoint saving after each epoch
+        - Detailed logging of training progress
+        
+        Args:
+            resume_from_checkpoint: Path to checkpoint to resume from
+            trial: Hyperparameter tuning trial object
+            ignore_keys_for_eval: Keys to ignore during evaluation
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            TrainOutput containing training results
+        """
+        
+        # Setup training
+        self._setup_epoch_training()
+        
+        # Get training dataloader
+        train_dataloader = self.get_train_dataloader()
+        
+        # Calculate steps per epoch and total steps
+        steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
+        total_steps = steps_per_epoch * int(self.args.num_train_epochs)
+        
+        logger.info(f"Starting epoch-based training:")
+        logger.info(f"  Steps per epoch: {steps_per_epoch}")
+        logger.info(f"  Total epochs: {int(self.args.num_train_epochs)}")
+        logger.info(f"  Total steps: {total_steps}")
+        
+        # Initialize model and optimizer
+        model = self._wrap_model(self.model_wrapped)
+        
+        # Create optimizer and scheduler
+        self.create_optimizer_and_scheduler(num_training_steps=total_steps)
+        
+        # Training loop - epoch by epoch
+        for epoch in range(int(self.args.num_train_epochs)):
+            epoch_start_time = time.time()
+            
+            logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
+            
+            # Update current stage for CoCoNut
+            if self.coconut_enabled:
+                self._update_coconut_stage(epoch)
+            
+            # Run training for this epoch
+            self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+            
+            # Save checkpoint after epoch
+            checkpoint_dir = self._save_epoch_checkpoint(epoch)
+            
+            # Run evaluation after epoch
+            eval_metrics = self._evaluate_after_epoch(epoch)
+            
+            # Log epoch summary
+            epoch_time = time.time() - epoch_start_time
+            self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
+            
+            # Clean up memory
+            gc.collect()
+            torch.cuda.empty_cache()
+        
+        # Final logging
+        logger.info("Training completed!")
+        
+        return TrainOutput(
+            global_step=self.total_train_steps,
+            training_loss=0.0,  # Will be updated by actual loss tracking
+            metrics={}
+        )
+
+    def _setup_epoch_training(self) -> None:
+        """Setup for epoch-based training."""
+        # Put model in training mode
+        self.model.train()
+        
+        # Initialize distributed training if needed
+        if self.args.local_rank != -1:
+            torch.distributed.barrier()
+        
+                 # Setup wandb logging if enabled
+         if hasattr(self.args, 'report_to') and 'wandb' in self.args.report_to:
+             import wandb
+             if not wandb.run:
+                 # Use run_name from args, or construct from project info
+                 project_name = getattr(self.args, 'wandb_project', 'multicoco')
+                 run_name = getattr(self.args, 'run_name', 'train_multicoco')
+                 
+                 wandb.init(
+                     project=project_name,
+                     name=run_name,
+                     config=self.args.to_dict() if hasattr(self.args, 'to_dict') else {}
+                 )
+
+    def _update_coconut_stage(self, epoch: int) -> None:
+        """Update CoCoNut training stage based on epoch."""
+        if self.coconut_enabled:
+            # Get epochs_per_stage from training args or default to 2
+            epochs_per_stage = getattr(self.args, 'epochs_per_stage', 2)
+            self.current_stage = min(epoch // epochs_per_stage, self.max_latent_stage)
+            logger.info(f"  CoCoNut Stage: {self.current_stage}/{self.max_latent_stage} (epochs_per_stage: {epochs_per_stage})")
+
+    def _train_one_epoch(
+        self, 
+        model: nn.Module, 
+        train_dataloader: DataLoader, 
+        epoch: int, 
+        steps_per_epoch: int
+    ) -> None:
+        """Train for one epoch with progress bar."""
+        
+        # Create epoch-specific progress bar
+        pbar = tqdm(
+            total=steps_per_epoch,
+            desc=f"Training Epoch {epoch + 1}",
+            colour="blue",
+            dynamic_ncols=True
+        )
+        
+        model.train()
+        epoch_loss = 0.0
+        step_count = 0
+        
+        for step, batch in enumerate(train_dataloader):
+            # Forward pass
+            batch = self._prepare_inputs(batch)
+            
+            # Apply CoCoNut masking if enabled
+            if self.coconut_enabled:
+                batch = self._apply_coconut_masking_to_inputs(batch)
+            
+            # Compute loss
+            outputs = model(**batch)
+            loss = outputs.loss / self.args.gradient_accumulation_steps
+            
+            # Backward pass
+            loss.backward()
+            
+            # Update metrics
+            epoch_loss += loss.item()
+            self.total_train_steps += 1
+            
+            # Optimizer step
+            if (step + 1) % self.args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+                self.optimizer.step()
+                self.lr_scheduler.step()
+                self.optimizer.zero_grad()
+                
+                step_count += 1
+                pbar.update(1)
+                
+                # Update progress bar description
+                current_loss = loss.item() * self.args.gradient_accumulation_steps
+                pbar.set_description(
+                    f"Training Epoch {epoch + 1}/{int(self.args.num_train_epochs)}, "
+                    f"Step {step_count}/{steps_per_epoch} "
+                    f"(loss: {current_loss:.4f})"
+                )
+                
+                # Log to wandb
+                if hasattr(self.args, 'report_to') and 'wandb' in self.args.report_to:
+                    import wandb
+                    if wandb.run:
+                        log_dict = {
+                            "train/epoch": epoch + 1,
+                            "train/step": epoch * len(train_dataloader) + step,
+                            "train/loss": current_loss,
+                            "train/learning_rate": self.lr_scheduler.get_last_lr()[0]
+                        }
+                        if self.coconut_enabled:
+                            log_dict["train/coconut_stage"] = self.current_stage
+                        wandb.log(log_dict)
+        
+        pbar.close()
+        
+        # Log epoch training summary
+        avg_loss = epoch_loss / max(step_count, 1)
+        logger.info(f"  Training completed - Average loss: {avg_loss:.4f}")
+
+    def _save_epoch_checkpoint(self, epoch: int) -> str:
+        """Save checkpoint after epoch."""
+        checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-epoch-{epoch + 1}")
+        
+        # Save model state
+        self.save_model(checkpoint_dir)
+        
+        # Save training state
+        if hasattr(self, 'optimizer'):
+            torch.save(self.optimizer.state_dict(), os.path.join(checkpoint_dir, "optimizer.pt"))
+        if hasattr(self, 'lr_scheduler'):
+            torch.save(self.lr_scheduler.state_dict(), os.path.join(checkpoint_dir, "scheduler.pt"))
+        
+        # Save training info
+        training_info = {
+            "epoch": epoch + 1,
+            "total_train_steps": self.total_train_steps,
+            "best_val_acc": self.best_val_acc
+        }
+        torch.save(training_info, os.path.join(checkpoint_dir, "training_info.pt"))
+        
+        logger.info(f"  Checkpoint saved: {checkpoint_dir}")
+        return checkpoint_dir
+
+    def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
+        """Run evaluation after epoch."""
+        logger.info(f"  Running evaluation after epoch {epoch + 1}...")
+        
+        # Run evaluation
+        eval_results = self.evaluate()
+        
+        # Extract metrics
+        if hasattr(eval_results, 'metrics'):
+            metrics = eval_results.metrics
+        else:
+            metrics = eval_results
+        
+        # Update best accuracy
+        current_acc = metrics.get('eval_accuracy', 0.0)
+        if current_acc > self.best_val_acc:
+            self.best_val_acc = current_acc
+            logger.info(f"  New best accuracy: {self.best_val_acc:.4f}")
+        
+        # Log to wandb
+        if hasattr(self.args, 'report_to') and 'wandb' in self.args.report_to:
+            import wandb
+            if wandb.run:
+                wandb_metrics = {"eval/epoch": epoch + 1}
+                for key, value in metrics.items():
+                    if key.startswith('eval_'):
+                        wandb_metrics[f"eval/{key[5:]}"] = value
+                wandb.log(wandb_metrics)
+        
+        return metrics
+
+    def _log_epoch_summary(
+        self, 
+        epoch: int, 
+        eval_metrics: Dict[str, float], 
+        checkpoint_dir: str, 
+        epoch_time: float
+    ) -> None:
+        """Log summary of epoch results."""
+        accuracy = eval_metrics.get('eval_accuracy', 0.0)
+        loss = eval_metrics.get('eval_loss', 0.0)
+        
+        logger.info(f"\nEpoch {epoch + 1} Summary:")
+        logger.info(f"  Training time: {epoch_time:.2f}s")
+        logger.info(f"  Evaluation accuracy: {accuracy:.4f}")
+        logger.info(f"  Evaluation loss: {loss:.4f}")
+        logger.info(f"  Best accuracy so far: {self.best_val_acc:.4f}")
+        logger.info(f"  Checkpoint saved to: {checkpoint_dir}")
+        
+        if self.coconut_enabled:
+            logger.info(f"  CoCoNut stage: {self.current_stage}/{self.max_latent_stage}")
+        
+        logger.info("="*80)
 
     def _initialize_coconut_config(self) -> None:
         """Initialize CoCoNut configuration from training arguments."""
