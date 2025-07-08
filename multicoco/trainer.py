@@ -167,6 +167,65 @@ class CoCoTrainer(Trainer):
     #     else:
     #         return super().training_step(model, inputs)
 
+    def extract_answer_choice(self, generated_text, is_cot=False):
+        """
+        Sophisticated answer extraction for multiple choice questions.
+        Handles various formats and extracts the choice number (0, 1, 2, 3).
+        """
+        import re
+        
+        text = generated_text.strip()
+        
+        # If it's CoT, look for "the answer is" pattern first
+        if is_cot and "the answer is" in text.lower():
+            text = text.lower().split("the answer is")[-1].strip()
+        
+        # Pattern 1: "X : description" format (most common)
+        # Matches: "3 : icing", "0 : devil", "2 : minimalist", etc.
+        match = re.search(r'(\d+)\s*:\s*[a-zA-Z]', text)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: Just the number at the start
+        # Matches: "3", "0", "2", etc.
+        match = re.search(r'^(\d+)(?:\s|$)', text.strip())
+        if match:
+            choice_num = match.group(1)
+            if choice_num in ['0', '1', '2', '3']:
+                return choice_num
+        
+        # Pattern 3: "The answer is X" format
+        match = re.search(r'(?:answer is|choice is|option is)\s*(\d+)', text.lower())
+        if match:
+            choice_num = match.group(1)
+            if choice_num in ['0', '1', '2', '3']:
+                return choice_num
+        
+        # Pattern 4: Look for single digit anywhere in the text
+        # Last resort - find any valid choice number
+        matches = re.findall(r'(\d+)', text)
+        for match in matches:
+            if match in ['0', '1', '2', '3']:
+                return match
+        
+        # Pattern 5: Look for choice keywords and map to numbers
+        text_lower = text.lower()
+        
+        # Common mappings based on typical A-OKVQA choices
+        choice_mappings = {
+            'first': '0', 'zero': '0', 'a': '0',
+            'second': '1', 'one': '1', 'b': '1', 
+            'third': '2', 'two': '2', 'c': '2',
+            'fourth': '3', 'three': '3', 'd': '3'
+        }
+        
+        for word, choice in choice_mappings.items():
+            if word in text_lower:
+                return choice
+        
+        # If no valid choice found, return the original text for debugging
+        return text.strip()
+
     def compute_metrics(self, p: EvalPrediction):
         # This is a placeholder. The evaluation_loop calculates and returns metrics directly.
         return {}
@@ -261,13 +320,8 @@ class CoCoTrainer(Trainer):
                     all_preds_text.append(decoded_pred)
                     
                     # Extract answer for correctness check
-                    pred_processed = decoded_pred.strip().lower()
-                    if is_cot:
-                        if "the answer is" in pred_processed:
-                            pred_processed = pred_processed.split("the answer is")[-1].strip()
-                    
-                    extracted_answer = pred_processed
-                    ground_truth = answers[i].strip().lower()
+                    extracted_answer = self.extract_answer_choice(decoded_pred, is_cot)
+                    ground_truth = answers[i].strip()
                     is_correct = extracted_answer == ground_truth
                     tokens_generated = len(self.tokenizer.tokenize(decoded_pred))
                     
@@ -285,12 +339,8 @@ class CoCoTrainer(Trainer):
             correct = 0
             
             for pred, label in zip(all_preds_text, all_labels_text):
-                pred_processed = pred.strip().lower()
-                if is_cot:
-                    if "the answer is" in pred_processed:
-                        pred_processed = pred_processed.split("the answer is")[-1].strip()
-                
-                if pred_processed == label.strip().lower():
+                extracted_answer = self.extract_answer_choice(pred, is_cot)
+                if extracted_answer == label.strip():
                     correct += 1
             
             accuracy = correct / len(all_labels_text) if len(all_labels_text) > 0 else 0.0
