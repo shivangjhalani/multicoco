@@ -207,19 +207,19 @@ class CoCoTrainer(Trainer):
         if self.args.local_rank != -1:
             torch.distributed.barrier()
         
-                 # Setup wandb logging if enabled
-         if hasattr(self.args, 'report_to') and 'wandb' in self.args.report_to:
-             import wandb
-             if not wandb.run:
-                 # Use run_name from args, or construct from project info
-                 project_name = getattr(self.args, 'wandb_project', 'multicoco')
-                 run_name = getattr(self.args, 'run_name', 'train_multicoco')
-                 
-                 wandb.init(
-                     project=project_name,
-                     name=run_name,
-                     config=self.args.to_dict() if hasattr(self.args, 'to_dict') else {}
-                 )
+        # Setup wandb logging if enabled
+        if hasattr(self.args, 'report_to') and 'wandb' in self.args.report_to:
+            import wandb
+            if not wandb.run:
+                # Use run_name from args, or construct from project info
+                project_name = getattr(self.args, 'wandb_project', 'multicoco')
+                run_name = getattr(self.args, 'run_name', 'train_multicoco')
+                
+                wandb.init(
+                    project=project_name,
+                    name=run_name,
+                    config=self.args.to_dict() if hasattr(self.args, 'to_dict') else {}
+                )
 
     def _update_coconut_stage(self, epoch: int) -> None:
         """Update CoCoNut training stage based on epoch."""
