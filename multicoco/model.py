@@ -7,7 +7,10 @@ handling and special token management.
 """
 
 import logging
+import sys
+import contextlib
 from collections import namedtuple
+from io import StringIO
 from typing import Dict, List, Optional, Any, Union
 
 # ** Core libraries  
@@ -40,6 +43,40 @@ logger = logging.getLogger(__name__)
 
 # Named tuple for model outputs
 ModelOutputs = namedtuple("ModelOutputs", ["loss", "inputs_embeds", "logits"])
+
+
+@contextlib.contextmanager
+def suppress_internvl_messages():
+    """
+    Context manager to suppress specific InternVL verbose messages during training.
+    
+    This suppresses:
+    - "dynamic ViT batch size: ..." messages
+    - "warning: The size of tensor a ..." messages
+    """
+    import builtins
+    original_print = builtins.print
+    
+    def filtered_print(*args, **kwargs):
+        message = ' '.join(str(arg) for arg in args)
+        
+        # Filter out specific InternVL messages
+        if any(phrase in message for phrase in [
+            'dynamic ViT batch size:',
+            'warning: The size of tensor a',
+            'input_embeds[selected].shape=',
+            'vit_embeds.shape='
+        ]):
+            return  # Suppress this message
+        
+        # Print everything else normally
+        original_print(*args, **kwargs)
+    
+    builtins.print = filtered_print
+    try:
+        yield
+    finally:
+        builtins.print = original_print
 
 
 class MultiCoCo(nn.Module):
@@ -253,14 +290,15 @@ class MultiCoCo(nn.Module):
                 # Create image_flags indicating all samples have images
                 kwargs['image_flags'] = torch.ones(batch_size, dtype=torch.bool, device=device).unsqueeze(-1)
         
-        # Forward pass through the underlying model
-        return self.model(
-            pixel_values=kwargs.get('pixel_values'),
-            input_ids=kwargs.get('input_ids'),
-            attention_mask=kwargs.get('attention_mask'),
-            labels=kwargs.get('labels'),
-            image_flags=kwargs.get('image_flags')
-        )
+        # Forward pass through the underlying model with message suppression
+        with suppress_internvl_messages():
+            return self.model(
+                pixel_values=kwargs.get('pixel_values'),
+                input_ids=kwargs.get('input_ids'),
+                attention_mask=kwargs.get('attention_mask'),
+                labels=kwargs.get('labels'),
+                image_flags=kwargs.get('image_flags')
+            )
 
     def generate(
         self, 
@@ -293,10 +331,11 @@ class MultiCoCo(nn.Module):
         # Remove custom arguments that might interfere with generation
         generation_kwargs = {k: v for k, v in kwargs.items() if k != 'image_flags'}
         
-        # Generate using the base model
-        return self.model.generate(
-            pixel_values=pixel_values,
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            **generation_kwargs,
-        )
+        # Generate using the base model with message suppression
+        with suppress_internvl_messages():
+            return self.model.generate(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **generation_kwargs,
+            )
