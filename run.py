@@ -215,6 +215,9 @@ class MultiCoCoRunner:
             # Set evaluation configuration
             self.trainer.args.eval_config = self._create_eval_config()
             
+            # Set generation kwargs
+            self.trainer.args.generation_kwargs = self._create_generation_kwargs()
+            
             # Set CoCoNut parameters
             if self.config.coconut.enabled:
                 self.trainer.args.c_thought = self.config.coconut.c_thought
@@ -264,10 +267,6 @@ class MultiCoCoRunner:
             report_to=report_to,
             run_name=run_name,
             logging_dir=logging_config.log_dir,
-            prediction_loss_only=False,
-            predict_with_generate=True,
-            generation_kwargs=self._create_generation_kwargs(),
-            eval_accumulation_steps=1,
         )
 
     def _create_generation_kwargs(self) -> Dict[str, Any]:
