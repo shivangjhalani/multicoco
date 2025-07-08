@@ -18,7 +18,7 @@ training:
   num_epochs: 8
   gradient_accumulation_steps: 2
   warmup_steps: 200
-  logging_steps: 100
+  logging_steps: 10
   save_steps: 1000000  # Disable step-based saving
   eval_steps: 1000000  # Disable step-based evaluation  
   evaluation_strategy: "epoch"

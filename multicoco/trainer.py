@@ -304,6 +304,68 @@ class CoCoTrainer(Trainer):
         
         return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
+    def log(self, logs: Dict[str, float]) -> None:
+        """
+        Override log method to update tqdm progress bar with current loss.
+        
+        Args:
+            logs: Dictionary of metrics to log
+        """
+        # Call parent log method first
+        super().log(logs)
+        
+        # Update tqdm description with current loss if available
+        if hasattr(self, '_current_progress_bar') and self._current_progress_bar is not None:
+            description_parts = []
+            
+            # Add current epoch
+            if hasattr(self.state, 'epoch') and self.state.epoch is not None:
+                description_parts.append(f"Epoch {self.state.epoch:.1f}")
+            
+            # Add current loss
+            if 'train_loss' in logs:
+                description_parts.append(f"Loss: {logs['train_loss']:.4f}")
+            elif 'loss' in logs:
+                description_parts.append(f"Loss: {logs['loss']:.4f}")
+            
+            # Add learning rate if available
+            if 'learning_rate' in logs:
+                description_parts.append(f"LR: {logs['learning_rate']:.2e}")
+            
+            # Update the progress bar description
+            if description_parts:
+                description = " | ".join(description_parts)
+                self._current_progress_bar.set_description(description)
+
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+        """
+        Override to capture tqdm progress bar reference and ensure loss logging.
+        """
+        # Store current loss for progress bar updates
+        if tr_loss is not None:
+            self._current_train_loss = tr_loss.item() if hasattr(tr_loss, 'item') else tr_loss
+        
+        # Try to find and store reference to the progress bar
+        import inspect
+        for frame_info in inspect.stack():
+            frame_locals = frame_info.frame.f_locals
+            for var_name, var_value in frame_locals.items():
+                if hasattr(var_value, 'set_description') and hasattr(var_value, 'update'):
+                    # This looks like a tqdm progress bar
+                    self._current_progress_bar = var_value
+                    
+                    # Update description with current loss
+                    if hasattr(self, '_current_train_loss'):
+                        description_parts = []
+                        if hasattr(self.state, 'epoch') and self.state.epoch is not None:
+                            description_parts.append(f"Epoch {self.state.epoch:.1f}")
+                        description_parts.append(f"Loss: {self._current_train_loss:.4f}")
+                        description = " | ".join(description_parts)
+                        var_value.set_description(description)
+                    break
+        
+        return super()._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+
     def _apply_coconut_masking_to_inputs(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Apply CoCoNut masking to input batch."""
         input_ids = inputs.get('input_ids')
