@@ -14,7 +14,7 @@ low_cpu_mem_usage: true
 # Training Configuration
 eval_only: false
 output_dir: "output/aokvqa_cot"
-batch_size: 2
+batch_size: 8
 eval_batch_size: 1
 learning_rate: 5.0e-5
 num_epochs: 5
