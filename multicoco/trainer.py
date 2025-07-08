@@ -36,10 +36,6 @@ class CoCoTrainer(Trainer):
         super().__init__(*args, **kwargs)
         self.best_val_acc = 0.0
         
-        # Ensure we have tokenizer access (for backward compatibility)
-        if hasattr(self, 'processing_class') and not hasattr(self, 'tokenizer'):
-            self.tokenizer = self.processing_class
-        
         # CoCoNut training parameters
         self.coconut_enabled = getattr(self.args, 'eval_config', {}).get('coconut', False)
         self.c_thought = getattr(self.args, 'c_thought', 0)
@@ -53,9 +49,9 @@ class CoCoTrainer(Trainer):
             self.end_thought_id = self.args.end_thought_id
         else:
             # Fallback if not provided
-            self.thought_token_id = self.tokenizer.convert_tokens_to_ids('<thought>')
-            self.start_thought_id = self.tokenizer.convert_tokens_to_ids('<start_thought>')
-            self.end_thought_id = self.tokenizer.convert_tokens_to_ids('<end_thought>')
+            self.thought_token_id = self.processing_class.convert_tokens_to_ids('<thought>')
+            self.start_thought_id = self.processing_class.convert_tokens_to_ids('<start_thought>')
+            self.end_thought_id = self.processing_class.convert_tokens_to_ids('<end_thought>')
 
     def _gen_kwargs_for_evaluation(self):
         """
@@ -70,8 +66,8 @@ class CoCoTrainer(Trainer):
             gen_kwargs["max_new_tokens"] = 256
         if "do_sample" not in gen_kwargs:
             gen_kwargs["do_sample"] = False
-        if "pad_token_id" not in gen_kwargs and self.tokenizer.pad_token_id is not None:
-            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
+        if "pad_token_id" not in gen_kwargs and self.processing_class.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = self.processing_class.pad_token_id
         
         return gen_kwargs
 
@@ -279,20 +275,20 @@ class CoCoTrainer(Trainer):
                     # For InternVL, we need to include <image> token in the text
                     # The model uses this token to know where to inject visual features
                     user_content_str = f"<image>\n{q}"
-                    if is_cot:
-                        user_content_str += " Let's think step by step."
-                    elif is_coconut:
-                        # For CoCoNut evaluation, we use thought tokens to encourage latent reasoning
-                        user_content_str += " <start_thought>Let me think about this step by step.<end_thought> The answer is"
-                    else:
-                        user_content_str += " The answer is"
+                    # if is_cot:
+                    #     user_content_str += " Let's think step by step."
+                    # elif is_coconut:
+                    #     # For CoCoNut evaluation, we use thought tokens to encourage latent reasoning
+                    #     user_content_str += " <start_thought>Let me think about this step by step.<end_thought> The answer is"
+                    # else:
+                    #     user_content_str += " The answer is"
                 
                     # Use InternVL's chat method which handles the conversation format properly
                     generation_config = {
                         'max_new_tokens': 256,
                         'do_sample': False,
                         'num_beams': 1,
-                        'pad_token_id': self.tokenizer.pad_token_id,  # Suppress pad_token_id warning
+                        'pad_token_id': self.processing_class.pad_token_id,  # Suppress pad_token_id warning
                     }
                     
                     # Access the underlying InternVL model from our wrapper
@@ -309,7 +305,7 @@ class CoCoTrainer(Trainer):
                         current_pixel_values = current_pixel_values.to(torch.bfloat16)
                     
                     decoded_pred = underlying_model.chat(
-                        self.tokenizer,
+                        self.processing_class,
                         current_pixel_values,
                         user_content_str,
                         generation_config
@@ -328,7 +324,7 @@ class CoCoTrainer(Trainer):
                     extracted_answer = self.extract_answer_choice(decoded_pred, is_cot)
                     ground_truth = answers[i].strip()
                     is_correct = extracted_answer == ground_truth
-                    tokens_generated = len(self.tokenizer.tokenize(decoded_pred))
+                    tokens_generated = len(self.processing_class.tokenize(decoded_pred))
                     
                     # Log detailed information for each sample
                     log_file.write("----------------------------------------\n")
