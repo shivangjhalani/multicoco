@@ -314,58 +314,33 @@ class CoCoTrainer(Trainer):
         # Call parent log method first
         super().log(logs)
         
-        # Update tqdm description with current loss if available
-        if hasattr(self, '_current_progress_bar') and self._current_progress_bar is not None:
-            description_parts = []
-            
-            # Add current epoch
-            if hasattr(self.state, 'epoch') and self.state.epoch is not None:
-                description_parts.append(f"Epoch {self.state.epoch:.1f}")
-            
-            # Add current loss
-            if 'train_loss' in logs:
-                description_parts.append(f"Loss: {logs['train_loss']:.4f}")
-            elif 'loss' in logs:
-                description_parts.append(f"Loss: {logs['loss']:.4f}")
-            
-            # Add learning rate if available
-            if 'learning_rate' in logs:
-                description_parts.append(f"LR: {logs['learning_rate']:.2e}")
-            
-            # Update the progress bar description
-            if description_parts:
-                description = " | ".join(description_parts)
-                self._current_progress_bar.set_description(description)
-
-    def training_step(self, model, inputs):
-        """
-        Override training step to update progress bar with loss information.
-        """
-        # Perform the actual training step
-        loss = super().training_step(model, inputs)
-        
-        # Try to find and update the progress bar
-        self._update_progress_bar_with_loss(loss)
-        
-        return loss
+        # Try to update progress bar with current metrics
+        self._update_progress_bar_with_metrics(logs)
     
-    def _update_progress_bar_with_loss(self, loss):
+    def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """
-        Find and update the tqdm progress bar with current loss.
+        Find and update the tqdm progress bar with current metrics.
         """
         try:
             import inspect
+            import sys
             
-            # Extract loss value
-            loss_value = loss.item() if hasattr(loss, 'item') else loss
-            
-            # Look for tqdm progress bar in the call stack
+            # Look for tqdm progress bar in all frames
             for frame_info in inspect.stack():
-                frame_locals = frame_info.frame.f_locals
-                for var_name, var_value in frame_locals.items():
+                frame = frame_info.frame
+                frame_locals = frame.f_locals
+                frame_globals = frame.f_globals
+                
+                # Check both locals and globals for tqdm objects
+                all_vars = {**frame_globals, **frame_locals}
+                
+                for var_name, var_value in all_vars.items():
+                    # Check if this looks like a tqdm progress bar
                     if (hasattr(var_value, 'set_description') and 
                         hasattr(var_value, 'update') and
-                        hasattr(var_value, 'n')):  # More specific tqdm check
+                        hasattr(var_value, 'n') and
+                        hasattr(var_value, 'total') and
+                        'tqdm' in str(type(var_value))):
                         
                         # Build description with current information
                         description_parts = []
@@ -374,19 +349,21 @@ class CoCoTrainer(Trainer):
                         if hasattr(self.state, 'epoch') and self.state.epoch is not None:
                             description_parts.append(f"Epoch {self.state.epoch:.1f}")
                         
-                        # Add current loss
-                        description_parts.append(f"Loss: {loss_value:.4f}")
+                        # Add current loss from logs
+                        if 'train_loss' in logs:
+                            description_parts.append(f"Loss: {logs['train_loss']:.4f}")
+                        elif 'loss' in logs:
+                            description_parts.append(f"Loss: {logs['loss']:.4f}")
                         
                         # Add learning rate if available
-                        if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
-                            current_lr = self.lr_scheduler.get_last_lr()[0] if self.lr_scheduler.get_last_lr() else None
-                            if current_lr:
-                                description_parts.append(f"LR: {current_lr:.2e}")
+                        if 'learning_rate' in logs:
+                            description_parts.append(f"LR: {logs['learning_rate']:.2e}")
                         
                         # Update progress bar description
-                        description = " | ".join(description_parts)
-                        var_value.set_description(description)
-                        return
+                        if description_parts:
+                            description = " | ".join(description_parts)
+                            var_value.set_description(description)
+                            return
                         
         except Exception as e:
             # Silently fail to avoid disrupting training
