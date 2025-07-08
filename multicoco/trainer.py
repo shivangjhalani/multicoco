@@ -36,6 +36,10 @@ class CoCoTrainer(Trainer):
         super().__init__(*args, **kwargs)
         self.best_val_acc = 0.0
         
+        # Ensure we have tokenizer access (for backward compatibility)
+        if hasattr(self, 'processing_class') and not hasattr(self, 'tokenizer'):
+            self.tokenizer = self.processing_class
+        
         # CoCoNut training parameters
         self.coconut_enabled = getattr(self.args, 'eval_config', {}).get('coconut', False)
         self.c_thought = getattr(self.args, 'c_thought', 0)
@@ -288,6 +292,7 @@ class CoCoTrainer(Trainer):
                         'max_new_tokens': 256,
                         'do_sample': False,
                         'num_beams': 1,
+                        'pad_token_id': self.tokenizer.pad_token_id,  # Suppress pad_token_id warning
                     }
                     
                     # Access the underlying InternVL model from our wrapper

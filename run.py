@@ -58,6 +58,10 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     image_processor = AutoImageProcessor.from_pretrained(model_name, trust_remote_code=True)
     
+    # Set pad_token to avoid warnings
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
     # Add special tokens if doing CoCoNut training
     special_tokens = []
     if args.get('coconut', False):
@@ -79,7 +83,7 @@ def main():
     # Create training arguments
     # Conditionally disable wandb for evaluation only
     eval_only = args.get('eval_only', False)
-    report_to = None if eval_only else "wandb"
+    report_to = [] if eval_only else ["wandb"]  # Disable wandb only for eval_only mode
     
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -87,11 +91,11 @@ def main():
         per_device_train_batch_size=args.get('batch_size', 2),
         per_device_eval_batch_size=args.get('eval_batch_size', 2),
         gradient_accumulation_steps=args.get('gradient_accumulation_steps', 1),
-        learning_rate=args.get('learning_rate', 1e-5),
-        warmup_steps=args.get('warmup_steps', 500),
-        logging_steps=args.get('logging_steps', 10),
-        save_steps=args.get('save_steps', 500),
-        eval_steps=args.get('eval_steps', 500),
+        learning_rate=float(args.get('learning_rate', 1e-5)),  # Ensure it's a float
+        warmup_steps=int(args.get('warmup_steps', 500)),      # Ensure it's an int
+        logging_steps=int(args.get('logging_steps', 10)),     # Ensure it's an int
+        save_steps=int(args.get('save_steps', 500)),          # Ensure it's an int
+        eval_steps=int(args.get('eval_steps', 500)),          # Ensure it's an int
         eval_strategy=args.get('eval_strategy', 'steps'),
         save_strategy=args.get('save_strategy', 'steps'),
         load_best_model_at_end=True,
@@ -101,6 +105,7 @@ def main():
         dataloader_pin_memory=False,
         bf16=True if torch.cuda.is_available() else False,
         report_to=report_to,  # Enable wandb for training, disable for eval
+        logging_dir=None,  # Disable tensorboard logging
     )
     
     # Add custom args to training_args that our custom trainer needs
@@ -147,7 +152,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=data_collator,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,  # Use processing_class instead of tokenizer to avoid deprecation warning
     )
     
     # Check if we should train or just evaluate
