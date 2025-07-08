@@ -77,8 +77,8 @@ class CoCoNutConfig:
             raise ValueError("c_thought must be non-negative")
         if self.max_latent_stage < 0:
             raise ValueError("max_latent_stage must be non-negative")
-        if self.epochs_per_stage <= 0:
-            raise ValueError("epochs_per_stage must be positive")
+        if self.epochs_per_stage < 0:
+            raise ValueError("epochs_per_stage must be non-negative")
 
 
 @dataclass
