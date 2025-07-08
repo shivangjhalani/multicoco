@@ -123,7 +123,7 @@ class MultiCoCoRunner:
                     logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'))
                 ]
             )
-    else:
+        else:
             # File logging only
             logging.basicConfig(
                 level=getattr(logging, log_config.log_level),
@@ -182,7 +182,7 @@ class MultiCoCoRunner:
                     test_limit=test_limit
                 )
                 logger.info(f"Evaluation dataset loaded with {len(self.eval_dataset)} samples")
-    else:
+            else:
                 raise DataLoadingError("Evaluation data path is required")
                 
         except Exception as e:
