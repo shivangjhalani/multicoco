@@ -709,7 +709,7 @@ class CoCoTrainer(Trainer):
             )
 
             # In generation mode, there's no loss
-        return (None, generated_tokens, None)
+            return (None, generated_tokens, None)
             
         except Exception as e:
             raise GenerationError(f"Prediction step failed: {e}")
