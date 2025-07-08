@@ -87,7 +87,7 @@ class DataConfig:
     data_dir: str = ""
     train_data_path: Optional[str] = None
     eval_data_path: Optional[str] = None
-    limit_for_testing: bool = True
+    limit_for_testing: bool = False
     
     def __post_init__(self):
         """Validate data configuration."""
