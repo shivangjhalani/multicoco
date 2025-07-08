@@ -490,7 +490,11 @@ def main() -> None:
         args = parser.parse_args()
         
         # Load configuration
-        config = load_config_from_yaml(args.config)
+        # Load config using from_dict to support flat YAML format
+        import yaml
+        with open(args.config, 'r') as f:
+            yaml_config = yaml.safe_load(f)
+        config = MultiCoCoConfig.from_dict(yaml_config)
         
         # Apply command line overrides
         config = apply_cli_overrides(config, args)
