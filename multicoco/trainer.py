@@ -285,7 +285,7 @@ class CoCoTrainer(Trainer):
         model: nn.Module, 
         inputs: Dict[str, torch.Tensor], 
         return_outputs: bool = False,
-        **kwargs
+        num_items_in_batch: Optional[int] = None
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Override compute_loss to implement CoCoNut training logic.
@@ -294,7 +294,7 @@ class CoCoTrainer(Trainer):
             model: The model to compute loss for
             inputs: Input batch
             return_outputs: Whether to return model outputs
-            **kwargs: Additional keyword arguments for compatibility with different transformers versions
+            num_items_in_batch: Number of items in batch (for newer transformers compatibility)
             
         Returns:
             Loss tensor or tuple of (loss, outputs)
@@ -302,7 +302,7 @@ class CoCoTrainer(Trainer):
         if self.coconut_enabled:
             inputs = self._apply_coconut_masking_to_inputs(inputs)
         
-        return super().compute_loss(model, inputs, return_outputs, **kwargs)
+        return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
     def _apply_coconut_masking_to_inputs(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Apply CoCoNut masking to input batch."""

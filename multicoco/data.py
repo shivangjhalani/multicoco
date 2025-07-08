@@ -227,8 +227,30 @@ def _process_images(images: List[Image.Image], image_processor: Any) -> torch.Te
         ImageProcessingError: If image processing fails
     """
     try:
+        # Validate inputs
+        if not images:
+            raise ImageProcessingError("Empty images list provided")
+        
+        for i, img in enumerate(images):
+            if img is None:
+                raise ImageProcessingError(f"Image at index {i} is None")
+            if not hasattr(img, 'mode'):
+                raise ImageProcessingError(f"Image at index {i} is not a valid PIL Image")
+        
+        # Process images
         processed = image_processor(images, return_tensors='pt')
-        return processed['pixel_values']
+        
+        # Validate output
+        if processed is None:
+            raise ImageProcessingError("Image processor returned None")
+        if 'pixel_values' not in processed:
+            raise ImageProcessingError("Image processor output missing 'pixel_values' key")
+        
+        pixel_values = processed['pixel_values']
+        if pixel_values is None:
+            raise ImageProcessingError("Pixel values are None")
+        
+        return pixel_values
     except Exception as e:
         raise ImageProcessingError(f"Failed to process images: {e}")
 
