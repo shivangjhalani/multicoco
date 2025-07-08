@@ -353,8 +353,12 @@ class MultiCoCoRunner:
             # Run evaluation
             eval_results = self.trainer.evaluate()
             
-            # Extract metrics
-            metrics = eval_results.metrics
+            # Extract metrics - handle both dict and object with .metrics attribute
+            if hasattr(eval_results, 'metrics'):
+                metrics = eval_results.metrics
+            else:
+                # eval_results is already a dict of metrics
+                metrics = eval_results
             
             # Log results
             self._log_evaluation_results(metrics)
