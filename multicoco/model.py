@@ -147,7 +147,8 @@ class MultiCoCo(nn.Module):
         """Initialize image processor."""
         self.image_processor = AutoImageProcessor.from_pretrained(
             processor_id, 
-            trust_remote_code=True
+            trust_remote_code=True,
+            use_fast=True
         )
 
     def _setup_special_tokens(self) -> None:
