@@ -429,9 +429,9 @@ class CoCoTrainer(Trainer):
         """
         try:
             # Prepare model and evaluation state
-        model = self._wrap_model(self.model, training=False, dataloader=dataloader)
-        model.eval()
-        self.callback_handler.eval_dataloader = dataloader
+            model = self._wrap_model(self.model, training=False, dataloader=dataloader)
+            model.eval()
+            self.callback_handler.eval_dataloader = dataloader
 
             # Initialize result containers
             all_predictions = []
