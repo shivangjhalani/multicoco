@@ -256,4 +256,47 @@ class MultiCoCoConfig:
     
     def get_wandb_report_to(self) -> List[str]:
         """Get the report_to list for training arguments."""
-        return ["wandb"] if self.logging.use_wandb else [] 
+        return ["wandb"] if self.logging.use_wandb else []
+
+
+def load_config_from_yaml(yaml_path: str) -> MultiCoCoConfig:
+    """
+    Load configuration from YAML file.
+    
+    Args:
+        yaml_path: Path to YAML configuration file
+        
+    Returns:
+        Complete MultiCoCo configuration
+        
+    Raises:
+        ConfigurationError: If configuration loading fails
+    """
+    try:
+        import yaml
+        
+        with open(yaml_path, 'r') as f:
+            yaml_config = yaml.safe_load(f)
+        
+        # Create configuration objects from nested dictionaries
+        model_config = ModelConfig(**yaml_config.get('model', {}))
+        training_config = TrainingConfig(**yaml_config.get('training', {}))
+        data_config = DataConfig(**yaml_config.get('data', {}))
+        evaluation_config = EvaluationConfig(**yaml_config.get('evaluation', {}))
+        coconut_config = CoCoNutConfig(**yaml_config.get('coconut', {}))
+        generation_config = GenerationConfig(**yaml_config.get('generation', {}))
+        logging_config = LoggingConfig(**yaml_config.get('logging', {}))
+        
+        return MultiCoCoConfig(
+            model=model_config,
+            training=training_config,
+            data=data_config,
+            evaluation=evaluation_config,
+            coconut=coconut_config,
+            generation=generation_config,
+            logging=logging_config
+        )
+        
+    except Exception as e:
+        from .exceptions import ConfigurationError
+        raise ConfigurationError(f"Failed to load configuration from {yaml_path}: {e}") 
