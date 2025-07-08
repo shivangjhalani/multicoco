@@ -9,7 +9,8 @@ sys.path.append('.')
 import torch
 from multicoco.config import load_config_from_yaml
 from multicoco.data import SupervisedDataset, collate_fn
-from multicoco.model import load_model_and_processor
+from multicoco.model import MultiCoCo
+from multicoco.constants import COCONUT_SPECIAL_TOKENS
 from torch.utils.data import DataLoader
 
 def test_data_loading():
@@ -22,7 +23,14 @@ def test_data_loading():
         print(f"✓ Config loaded: CoT={config.evaluation.cot}")
         
         # Load model and processor
-        model, processor = load_model_and_processor(config)
+        model = MultiCoCo(
+            model_id=config.model.model_name,
+            special_tokens=COCONUT_SPECIAL_TOKENS if config.coconut.enabled else [],
+            torch_dtype=config.model.torch_dtype,
+            trust_remote_code=config.model.trust_remote_code,
+            low_cpu_mem_usage=config.model.low_cpu_mem_usage
+        )
+        processor = model.tokenizer  # Use the tokenizer as processor
         print(f"✓ Model loaded: {config.model.model_name}")
         
         # Create dataset
@@ -47,7 +55,7 @@ def test_data_loading():
         
         # Create collate wrapper
         def collate_wrapper(batch):
-            return collate_fn(batch, processor, processor)
+            return collate_fn(batch, model.tokenizer, model.image_processor)
         
         collated = collate_wrapper(batch)
         print(f"✓ Collation successful")
