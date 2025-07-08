@@ -187,111 +187,119 @@ class CoCoTrainer(Trainer):
 
         all_preds_text = []
         all_labels_text = []
+        all_questions = []
 
-        for step, inputs in enumerate(tqdm(dataloader, desc=description)):
-            questions = inputs.pop("questions")
-            answers = inputs.pop("answers")
-            pixel_values = inputs["pixel_values"].to(self.args.device)
-            
-            all_labels_text.extend(answers)
-            
-            is_cot = self.args.eval_config.get('cot', False)
-            is_coconut = self.args.eval_config.get('coconut', False)
-
-            for i, q in enumerate(questions):
-                
-                # For InternVL, we need to include <image> token in the text
-                # The model uses this token to know where to inject visual features
-                user_content_str = f"<image>\n{q}"
-                if is_cot:
-                    user_content_str += " Let's think step by step."
-                elif is_coconut:
-                    # For CoCoNut evaluation, we use thought tokens to encourage latent reasoning
-                    user_content_str += " <start_thought>Let me think about this step by step.<end_thought> The answer is"
-                else:
-                    user_content_str += " The answer is"
-            
-                # Use InternVL's chat method which handles the conversation format properly
-                generation_config = {
-                    'max_new_tokens': 256,
-                    'do_sample': False,
-                    'num_beams': 1,
-                }
-                
-                # Access the underlying InternVL model from our wrapper
-                underlying_model = model.model if hasattr(model, 'model') else model
-                
-                # Ensure pixel_values have the correct dtype matching the model
-                current_pixel_values = pixel_values[i:i+1]
-                if hasattr(underlying_model, 'dtype'):
-                    current_pixel_values = current_pixel_values.to(underlying_model.dtype)
-                elif hasattr(underlying_model, 'vision_model') and hasattr(underlying_model.vision_model, 'dtype'):
-                    current_pixel_values = current_pixel_values.to(underlying_model.vision_model.dtype)
-                else:
-                    # Default to bfloat16 if we can't determine the model dtype
-                    current_pixel_values = current_pixel_values.to(torch.bfloat16)
-                
-                decoded_pred = underlying_model.chat(
-                    self.tokenizer,
-                    current_pixel_values,
-                    user_content_str,
-                    generation_config
-                )
-                
-                # Clean up thought tokens from prediction if they appear
-                if is_coconut:
-                    # Remove any thought tokens that might have been generated
-                    for token in ['<thought>', '<start_thought>', '<end_thought>']:
-                        decoded_pred = decoded_pred.replace(token, '')
-                    decoded_pred = decoded_pred.strip()
-                
-                all_preds_text.append(decoded_pred)
-
-        # Post-process and compute metrics
-        correct = 0
+        # Set up logging
+        log_dir = getattr(self.args, 'log_dir', 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        
+        # Determine log file name based on evaluation type
         is_cot = self.args.eval_config.get('cot', False)
+        is_coconut = self.args.eval_config.get('coconut', False)
+        eval_type = "coconut" if is_coconut else "cot" if is_cot else "vanilla"
+        log_file_path = os.path.join(log_dir, f'evaluation_{eval_type}.log')
         
-        # Log some examples for debugging
-        if self.is_local_process_zero():
-            print(f"\n=== EVALUATION RESULTS ===")
-            print(f"Total samples: {len(all_labels_text)}")
-            for i, (pred, label) in enumerate(zip(all_preds_text[:5], all_labels_text[:5])):  # Show first 5
-                print(f"Sample {i+1}:")
-                print(f"  Prediction: '{pred}'")
-                print(f"  Ground Truth: '{label}'")
-                print(f"  Correct: {pred.strip().lower() == label.strip().lower()}")
-                print()
-        
-        for pred, label in zip(all_preds_text, all_labels_text):
-            pred_processed = pred.strip().lower()
-            if is_cot:
-                if "the answer is" in pred_processed:
-                    pred_processed = pred_processed.split("the answer is")[-1].strip()
+        with open(log_file_path, 'w') as log_file:
+            log_file.write(f"Evaluation Results - {eval_type.upper()}\n")
+            log_file.write("=" * 50 + "\n\n")
+
+            for step, inputs in enumerate(tqdm(dataloader, desc=description)):
+                questions = inputs.pop("questions")
+                answers = inputs.pop("answers")
+                pixel_values = inputs["pixel_values"].to(self.args.device)
+                
+                all_labels_text.extend(answers)
+                all_questions.extend(questions)
+
+                for i, q in enumerate(questions):
+                    
+                    # For InternVL, we need to include <image> token in the text
+                    # The model uses this token to know where to inject visual features
+                    user_content_str = f"<image>\n{q}"
+                    if is_cot:
+                        user_content_str += " Let's think step by step."
+                    elif is_coconut:
+                        # For CoCoNut evaluation, we use thought tokens to encourage latent reasoning
+                        user_content_str += " <start_thought>Let me think about this step by step.<end_thought> The answer is"
+                    else:
+                        user_content_str += " The answer is"
+                
+                    # Use InternVL's chat method which handles the conversation format properly
+                    generation_config = {
+                        'max_new_tokens': 256,
+                        'do_sample': False,
+                        'num_beams': 1,
+                    }
+                    
+                    # Access the underlying InternVL model from our wrapper
+                    underlying_model = model.model if hasattr(model, 'model') else model
+                    
+                    # Ensure pixel_values have the correct dtype matching the model
+                    current_pixel_values = pixel_values[i:i+1]
+                    if hasattr(underlying_model, 'dtype'):
+                        current_pixel_values = current_pixel_values.to(underlying_model.dtype)
+                    elif hasattr(underlying_model, 'vision_model') and hasattr(underlying_model.vision_model, 'dtype'):
+                        current_pixel_values = current_pixel_values.to(underlying_model.vision_model.dtype)
+                    else:
+                        # Default to bfloat16 if we can't determine the model dtype
+                        current_pixel_values = current_pixel_values.to(torch.bfloat16)
+                    
+                    decoded_pred = underlying_model.chat(
+                        self.tokenizer,
+                        current_pixel_values,
+                        user_content_str,
+                        generation_config
+                    )
+                    
+                    # Clean up thought tokens from prediction if they appear
+                    if is_coconut:
+                        # Remove any thought tokens that might have been generated
+                        for token in ['<thought>', '<start_thought>', '<end_thought>']:
+                            decoded_pred = decoded_pred.replace(token, '')
+                        decoded_pred = decoded_pred.strip()
+                    
+                    all_preds_text.append(decoded_pred)
+                    
+                    # Extract answer for correctness check
+                    pred_processed = decoded_pred.strip().lower()
+                    if is_cot:
+                        if "the answer is" in pred_processed:
+                            pred_processed = pred_processed.split("the answer is")[-1].strip()
+                    
+                    extracted_answer = pred_processed
+                    ground_truth = answers[i].strip().lower()
+                    is_correct = extracted_answer == ground_truth
+                    tokens_generated = len(self.tokenizer.tokenize(decoded_pred))
+                    
+                    # Log detailed information for each sample
+                    log_file.write("----------------------------------------\n")
+                    log_file.write(f"Question: {questions[i]}\n")
+                    log_file.write(f"Ground Truth Answer: {answers[i]}\n")
+                    log_file.write(f"Generated Answer: {decoded_pred}\n")
+                    log_file.write(f"Extracted Answer: {extracted_answer}\n")
+                    log_file.write(f"Tokens Generated: {tokens_generated}\n")
+                    log_file.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
+                    log_file.write("----------------------------------------\n\n")
+
+            # Post-process and compute metrics
+            correct = 0
             
-            if pred_processed == label.strip().lower():
-                correct += 1
-        
-        accuracy = correct / len(all_labels_text) if len(all_labels_text) > 0 else 0.0
-        
-        if self.is_local_process_zero():
-            print(f"Final Accuracy: {accuracy:.4f} ({correct}/{len(all_labels_text)})")
-            print("=" * 50)
+            for pred, label in zip(all_preds_text, all_labels_text):
+                pred_processed = pred.strip().lower()
+                if is_cot:
+                    if "the answer is" in pred_processed:
+                        pred_processed = pred_processed.split("the answer is")[-1].strip()
+                
+                if pred_processed == label.strip().lower():
+                    correct += 1
             
-            # Also write to log file
-            log_dir = getattr(self.args, 'log_dir', 'logs')
-            os.makedirs(log_dir, exist_ok=True)
+            accuracy = correct / len(all_labels_text) if len(all_labels_text) > 0 else 0.0
             
-            # Determine log file name based on evaluation type
-            eval_type = "coconut" if self.args.eval_config.get('coconut', False) else "cot" if self.args.eval_config.get('cot', False) else "vanilla"
-            log_file = os.path.join(log_dir, f'evaluation_{eval_type}.log')
-            
-            with open(log_file, 'a') as f:
-                f.write(f"\n=== EVALUATION RESULTS ({eval_type.upper()}) ===\n")
-                f.write(f"Total samples: {len(all_labels_text)}\n")
-                f.write(f"Correct predictions: {correct}\n")
-                f.write(f"Final Accuracy: {accuracy:.4f}\n")
-                f.write(f"Timestamp: {torch.cuda.Event().query() if torch.cuda.is_available() else 'N/A'}\n")
-                f.write("=" * 50 + "\n")
+            # Write final summary to log file
+            log_file.write(f"Final Results:\n")
+            log_file.write(f"Total Samples: {len(all_labels_text)}\n")
+            log_file.write(f"Correct Predictions: {correct}\n")
+            log_file.write(f"Accuracy: {accuracy:.4f}\n")
         
         # Log CoCoNut stage information
         stage_info = {}
