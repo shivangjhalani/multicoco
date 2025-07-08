@@ -85,7 +85,7 @@ class SupervisedDataset(Dataset):
             index: Index of the sample to retrieve
             
         Returns:
-            Dictionary containing 'image', 'question', and 'answer' keys
+            Dictionary containing 'image', 'question', 'answer', and optionally 'steps' keys
             
         Raises:
             ImageProcessingError: If image loading fails
@@ -117,11 +117,18 @@ class SupervisedDataset(Dataset):
         question = item['question']
         answer = item.get('answer', item.get('direct_answer', ''))
         
-        return {
+        # Create return dictionary
+        result = {
             'image': image,
             'question': question,
             'answer': answer
         }
+        
+        # Add reasoning steps if available (for CoT training)
+        if 'steps' in item and item['steps']:
+            result['steps'] = item['steps']
+        
+        return result
     
     def _create_fallback_image(self) -> Image.Image:
         """Create a fallback black image when image loading fails."""
@@ -163,8 +170,21 @@ def collate_fn(
         # Process images
         pixel_values = _process_images(images, image_processor)
         
-        # Create training data by concatenating questions and answers
-        full_texts = [f"{question} {answer}" for question, answer in zip(questions, answers)]
+        # Create training data - format depends on whether we have reasoning steps
+        full_texts = []
+        for i, (question, answer) in enumerate(zip(questions, answers)):
+            # Check if we have reasoning steps for CoT training
+            reasoning_steps = batch[i].get('steps', [])
+            
+            if reasoning_steps and len(reasoning_steps) > 0:
+                # CoT format: question + reasoning + "The answer is " + answer
+                reasoning_text = " ".join(reasoning_steps)
+                full_text = f"{question} {reasoning_text} The answer is {answer}"
+            else:
+                # Vanilla format: question + answer
+                full_text = f"{question} {answer}"
+            
+            full_texts.append(full_text)
         
         # Tokenize the full texts
         full_encodings = tokenizer(

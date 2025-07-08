@@ -197,6 +197,7 @@ class MultiCoCoConfig:
         )
         
         training_config = TrainingConfig(
+            eval_only=config_dict.get('eval_only', False),
             output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR),
             num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS),
             batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE),
@@ -205,10 +206,13 @@ class MultiCoCoConfig:
             gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1),
         )
         
+        # Handle both 'eval_data_path' and 'val_data_path' for backward compatibility
+        eval_data_path = config_dict.get('eval_data_path') or config_dict.get('val_data_path')
+        
         data_config = DataConfig(
             data_dir=config_dict.get('data_dir', ''),
             train_data_path=config_dict.get('train_data_path'),
-            eval_data_path=config_dict.get('eval_data_path'),
+            eval_data_path=eval_data_path,
         )
         
         evaluation_config = EvaluationConfig(
@@ -278,14 +282,21 @@ def load_config_from_yaml(yaml_path: str) -> MultiCoCoConfig:
         with open(yaml_path, 'r') as f:
             yaml_config = yaml.safe_load(f)
         
-        # Create configuration objects from nested dictionaries
+        # Handle nested configuration format
         model_config = ModelConfig(**yaml_config.get('model', {}))
         training_config = TrainingConfig(**yaml_config.get('training', {}))
         data_config = DataConfig(**yaml_config.get('data', {}))
         evaluation_config = EvaluationConfig(**yaml_config.get('evaluation', {}))
-        coconut_config = CoCoNutConfig(**yaml_config.get('coconut', {}))
         generation_config = GenerationConfig(**yaml_config.get('generation', {}))
         logging_config = LoggingConfig(**yaml_config.get('logging', {}))
+        
+        # Handle CoCoNut config carefully - could be boolean or dict
+        coconut_section = yaml_config.get('coconut', {})
+        if isinstance(coconut_section, dict):
+            coconut_config = CoCoNutConfig(**coconut_section)
+        else:
+            # Fallback for boolean value (old format)
+            coconut_config = CoCoNutConfig(enabled=bool(coconut_section))
         
         return MultiCoCoConfig(
             model=model_config,
