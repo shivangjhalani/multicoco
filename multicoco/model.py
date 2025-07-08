@@ -104,7 +104,7 @@ class MultiCoCo(nn.Module):
         
         # Load and configure model config
         config = AutoConfig.from_pretrained(conf_id, trust_remote_code=trust_remote_code)
-        config.attn_implementation = "eager"  # Use eager attention for compatibility
+        config.attn_implementation = "sdpa"  # Use PyTorch's optimized scaled dot product attention
 
         # Convert string dtype to torch dtype
         if torch_dtype == "bfloat16":

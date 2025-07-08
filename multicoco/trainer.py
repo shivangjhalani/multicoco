@@ -100,7 +100,7 @@ class CoCoTrainer(Trainer):
         
         # Initialize trainer state
         self.best_val_acc = 0.0
-        
+
         # Initialize CoCoNut parameters
         self._initialize_coconut_config()
         
@@ -429,9 +429,9 @@ class CoCoTrainer(Trainer):
         """
         try:
             # Prepare model and evaluation state
-            model = self._wrap_model(self.model, training=False, dataloader=dataloader)
-            model.eval()
-            self.callback_handler.eval_dataloader = dataloader
+        model = self._wrap_model(self.model, training=False, dataloader=dataloader)
+        model.eval()
+        self.callback_handler.eval_dataloader = dataloader
 
             # Initialize result containers
             all_predictions = []
@@ -654,7 +654,7 @@ class CoCoTrainer(Trainer):
                 f"{metric_key_prefix}_coconut_stage": self.current_stage,
                 f"{metric_key_prefix}_max_latent_stage": self.max_latent_stage
             })
-        
+
         return metrics
 
     def _write_evaluation_summary(
@@ -701,15 +701,15 @@ class CoCoTrainer(Trainer):
         gen_kwargs = self._create_generation_config()
 
         try:
-            generated_tokens = self.model.generate(
-                pixel_values=inputs["pixel_values"],
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                **gen_kwargs,
-            )
-            
+        generated_tokens = self.model.generate(
+            pixel_values=inputs["pixel_values"],
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            **gen_kwargs,
+        )
+
             # In generation mode, there's no loss
-            return (None, generated_tokens, None)
+        return (None, generated_tokens, None)
             
         except Exception as e:
             raise GenerationError(f"Prediction step failed: {e}")
