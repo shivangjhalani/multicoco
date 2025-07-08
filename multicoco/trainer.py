@@ -337,7 +337,7 @@ class CoCoTrainer(Trainer):
                 description = " | ".join(description_parts)
                 self._current_progress_bar.set_description(description)
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, **kwargs):
         """
         Override to capture tqdm progress bar reference and ensure loss logging.
         """
@@ -360,11 +360,16 @@ class CoCoTrainer(Trainer):
                         if hasattr(self.state, 'epoch') and self.state.epoch is not None:
                             description_parts.append(f"Epoch {self.state.epoch:.1f}")
                         description_parts.append(f"Loss: {self._current_train_loss:.4f}")
+                        
+                        # Add learning rate if available in kwargs
+                        if 'learning_rate' in kwargs:
+                            description_parts.append(f"LR: {kwargs['learning_rate']:.2e}")
+                        
                         description = " | ".join(description_parts)
                         var_value.set_description(description)
                     break
         
-        return super()._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+        return super()._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, **kwargs)
 
     def _apply_coconut_masking_to_inputs(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Apply CoCoNut masking to input batch."""
