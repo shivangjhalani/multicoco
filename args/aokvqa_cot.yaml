@@ -15,17 +15,18 @@ training:
   batch_size: 1
   eval_batch_size: 1
   learning_rate: 5.0e-5
-  num_epochs: 3
+  num_epochs: 8
   gradient_accumulation_steps: 2
-  warmup_steps: 500
-  logging_steps: 10
-  save_steps: 500
-  eval_steps: 500
-  evaluation_strategy: "steps"
-  save_strategy: "steps"
+  warmup_steps: 200
+  logging_steps: 100
+  save_steps: 1000000  # Disable step-based saving
+  eval_steps: 1000000  # Disable step-based evaluation  
+  evaluation_strategy: "epoch"
+  save_strategy: "epoch"
   load_best_model_at_end: true
   metric_for_best_model: "eval_accuracy"
   greater_is_better: true
+  save_total_limit: 8  # Keep all epoch checkpoints
   seed: 42
   data_seed: 42
   bf16: true
