@@ -1,5 +1,10 @@
+# Stage 0: Chain-of-Thought Training
+# This is the first phase - pure CoT training similar to original CoCoNut gsm_cot.yaml
+
 # Training Configuration
 mode: "cot_train"
+project: "multicoco"
+name: "aokvqa-cot-stage0"
 output_dir: "checkpoints/aokvqa_cot"
 num_epochs: 10
 batch_size: 8
@@ -8,12 +13,13 @@ learning_rate: 1.0e-5
 gradient_accumulation_steps: 2
 resume_from_checkpoint: false
 limit_for_testing: true
+debug: false
 
 # Precision Configuration
-bf16: true          # Use bfloat16 for better performance and numerical stability
-fp16: false         # Disable fp16 (mutually exclusive with bf16)
+bf16: true
+fp16: false
 
-# Model Configuration
+# Model Configuration - Base model for Stage 0
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
 use_flash_attention_2: true
 torch_compile: false
@@ -29,7 +35,7 @@ log_level: "INFO"
 console_output: true
 verbose: false
 
-# Evaluation Mode
+# Stage 0 Evaluation - CoT only
 eval_config:
   cot: true
   coconut: false 

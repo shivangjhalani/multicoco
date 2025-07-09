@@ -71,11 +71,55 @@ class SupervisedDataset(Dataset):
             logger.info(f"Limited dataset to {test_limit} samples for testing")
         
         self.data_dir = data_dir
+        self._original_data = self.data.copy()  # Keep original data for progressive training
         logger.info(f"Loaded {len(self.data)} samples from {data_path}")
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
         return len(self.data)
+    
+    def apply_progressive_curriculum(
+        self, 
+        scheduled_stage: int, 
+        c_thought: int, 
+        max_latent_stage: int,
+        uniform_prob: float = 0.0,
+        pad_latent_to_max: bool = False,
+        no_cot: bool = False,
+        shuffle: bool = False
+    ) -> None:
+        """
+        Apply progressive curriculum learning to the dataset.
+        
+        This method transforms the dataset according to the current training stage,
+        progressively replacing reasoning steps with latent tokens.
+        
+        Args:
+            scheduled_stage: Current training stage (0=CoT, 1+=progressive latent)
+            c_thought: Number of continuous thoughts per reasoning step
+            max_latent_stage: Maximum number of latent stages
+            uniform_prob: Probability to randomly sample from other stages
+            pad_latent_to_max: Whether to pad latent tokens to max stage
+            no_cot: If True, skip all reasoning steps
+            shuffle: Whether to shuffle the processed dataset
+        """
+        logger.info(f"Applying progressive curriculum for stage {scheduled_stage}")
+        
+        # Use the progressive latent dataset creation function
+        processed_data = create_progressive_latent_dataset(
+            scheduled_stage=scheduled_stage,
+            base_dataset=self._original_data,
+            c_thought=c_thought,
+            max_latent_stage=max_latent_stage,
+            uniform_prob=uniform_prob,
+            pad_latent_to_max=pad_latent_to_max,
+            no_cot=no_cot,
+            shuffle=shuffle
+        )
+        
+        # Update the dataset with processed data
+        self.data = processed_data
+        logger.info(f"Dataset updated with {len(self.data)} progressive curriculum samples")
 
     def __getitem__(self, index: int) -> Dict[str, Union[Image.Image, str]]:
         """
@@ -175,11 +219,15 @@ def collate_fn(
         for i, (question, answer) in enumerate(zip(questions, answers)):
             # Check if we have reasoning steps for CoT training
             reasoning_steps = batch[i].get('steps', [])
+            reasoning_text = batch[i].get('reasoning', '')
             
-            if reasoning_steps and len(reasoning_steps) > 0:
-                # CoT format: question + reasoning + "The answer is " + answer
-                reasoning_text = " ".join(reasoning_steps)
+            if reasoning_text:
+                # Progressive curriculum format: question + reasoning (with latent tokens) + answer
                 full_text = f"{question} {reasoning_text} The answer is {answer}"
+            elif reasoning_steps and len(reasoning_steps) > 0:
+                # CoT format: question + reasoning + "The answer is " + answer
+                reasoning_combined = " ".join(reasoning_steps)
+                full_text = f"{question} {reasoning_combined} The answer is {answer}"
             else:
                 # Vanilla format: question + answer
                 full_text = f"{question} {answer}"
@@ -292,3 +340,108 @@ def _create_training_labels(
             continue
     
     return labels
+
+
+def create_progressive_latent_dataset(
+    scheduled_stage: int,
+    base_dataset: List[Dict],
+    c_thought: int,
+    max_latent_stage: int,
+    uniform_prob: float = 0.0,
+    pad_latent_to_max: bool = False,
+    no_cot: bool = False,
+    shuffle: bool = False
+) -> List[Dict]:
+    """
+    Create dataset with progressive latent token replacement following original CoCoNut methodology.
+    
+    This function implements the core progressive curriculum learning:
+    - Stage 0: Full CoT (question + reasoning_steps + answer)
+    - Stage 1: Replace 1st reasoning step with latent tokens  
+    - Stage 2: Replace 2nd reasoning step with additional latent tokens
+    - Stage N: Replace N reasoning steps with N×c_thought latent tokens
+    
+    Args:
+        scheduled_stage: Current training stage (0=CoT, 1+=progressive latent)
+        base_dataset: Base dataset with question, steps, and answer
+        c_thought: Number of continuous thoughts per reasoning step
+        max_latent_stage: Maximum number of latent stages
+        uniform_prob: Probability to randomly sample from other stages (default: 0.0)
+        pad_latent_to_max: Whether to pad latent tokens to max stage
+        no_cot: If True, skip all reasoning steps (for ablation)
+        shuffle: Whether to shuffle the processed dataset
+        
+    Returns:
+        Processed dataset with progressive latent token replacement
+    """
+    import random
+    import itertools
+    
+    logger.info(f"Creating progressive latent dataset for stage {scheduled_stage}")
+    logger.info(f"Parameters: c_thought={c_thought}, max_latent_stage={max_latent_stage}")
+    
+    processed_samples = []
+    
+    for sample in base_dataset:
+        # Parse the sample for reasoning steps
+        steps = sample.get('steps', [])
+        if isinstance(steps, str):
+            # If steps is a single string, split it into individual steps
+            steps = [step.strip() for step in steps.split('\n') if step.strip()]
+        
+        # Determine the training stage for this sample
+        if random.random() < uniform_prob:
+            # With some probability, randomly sample stage for curriculum mixing
+            scheduled_stage_to_train = random.choice(list(range(len(steps) + 1)))
+        else:
+            scheduled_stage_to_train = scheduled_stage
+        
+        # Calculate how many steps to skip and how many latent tokens to use
+        if scheduled_stage_to_train > max_latent_stage:
+            n_skip_steps = 10000  # Skip all steps
+            if pad_latent_to_max:
+                n_latent_tokens = max_latent_stage
+            else:
+                n_latent_tokens = min(len(steps), max_latent_stage)
+        else:
+            n_skip_steps = scheduled_stage_to_train
+            n_latent_tokens = scheduled_stage_to_train
+        
+        if no_cot:
+            n_skip_steps = 100  # Skip all steps
+            n_latent_tokens = 0
+        
+        # Multiply by c_thought to get total latent tokens
+        total_latent_tokens = n_latent_tokens * c_thought
+        
+        # Build the reasoning text with progressive replacement
+        reasoning_text = ""
+        
+        # Add latent tokens if any
+        if total_latent_tokens > 0:
+            reasoning_text += " ".join(["<latent>"] * total_latent_tokens)
+        
+        # Add remaining reasoning steps (those not replaced by latent tokens)
+        remaining_steps = steps[n_skip_steps:] if n_skip_steps < len(steps) else []
+        if remaining_steps:
+            if reasoning_text:
+                reasoning_text += " "
+            reasoning_text += " ".join(remaining_steps)
+        
+        # Create the processed sample
+        processed_sample = {
+            'question': sample['question'],
+            'reasoning': reasoning_text.strip() if reasoning_text.strip() else "",
+            'answer': sample['answer'],
+            'stage': scheduled_stage_to_train,
+            'n_latent_tokens': total_latent_tokens,
+            'n_skip_steps': n_skip_steps
+        }
+        
+        processed_samples.append(processed_sample)
+    
+    if shuffle:
+        random.shuffle(processed_samples)
+    
+    logger.info(f"Processed {len(processed_samples)} samples for stage {scheduled_stage}")
+    return processed_samples

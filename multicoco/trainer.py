@@ -197,6 +197,144 @@ class CoCoTrainer(Trainer):
             metrics={}
         )
 
+    def train_coconut_progressive(
+        self,
+        resume_from_checkpoint: Optional[Union[str, bool]] = None,
+        trial=None,
+        ignore_keys_for_eval: Optional[List[str]] = None,
+        **kwargs,
+    ) -> TrainOutput:
+        """
+        Progressive curriculum learning for CoCoNut training following original methodology.
+        
+        This method implements the core CoCoNut multi-stage training:
+        - Stage 0: Already completed (CoT training)
+        - Stage 1-N: Progressive replacement of reasoning steps with latent tokens
+        - Each stage trains for epochs_per_stage epochs
+        - Optimizer can be reset between stages
+        
+        Args:
+            resume_from_checkpoint: Path to checkpoint to resume from
+            trial: Hyperparameter tuning trial object
+            ignore_keys_for_eval: Keys to ignore during evaluation
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            TrainOutput containing training results
+        """
+        logger.info("Starting CoCoNut progressive curriculum learning training")
+        
+        # Get CoCoNut configuration from args (set by runner)
+        c_thought = getattr(self.args, 'c_thought', 1)
+        epochs_per_stage = getattr(self.args, 'epochs_per_stage', 5)
+        max_latent_stage = getattr(self.args, 'max_latent_stage', 6)
+        reset_optimizer = getattr(self.args, 'reset_optimizer', True)
+        uniform_prob = getattr(self.args, 'uniform_prob', 0.0)
+        pad_latent_to_max = getattr(self.args, 'pad_latent_to_max', False)
+        
+        logger.info(f"CoCoNut Configuration:")
+        logger.info(f"  c_thought: {c_thought}")
+        logger.info(f"  epochs_per_stage: {epochs_per_stage}")
+        logger.info(f"  max_latent_stage: {max_latent_stage}")
+        logger.info(f"  reset_optimizer: {reset_optimizer}")
+        
+        # Setup training
+        self._setup_epoch_training()
+        
+        # Calculate total training parameters
+        total_stages = max_latent_stage + 1  # +1 for stage 0 (but we skip stage 0 in CoCoNut training)
+        total_epochs = total_stages * epochs_per_stage
+        
+        logger.info(f"Progressive training plan:")
+        logger.info(f"  Total stages: {total_stages} (stages 1-{max_latent_stage})")
+        logger.info(f"  Epochs per stage: {epochs_per_stage}")
+        logger.info(f"  Total epochs: {total_epochs}")
+        
+        # Handle checkpoint resumption
+        start_epoch = 0
+        if resume_from_checkpoint:
+            checkpoint_path = None
+            if resume_from_checkpoint is True:
+                checkpoint_path = get_last_checkpoint(self.args.output_dir)
+            else:
+                checkpoint_path = resume_from_checkpoint
+            
+            if checkpoint_path:
+                logger.info(f"Resuming training from checkpoint: {checkpoint_path}")
+                start_epoch = self._load_epoch_checkpoint(checkpoint_path)
+        
+        # Initialize model wrapper
+        model = self._wrap_model(self.model_wrapped)
+        
+        # Stage-based training loop
+        for epoch in range(start_epoch, total_epochs):
+            # Calculate current stage (1-based, since stage 0 is CoT which is already done)
+            current_stage = max(1, (epoch // epochs_per_stage) + 1)
+            stage_epoch = epoch % epochs_per_stage
+            
+            logger.info(f"\n{'='*80}")
+            logger.info(f"EPOCH {epoch + 1}/{total_epochs} - STAGE {current_stage} - STAGE EPOCH {stage_epoch + 1}/{epochs_per_stage}")
+            logger.info(f"{'='*80}")
+            
+            # Apply progressive curriculum to the training dataset
+            if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
+                self.train_dataset.apply_progressive_curriculum(
+                    scheduled_stage=current_stage,
+                    c_thought=c_thought,
+                    max_latent_stage=max_latent_stage,
+                    uniform_prob=uniform_prob,
+                    pad_latent_to_max=pad_latent_to_max,
+                    shuffle=True
+                )
+            else:
+                logger.warning("Training dataset does not support progressive curriculum")
+            
+            # Reset optimizer at the beginning of each stage (except first epoch)
+            if reset_optimizer and stage_epoch == 0 and epoch > 0:
+                logger.info(f"Resetting optimizer for stage {current_stage}")
+                # Calculate remaining steps for the rest of training
+                train_dataloader = self.get_train_dataloader()
+                steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
+                remaining_epochs = total_epochs - epoch
+                remaining_steps = steps_per_epoch * remaining_epochs
+                
+                # Recreate optimizer and scheduler
+                self.create_optimizer_and_scheduler(num_training_steps=remaining_steps)
+            
+            # Get updated dataloader with new progressive curriculum
+            train_dataloader = self.get_train_dataloader()
+            steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
+            
+            epoch_start_time = time.time()
+            
+            # Run training for this epoch
+            self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+            
+            # Save checkpoint after epoch
+            checkpoint_dir = self._save_epoch_checkpoint(epoch)
+            
+            # Run evaluation after epoch
+            eval_metrics = self._evaluate_after_epoch(epoch)
+            eval_metrics['eval_coconut_stage'] = current_stage
+            eval_metrics['eval_max_latent_stage'] = max_latent_stage
+            
+            # Log epoch summary
+            epoch_time = time.time() - epoch_start_time
+            self._log_coconut_epoch_summary(epoch, current_stage, stage_epoch, eval_metrics, checkpoint_dir, epoch_time)
+            
+            # Clean up memory
+            gc.collect()
+            torch.cuda.empty_cache()
+        
+        # Final logging
+        logger.info("CoCoNut progressive curriculum learning completed!")
+        
+        return TrainOutput(
+            global_step=self.total_train_steps,
+            training_loss=0.0,
+            metrics={}
+        )
+
     def _load_epoch_checkpoint(self, checkpoint_path: str) -> int:
         """Load state from an epoch-based checkpoint."""
         # Load model, optimizer, and scheduler states using the parent method
@@ -381,6 +519,29 @@ class CoCoTrainer(Trainer):
         logger.info(f"  Evaluation accuracy: {accuracy:.4f}")
         logger.info(f"  Evaluation loss: {loss:.4f}")
         logger.info(f"  Best accuracy so far: {self.best_val_acc:.4f}")
+        logger.info(f"  Checkpoint saved to: {checkpoint_dir}")
+        
+        logger.info("="*80)
+
+    def _log_coconut_epoch_summary(
+        self, 
+        epoch: int, 
+        current_stage: int,
+        stage_epoch: int,
+        eval_metrics: Dict[str, float], 
+        checkpoint_dir: str, 
+        epoch_time: float
+    ) -> None:
+        """Log summary of CoCoNut progressive training epoch results."""
+        accuracy = eval_metrics.get('eval_accuracy', 0.0)
+        loss = eval_metrics.get('eval_loss', 0.0)
+        
+        logger.info(f"\nEpoch {epoch + 1} Summary (Stage {current_stage}, Stage Epoch {stage_epoch + 1}):")
+        logger.info(f"  Training time: {epoch_time:.2f}s")
+        logger.info(f"  Evaluation accuracy: {accuracy:.4f}")
+        logger.info(f"  Evaluation loss: {loss:.4f}")
+        logger.info(f"  Best accuracy so far: {self.best_val_acc:.4f}")
+        logger.info(f"  Current stage: {current_stage}")
         logger.info(f"  Checkpoint saved to: {checkpoint_dir}")
         
         logger.info("="*80)

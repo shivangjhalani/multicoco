@@ -1,0 +1,53 @@
+# CoCoNut Multi-Stage Training
+# This is the second phase - progressive curriculum learning similar to original CoCoNut gsm_coconut.yaml
+# REQUIRES: A CoT checkpoint from Stage 0 training
+
+# Training Configuration
+mode: "coconut_train"
+project: "multicoco"
+name: "aokvqa-coconut-multistage"
+output_dir: "checkpoints/aokvqa_coconut"
+num_epochs: 50  # Total epochs across all stages
+batch_size: 8
+eval_batch_size: 16
+learning_rate: 1.0e-5
+gradient_accumulation_steps: 2
+resume_from_checkpoint: false
+limit_for_testing: true
+debug: false
+reset_optimizer: true  # Reset optimizer between stages
+
+# Precision Configuration
+bf16: true
+fp16: false
+
+# CoCoNut Progressive Curriculum Learning Configuration
+coconut:
+  enabled: true
+  c_thought: 1          # Number of continuous thoughts per reasoning step
+  epochs_per_stage: 5   # Train each stage for 5 epochs
+  max_latent_stage: 6   # Maximum stages (0=CoT, 1-6=progressive latent)
+  pad_latent_to_max: false
+  uniform_prob: 0.0     # Probability to mix data from other stages (0 for standard)
+
+# Model Configuration - Load from CoT checkpoint
+load_model_path: "checkpoints/aokvqa_cot"  # Path to CoT checkpoint
+model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base model for tokenizer/config
+use_flash_attention_2: true
+torch_compile: false
+
+# Data Configuration  
+data_dir: "data/"
+train_data_path: "data/aokvqa_train.json"
+eval_data_path: "data/aokvqa_validation.json"
+
+# Logging Configuration
+log_dir: "logs/"
+log_level: "INFO"
+console_output: true
+verbose: false
+
+# CoCoNut Evaluation
+eval_config:
+  cot: false
+  coconut: true 

@@ -153,9 +153,17 @@ class MultiCoCoRunner:
             # Get special tokens for the model
             special_tokens = model_config.get_special_tokens(coconut_config)
             
+            # Determine model source - checkpoint vs base model
+            if model_config.load_model_path:
+                logger.info(f"Loading model from checkpoint: {model_config.load_model_path}")
+                model_source = model_config.load_model_path
+            else:
+                logger.info(f"Loading base model: {model_config.model_name}")
+                model_source = model_config.model_name
+            
             # Initialize model with consistent dtype from configuration
             self.model = MultiCoCo(
-                model_id=model_config.model_name,
+                model_id=model_source,  # Can be base model or checkpoint path
                 config_id=model_config.config_id,
                 tokenizer_id=model_config.tokenizer_id,
                 image_processor_id=model_config.image_processor_id,
@@ -165,7 +173,20 @@ class MultiCoCoRunner:
                 low_cpu_mem_usage=model_config.low_cpu_mem_usage
             )
             
-            logger.info(f"Model '{model_config.model_name}' initialized successfully with dtype: {model_config.torch_dtype}")
+            # Add <latent> token to tokenizer if it doesn't exist (for CoCoNut training)
+            if coconut_config.enabled:
+                latent_token_id = self.model.tokenizer.convert_tokens_to_ids("<latent>")
+                if latent_token_id == self.model.tokenizer.unk_token_id:
+                    logger.info("Adding <latent> token to tokenizer for CoCoNut training")
+                    self.model.tokenizer.add_tokens(["<latent>"])
+                    self.model.resize_token_embeddings(len(self.model.tokenizer))
+                    logger.info(f"Tokenizer vocabulary size: {len(self.model.tokenizer)}")
+            
+            if model_config.load_model_path:
+                logger.info(f"Model loaded from checkpoint: {model_config.load_model_path}")
+            else:
+                logger.info(f"Base model '{model_config.model_name}' initialized successfully")
+            logger.info(f"Model dtype: {model_config.torch_dtype}")
             logger.info(f"Model precision - BF16: {self.config.training.bf16}, FP16: {self.config.training.fp16}")
             
         except Exception as e:
@@ -237,6 +258,9 @@ class MultiCoCoRunner:
                 self.trainer.args.c_thought = self.config.coconut.c_thought
                 self.trainer.args.max_latent_stage = self.config.coconut.max_latent_stage
                 self.trainer.args.epochs_per_stage = self.config.coconut.epochs_per_stage
+                self.trainer.args.uniform_prob = self.config.coconut.uniform_prob
+                self.trainer.args.pad_latent_to_max = self.config.coconut.pad_latent_to_max
+                self.trainer.args.reset_optimizer = self.config.coconut.reset_optimizer
             
             logger.info("Trainer created successfully")
             
@@ -282,8 +306,7 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=True,
             do_eval=True,
-            report_to=["wandb"] if self.config.logging.use_wandb else [],
-            run_name=self.config.training.run_name if hasattr(training_config, 'run_name') else None
+            report_to=["wandb"] if self.config.logging.use_wandb else []
         )
 
     def _create_evaluation_args(self, training_config) -> TrainingArguments:
@@ -352,32 +375,30 @@ class MultiCoCoRunner:
 
     def run_coconut_training(self) -> None:
         """
-        Runs the second phase of training using the CoCoNutModel.
+        Runs the second phase of training using progressive curriculum learning.
         
-        This method wraps the base model (expected to be fine-tuned on CoT)
-        with the CoCoNutModel to enable state-injection training. It requires
-        a tokenizer with a special `<latent>` token.
+        This method implements the original CoCoNut methodology:
+        - Progressive replacement of reasoning steps with latent tokens
+        - Stage-by-stage training with epochs_per_stage epochs per stage
+        - Optional optimizer reset between stages
+        - Requires a CoT-trained model as initialization
         """
         if self.trainer is None:
             raise ConfigurationError("Trainer not initialized")
         
-        # Wrap the base model with our CoCoNutModel
-        logger.info("Wrapping model with CoCoNutModel for state-injection training.")
+        logger.info("Starting CoCoNut progressive curriculum learning training...")
         
-        # Assumes a <latent> token has been added to the tokenizer
+        # Verify that <latent> token exists in tokenizer
         latent_token_id = self.model.tokenizer.convert_tokens_to_ids("<latent>")
         if latent_token_id == self.model.tokenizer.unk_token_id:
-            raise ConfigurationError("<latent> token not found in tokenizer vocabulary.")
-
-        self.model = CoCoNutModel(
-            base_model=self.model,
-            tokenizer=self.model.tokenizer,
-            latent_token_id=latent_token_id
-        )
-        self.trainer.model = self.model
+            logger.warning("<latent> token not found in tokenizer vocabulary. Adding it now.")
+            self.model.tokenizer.add_tokens(["<latent>"])
+            self.model.resize_token_embeddings(len(self.model.tokenizer))
         
-        logger.info("Starting CoCoNuT training...")
-        self.trainer.train(resume_from_checkpoint=self.config.training.resume_from_checkpoint)
+        # Use the new progressive curriculum learning training method
+        self.trainer.train_coconut_progressive(
+            resume_from_checkpoint=self.config.training.resume_from_checkpoint
+        )
 
     def run_evaluation(self) -> Dict[str, float]:
         """Run a standalone evaluation."""

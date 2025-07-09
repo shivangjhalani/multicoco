@@ -71,12 +71,17 @@ class EvaluationConfig:
 
 @dataclass
 class CoCoNutConfig:
-    """Configuration for CoCoNut training parameters."""
+    """Configuration for CoCoNut training parameters following original methodology."""
     enabled: bool = False
     c_thought: int = DEFAULT_C_THOUGHT
     max_latent_stage: int = DEFAULT_MAX_LATENT_STAGE
     epochs_per_stage: int = 1
     special_tokens: List[str] = field(default_factory=lambda: COCONUT_SPECIAL_TOKENS.copy())
+    
+    # Progressive curriculum learning parameters
+    uniform_prob: float = 0.0          # Probability to mix data from other stages
+    pad_latent_to_max: bool = False    # Whether to pad latent tokens to max stage
+    reset_optimizer: bool = True       # Whether to reset optimizer between stages
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -86,6 +91,8 @@ class CoCoNutConfig:
             raise ValueError("max_latent_stage must be non-negative")
         if self.epochs_per_stage < 0:
             raise ValueError("epochs_per_stage must be non-negative")
+        if not 0.0 <= self.uniform_prob <= 1.0:
+            raise ValueError("uniform_prob must be between 0.0 and 1.0")
 
 
 @dataclass
@@ -123,6 +130,7 @@ class ModelConfig:
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     low_cpu_mem_usage: bool = True
+    load_model_path: Optional[str] = None  # Path to load pretrained model from
     
     def get_special_tokens(self, coconut_config: CoCoNutConfig) -> List[str]:
         """Get special tokens based on configuration."""
@@ -224,7 +232,8 @@ class MultiCoCoConfig:
             tokenizer_id=config_dict.get('tokenizer_id'),
             image_processor_id=config_dict.get('image_processor_id'),
             trust_remote_code=config_dict.get('trust_remote_code', True),
-            low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True)
+            low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True),
+            load_model_path=config_dict.get('load_model_path')
         )
         
         training_config = TrainingConfig(
@@ -269,11 +278,23 @@ class MultiCoCoConfig:
             detailed_logging=config_dict.get('detailed_logging', True),
         )
         
+        # Handle nested coconut configuration
+        coconut_dict = config_dict.get('coconut', {})
+        if isinstance(coconut_dict, bool):
+            # Handle boolean coconut flag for backward compatibility
+            coconut_enabled = coconut_dict
+            coconut_dict = {}
+        else:
+            coconut_enabled = coconut_dict.get('enabled', config_dict.get('coconut', False))
+        
         coconut_config = CoCoNutConfig(
-            enabled=config_dict.get('coconut', False),
-            c_thought=config_dict.get('c_thought', DEFAULT_C_THOUGHT),
-            max_latent_stage=config_dict.get('max_latent_stage', DEFAULT_MAX_LATENT_STAGE),
-            epochs_per_stage=config_dict.get('epochs_per_stage', 1),
+            enabled=coconut_enabled,
+            c_thought=coconut_dict.get('c_thought', config_dict.get('c_thought', DEFAULT_C_THOUGHT)),
+            max_latent_stage=coconut_dict.get('max_latent_stage', config_dict.get('max_latent_stage', DEFAULT_MAX_LATENT_STAGE)),
+            epochs_per_stage=coconut_dict.get('epochs_per_stage', config_dict.get('epochs_per_stage', 1)),
+            uniform_prob=coconut_dict.get('uniform_prob', config_dict.get('uniform_prob', 0.0)),
+            pad_latent_to_max=coconut_dict.get('pad_latent_to_max', config_dict.get('pad_latent_to_max', False)),
+            reset_optimizer=coconut_dict.get('reset_optimizer', config_dict.get('reset_optimizer', True))
         )
         
         logging_config = LoggingConfig(
