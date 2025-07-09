@@ -4,3 +4,4 @@ datasets>=2.19
 numpy
 tqdm
 pillow
+wandb

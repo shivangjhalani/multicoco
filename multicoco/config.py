@@ -133,8 +133,15 @@ class ModelConfig:
     load_model_path: Optional[str] = None  # Path to load pretrained model from
     
     def get_special_tokens(self, coconut_config: CoCoNutConfig) -> List[str]:
-        """Get special tokens based on configuration."""
-        return coconut_config.special_tokens if coconut_config.enabled else []
+        """Get special tokens based on configuration.
+        
+        Note: This method returns only the base special tokens.
+        Latent tokens are handled separately during model initialization
+        based on training phase.
+        """
+        # Return empty list for now - latent tokens are handled during model init
+        # This prevents unnecessary token addition during CoT training
+        return []
 
 
 @dataclass

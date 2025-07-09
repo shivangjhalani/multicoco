@@ -18,7 +18,7 @@ import torch
 import torch.utils.checkpoint as cp  # type: ignore
 from functools import partial
 import numpy as np
-from transformers import TrainingArguments
+from transformers import TrainingArguments, AutoModelForCausalLM
 
 if not getattr(cp.checkpoint, "__patched_use_reentrant", False):
     cp.checkpoint = partial(cp.checkpoint, use_reentrant=False)  # type: ignore[arg-type]
@@ -141,56 +141,130 @@ class MultiCoCoRunner:
             logging.getLogger("torch").setLevel(logging.WARNING)
 
     def initialize_model(self) -> None:
-        """Initialize the model from configuration."""
+        """Initialize the model from configuration with proper phase separation."""
         try:
             model_config = self.config.model
             coconut_config = self.config.coconut
+            training_mode = self.config.training.mode
             
-            # Always add latent special tokens so that they exist before any stage
-            from multicoco.constants import COCONUT_SPECIAL_TOKENS
-            special_tokens = list(set(model_config.get_special_tokens(coconut_config)) | set(COCONUT_SPECIAL_TOKENS))
+            # Phase-aware token handling: only add latent tokens when actually needed
+            special_tokens = []
+            if coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN:
+                # Only add latent tokens for CoCoNut training or evaluation
+                from multicoco.constants import COCONUT_SPECIAL_TOKENS
+                special_tokens = list(set(model_config.get_special_tokens(coconut_config)) | set(COCONUT_SPECIAL_TOKENS))
+                logger.info(f"Adding latent special tokens for CoCoNut phase: {special_tokens}")
+            else:
+                # CoT training - use only base special tokens
+                special_tokens = model_config.get_special_tokens(coconut_config)
+                logger.info("CoT training phase - no latent tokens added")
             
-            # Determine model source - checkpoint vs base model
+            # Initialize base model first
             if model_config.load_model_path:
                 logger.info(f"Loading model from checkpoint: {model_config.load_model_path}")
-                model_source = model_config.load_model_path
+                base_model_source = model_config.model_name  # Use base model for architecture
+                checkpoint_path = model_config.load_model_path
             else:
                 logger.info(f"Loading base model: {model_config.model_name}")
-                model_source = model_config.model_name
+                base_model_source = model_config.model_name
+                checkpoint_path = None
             
-            # Initialize model with consistent dtype from configuration
+            # Initialize model with consistent architecture
             self.model = MultiCoCo(
-                model_id=model_source,  # Can be base model or checkpoint path
+                model_id=base_model_source,  # Always use base model for architecture
                 config_id=model_config.config_id,
                 tokenizer_id=model_config.tokenizer_id,
                 image_processor_id=model_config.image_processor_id,
                 special_tokens=special_tokens,
-                torch_dtype=model_config.torch_dtype,  # Use dtype from config
+                torch_dtype=model_config.torch_dtype,
                 trust_remote_code=model_config.trust_remote_code,
                 low_cpu_mem_usage=model_config.low_cpu_mem_usage
             )
             
-            # Ensure embeddings for new tokens are initialised (copy eos)
-            embed_layer = self.model.get_input_embeddings()
-            eos_vec = embed_layer.weight.data[self.model.tokenizer.eos_token_id].clone()
-            from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
-            for tok in (START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN):
-                tid = self.model.tokenizer.convert_tokens_to_ids(tok)
-                embed_layer.weight.data[tid] = eos_vec
-
-            # Wrap with latent wrapper if CoCoNut stage
-            if coconut_config.enabled:
+            # Load checkpoint state if provided (after base model initialization)
+            if checkpoint_path:
+                self._load_checkpoint_weights(checkpoint_path)
+                logger.info(f"Loaded checkpoint weights from: {checkpoint_path}")
+            
+            # Initialize embeddings for latent tokens if they were added
+            if special_tokens and any(tok in special_tokens for tok in ['<|latent|>', '<|start_latent|>', '<|end_latent|>']):
+                self._initialize_latent_token_embeddings()
+            
+            # Wrap with LatentWrapper only for CoCoNut training/evaluation
+            if coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN:
+                logger.info("Wrapping model with LatentWrapper for CoCoNut training")
                 self.model = LatentWrapper(self.model, self.model.tokenizer)
             
-            if model_config.load_model_path:
-                logger.info(f"Model loaded from checkpoint: {model_config.load_model_path}")
+            # Log final model state
+            if checkpoint_path:
+                logger.info(f"Model initialized from checkpoint: {checkpoint_path}")
             else:
                 logger.info(f"Base model '{model_config.model_name}' initialized successfully")
             logger.info(f"Model dtype: {model_config.torch_dtype}")
             logger.info(f"Model precision - BF16: {self.config.training.bf16}, FP16: {self.config.training.fp16}")
+            logger.info(f"Training mode: {training_mode}")
+            logger.info(f"CoCoNut enabled: {coconut_config.enabled}")
             
         except Exception as e:
             raise ModelInitializationError(f"Model initialization failed: {e}")
+
+    def _load_checkpoint_weights(self, checkpoint_path: str) -> None:
+        """Load checkpoint weights into the base model."""
+        if self.model is None:
+            raise ModelInitializationError("Model must be initialized before loading checkpoint weights")
+            
+        if not os.path.exists(checkpoint_path):
+            raise ModelInitializationError(f"Checkpoint path does not exist: {checkpoint_path}")
+        
+        try:
+            # Load the checkpoint model to get its state dict
+            checkpoint_model = AutoModelForCausalLM.from_pretrained(
+                checkpoint_path,
+                torch_dtype=self.model.model.dtype,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            
+            # Transfer weights to our model
+            missing_keys, unexpected_keys = self.model.model.load_state_dict(
+                checkpoint_model.state_dict(), strict=False
+            )
+            
+            if missing_keys:
+                logger.warning(f"Missing keys when loading checkpoint: {missing_keys}")
+            if unexpected_keys:
+                logger.warning(f"Unexpected keys when loading checkpoint: {unexpected_keys}")
+                
+            # Clean up checkpoint model
+            del checkpoint_model
+            
+        except Exception as e:
+            raise ModelInitializationError(f"Failed to load checkpoint weights: {e}")
+
+    def _initialize_latent_token_embeddings(self) -> None:
+        """Initialize embeddings for latent tokens by copying EOS token embedding."""
+        if self.model is None:
+            raise ModelInitializationError("Model must be initialized before initializing token embeddings")
+            
+        try:
+            embed_layer = self.model.get_input_embeddings()
+            eos_vec = embed_layer.weight.data[self.model.tokenizer.eos_token_id].clone()
+            
+            from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
+            latent_tokens = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
+            
+            initialized_tokens = []
+            for tok in latent_tokens:
+                tid = self.model.tokenizer.convert_tokens_to_ids(tok)
+                if tid != self.model.tokenizer.unk_token_id:  # Token exists
+                    embed_layer.weight.data[tid] = eos_vec.clone()
+                    initialized_tokens.append(tok)
+            
+            if initialized_tokens:
+                logger.info(f"Initialized embeddings for latent tokens: {initialized_tokens}")
+                
+        except Exception as e:
+            logger.warning(f"Failed to initialize latent token embeddings: {e}")
 
     def setup_datasets(self) -> None:
         """Set up training and evaluation datasets."""
@@ -389,12 +463,8 @@ class MultiCoCoRunner:
         
         logger.info("Starting CoCoNut progressive curriculum learning training...")
         
-        # Verify that <latent> token exists in tokenizer
-        latent_token_id = self.model.tokenizer.convert_tokens_to_ids("<latent>")
-        if latent_token_id == self.model.tokenizer.unk_token_id:
-            logger.warning("<latent> token not found in tokenizer vocabulary. Adding it now.")
-            self.model.tokenizer.add_tokens(["<latent>"])
-            self.model.resize_token_embeddings(len(self.model.tokenizer))
+        # Latent tokens should already be properly initialized during model initialization
+        # No need for redundant validation here
         
         # Use the new progressive curriculum learning training method
         self.trainer.train_coconut_progressive(
