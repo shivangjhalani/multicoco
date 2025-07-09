@@ -41,6 +41,7 @@ eval_data_path: "data/aokvqa_validation.json"
 data_dir: "data"
 limit_for_testing: false
 
+
 # Evaluation Configuration
 vanilla: true
 cot: false
