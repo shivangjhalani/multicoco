@@ -417,9 +417,13 @@ def create_progressive_latent_dataset(
         # Build the reasoning text with progressive replacement
         reasoning_text = ""
         
-        # Add latent tokens if any
+        from multicoco.constants import START_LATENT_TOKEN, END_LATENT_TOKEN, LATENT_TOKEN
+
+        # Add latent tokens wrapped with boundary markers if any
         if total_latent_tokens > 0:
-            reasoning_text += " ".join(["<latent>"] * total_latent_tokens)
+            latent_block = " ".join([LATENT_TOKEN] * total_latent_tokens)
+            reasoning_text += f"{START_LATENT_TOKEN} {latent_block} {END_LATENT_TOKEN}".strip()
+        
         
         # Add remaining reasoning steps (those not replaced by latent tokens)
         remaining_steps = steps[n_skip_steps:] if n_skip_steps < len(steps) else []

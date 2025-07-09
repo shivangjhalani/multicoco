@@ -268,8 +268,8 @@ class CoCoTrainer(Trainer):
         
         # Stage-based training loop
         for epoch in range(start_epoch, total_epochs):
-            # Calculate current stage (1-based, since stage 0 is CoT which is already done)
-            current_stage = max(1, (epoch // epochs_per_stage) + 1)
+            # Calculate current stage so that the first CoCoNut epoch is stage 0 (full CoT)
+            current_stage = (epoch // epochs_per_stage)
             stage_epoch = epoch % epochs_per_stage
             
             logger.info(f"\n{'='*80}")
@@ -976,9 +976,9 @@ class CoCoTrainer(Trainer):
         
         # Remove thought tokens that might have been generated
         if eval_config.get('coconut', False):
-            # Remove CoCoNuT special tokens
-            thought_tokens = ['<|thought|>', '<|start_thought|>', '<|end_thought|>', 
-                             '<thought>', '<start_thought>', '<end_thought>']
+            # Remove latent special tokens that may appear in generation
+            from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
+            thought_tokens = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
             for token in thought_tokens:
                 response = response.replace(token, '')
         

@@ -1,8 +1,6 @@
-Pillow
-torch
-transformers
-tokenizers
+torch>=2.0
+transformers>=4.39
+datasets>=2.19
+numpy
 tqdm
-accelerate
-datasets
-wandb
+pillow

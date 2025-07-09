@@ -27,8 +27,14 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 # Special Tokens
-COCONUT_SPECIAL_TOKENS = ['<|thought|>', '<|start_thought|>', '<|end_thought|>']
-LEGACY_THOUGHT_TOKENS = ['<thought>', '<start_thought>', '<end_thought>']
+# Latent reasoning tokens used in CoCoNut curriculum
+LATENT_TOKEN = '<|latent|>'
+START_LATENT_TOKEN = '<|start_latent|>'
+END_LATENT_TOKEN = '<|end_latent|>'
+
+# Collection for easy tokenizer addition
+COCONUT_SPECIAL_TOKENS = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
+
 IMAGE_TOKEN = '<image>'
 IMG_CONTEXT_TOKEN = '<img>'
 

@@ -197,8 +197,7 @@ class MultiCoCo(nn.Module):
         else:
             logger.warning(f"Image context token '{IMG_CONTEXT_TOKEN}' not found in tokenizer")
 
-        # Set up CoCoNut special token IDs
-        self.thought_token_id = self.tokenizer.convert_tokens_to_ids('<thought>')
+        # Keep reference to eos id for convenience
         self.eos_token_id = self.tokenizer.eos_token_id
 
     def _resize_token_embeddings(self) -> None:

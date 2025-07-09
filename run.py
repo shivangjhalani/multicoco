@@ -50,6 +50,7 @@ from multicoco.exceptions import (
     DataLoadingError,
     EvaluationError
 )
+from multicoco.latent_wrapper import LatentWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +146,9 @@ class MultiCoCoRunner:
             model_config = self.config.model
             coconut_config = self.config.coconut
             
-            # Get special tokens for the model
-            special_tokens = model_config.get_special_tokens(coconut_config)
+            # Always add latent special tokens so that they exist before any stage
+            from multicoco.constants import COCONUT_SPECIAL_TOKENS
+            special_tokens = list(set(model_config.get_special_tokens(coconut_config)) | set(COCONUT_SPECIAL_TOKENS))
             
             # Determine model source - checkpoint vs base model
             if model_config.load_model_path:
@@ -168,14 +170,17 @@ class MultiCoCoRunner:
                 low_cpu_mem_usage=model_config.low_cpu_mem_usage
             )
             
-            # Add <latent> token to tokenizer if it doesn't exist (for CoCoNut training)
+            # Ensure embeddings for new tokens are initialised (copy eos)
+            embed_layer = self.model.get_input_embeddings()
+            eos_vec = embed_layer.weight.data[self.model.tokenizer.eos_token_id].clone()
+            from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
+            for tok in (START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN):
+                tid = self.model.tokenizer.convert_tokens_to_ids(tok)
+                embed_layer.weight.data[tid] = eos_vec
+
+            # Wrap with latent wrapper if CoCoNut stage
             if coconut_config.enabled:
-                latent_token_id = self.model.tokenizer.convert_tokens_to_ids("<latent>")
-                if latent_token_id == self.model.tokenizer.unk_token_id:
-                    logger.info("Adding <latent> token to tokenizer for CoCoNut training")
-                    self.model.tokenizer.add_tokens(["<latent>"])
-                    self.model.resize_token_embeddings(len(self.model.tokenizer))
-                    logger.info(f"Tokenizer vocabulary size: {len(self.model.tokenizer)}")
+                self.model = LatentWrapper(self.model, self.model.tokenizer)
             
             if model_config.load_model_path:
                 logger.info(f"Model loaded from checkpoint: {model_config.load_model_path}")
