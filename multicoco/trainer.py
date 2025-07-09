@@ -764,64 +764,65 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair."""
         try:
-            # Determine the prompt based on the evaluation mode
-            eval_config = self.args.eval_config
-            if eval_config.get('coconut', False) or eval_config.get('cot', False):
-                # For CoT or CoCoNuT, we ask for reasoning.
-                # The model should have learned to produce "The answer is X" at the end.
-                prompt = "Explain your reasoning step-by-step and then provide the final answer."
+            # For multiple choice questions, we need choice numbers, not literal answers
+            # Check if this is a multiple choice question
+            if "choices are" in question.lower() or ": " in question:
+                # Multiple choice - ask for choice number
+                prompt = "Select the correct choice number (0, 1, 2, or 3)."
             else:
-                # For vanilla evaluation, we ask for a direct answer.
-                prompt = "Answer the question directly."
-
+                # Open-ended - ask for literal answer
+                prompt = "Answer the question using a single word or phrase."
+            
             user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
-
-            # Tokenize the text input only (InternVL uses separate tokenizer)
-            inputs = self.processing_class(
-                user_content,
-                return_tensors="pt",
-                padding=True,
-                truncation=True
-            )
-            
-            # Move to correct device
-            inputs = {k: v.to(self.args.device) if isinstance(v, torch.Tensor) else v 
-                     for k, v in inputs.items()}
-            
-            # Add pixel values separately
-            inputs["pixel_values"] = pixel_values.to(self.args.device)
             
             # Create generation config
             generation_config = self._create_generation_config()
             
-            # Generate using the model's generate method
-            with torch.no_grad():
-                generated_tokens = model.generate(
-                    **inputs,
-                    **generation_config
-                )
+            # Access underlying model
+            underlying_model = model.model if hasattr(model, 'model') else model
             
-            # Decode the generated tokens
-            # Skip the input tokens to get only the generated response
-            input_length = inputs["input_ids"].shape[1]
-            generated_tokens = generated_tokens[:, input_length:]
+            # Ensure correct dtype
+            pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
             
-            response = self.processing_class.batch_decode(
-                generated_tokens, skip_special_tokens=True
-            )[0]
+            # Generate response using InternVL's chat method
+            response = underlying_model.chat(
+                self.processing_class,
+                pixel_values,
+                user_content,
+                generation_config
+            )
             
-            return response.strip()
+            # Clean up response
+            return self._clean_generated_response(response)
             
         except Exception as e:
             raise GenerationError(f"Failed to generate prediction: {e}")
+
+    def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
+        """Ensure pixel values have correct dtype for model."""
+        if hasattr(model, 'dtype'):
+            target_dtype = model.dtype
+        elif hasattr(model, 'vision_model') and hasattr(model.vision_model, 'dtype'):
+            target_dtype = model.vision_model.dtype
+        else:
+            target_dtype = torch.bfloat16  # Default
+        
+        return pixel_values.to(target_dtype)
 
 
 
     def _clean_generated_response(self, response: str) -> str:
         """Clean up generated response by removing thought tokens."""
-        # The progressive masking logic is removed, so this function is now a no-op
-        # or will need to be re-implemented if masking is re-introduced.
-        # For now, we'll just return the original response.
+        eval_config = self.args.eval_config
+        
+        # Remove thought tokens that might have been generated
+        if eval_config.get('coconut', False):
+            # Remove CoCoNuT special tokens
+            thought_tokens = ['<|thought|>', '<|start_thought|>', '<|end_thought|>', 
+                             '<thought>', '<start_thought>', '<end_thought>']
+            for token in thought_tokens:
+                response = response.replace(token, '')
+        
         return response.strip()
 
     def _log_sample_result(
