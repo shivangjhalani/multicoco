@@ -39,7 +39,7 @@ remove_unused_columns: false
 train_data_path: null  # Not used in eval
 eval_data_path: "data/aokvqa_validation.json"
 data_dir: "data"
-limit_for_testing: false
+limit_for_testing: true
 
 # Evaluation Configuration
 vanilla: true
