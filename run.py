@@ -247,7 +247,10 @@ class MultiCoCoRunner:
             num_train_epochs=training_config.num_epochs,
             per_device_train_batch_size=training_config.batch_size,
             per_device_eval_batch_size=training_config.eval_batch_size,
-            learning_rate=float(training_config.learning_rate),  # Ensure float
+            gradient_accumulation_steps=training_config.gradient_accumulation_steps,
+            gradient_checkpointing=training_config.gradient_checkpointing,
+            gradient_checkpointing_kwargs=training_config.gradient_checkpointing_kwargs,
+            learning_rate=training_config.learning_rate,
             warmup_steps=training_config.warmup_steps,
             logging_steps=training_config.logging_steps,
             save_steps=training_config.save_steps,

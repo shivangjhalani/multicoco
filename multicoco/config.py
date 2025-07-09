@@ -131,6 +131,8 @@ class TrainingConfig:
     batch_size: int = DEFAULT_BATCH_SIZE
     eval_batch_size: int = DEFAULT_EVAL_BATCH_SIZE
     gradient_accumulation_steps: int = 1
+    gradient_checkpointing: bool = True
+    gradient_checkpointing_kwargs: Dict[str, Any] = field(default_factory=lambda: {'use_reentrant': False})
     learning_rate: float = DEFAULT_LEARNING_RATE
     warmup_steps: int = 500
     logging_steps: int = 10
