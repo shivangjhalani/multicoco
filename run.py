@@ -371,26 +371,34 @@ class MultiCoCoRunner:
             # Log results
             self._log_evaluation_results(metrics)
             
-            logger.info("Evaluation completed successfully")
+            if self.trainer.is_world_process_zero():
+                logger.info("Evaluation completed successfully")
             return metrics
             
         except Exception as e:
             raise EvaluationError(f"Evaluation failed: {e}")
 
     def _log_evaluation_results(self, metrics: Dict[str, float]) -> None:
-        """Log evaluation results."""
-        accuracy = metrics.get('eval_accuracy', 0.0)
-        loss = metrics.get('eval_loss', 0.0)
-        
-        logger.info(f"Evaluation Results:")
-        logger.info(f"  Accuracy: {accuracy:.4f}")
-        logger.info(f"  Loss: {loss:.4f}")
-        
-        # Log CoCoNut specific metrics if available
-        if 'eval_coconut_stage' in metrics:
-            stage = metrics['eval_coconut_stage']
-            max_stage = metrics['eval_max_latent_stage']
-            logger.info(f"  CoCoNut Stage: {stage}/{max_stage}")
+        """Log evaluation results in a structured format."""
+        # Only log from the main process
+        if self.trainer and self.trainer.is_world_process_zero():
+            logger.info("\n==================================================")
+            logger.info("FINAL RESULTS")
+            logger.info("==================================================")
+            accuracy = metrics.get('eval_accuracy', 0.0)
+            loss = metrics.get('eval_loss', 0.0)
+            
+            logger.info(f"Evaluation Results:")
+            logger.info(f"  Accuracy: {accuracy:.4f}")
+            logger.info(f"  Loss: {loss:.4f}")
+            
+            # Log CoCoNut specific metrics if available
+            if 'eval_coconut_stage' in metrics:
+                stage = metrics['eval_coconut_stage']
+                max_stage = metrics['eval_max_latent_stage']
+                logger.info(f"  CoCoNut Stage: {stage}/{max_stage}")
+                
+            logger.info("==================================================")
 
     def run(self) -> Dict[str, float]:
         """
@@ -413,7 +421,8 @@ class MultiCoCoRunner:
             # Run evaluation
             metrics = self.run_evaluation()
             
-            logger.info("Pipeline completed successfully")
+            if self.trainer and self.trainer.is_world_process_zero():
+                logger.info("Pipeline completed successfully")
             return metrics
             
         except Exception as e:
