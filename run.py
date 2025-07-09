@@ -107,31 +107,27 @@ class MultiCoCoRunner:
     def _setup_logging(self) -> None:
         """Configure logging based on configuration."""
         log_config = self.config.logging
-        
-        # Create log directory
         os.makedirs(log_config.log_dir, exist_ok=True)
-        
-        # Configure logging format and level
         log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         
+        # Get the root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(getattr(logging, log_config.log_level))
+        
+        # Clear any existing handlers to prevent duplicates
+        if root_logger.hasHandlers():
+            root_logger.handlers.clear()
+
+        # Create file handler
+        file_handler = logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'), mode='w')
+        file_handler.setFormatter(logging.Formatter(log_format))
+        root_logger.addHandler(file_handler)
+
+        # Create console handler if enabled
         if log_config.console_output:
-            logging.basicConfig(
-                level=getattr(logging, log_config.log_level),
-                format=log_format,
-                handlers=[
-                    logging.StreamHandler(sys.stdout),
-                    logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'))
-                ]
-            )
-        else:
-            # File logging only
-            logging.basicConfig(
-                level=getattr(logging, log_config.log_level),
-                format=log_format,
-                handlers=[
-                    logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'))
-                ]
-            )
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setFormatter(logging.Formatter(log_format))
+            root_logger.addHandler(console_handler)
         
         # Suppress transformers warnings if needed
         if not log_config.verbose:

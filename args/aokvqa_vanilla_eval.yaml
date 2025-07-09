@@ -65,5 +65,5 @@ top_k: 50
 log_dir: "logs/"
 log_level: "INFO"
 use_wandb: false
-console_output: false
+console_output: true
 verbose: false 
