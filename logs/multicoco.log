@@ -1,0 +1,100 @@
+2025-07-09 14:35:16,258 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-09 14:35:16,259 - __main__ - INFO - CoT training phase - no latent tokens added
+2025-07-09 14:35:16,259 - __main__ - INFO - Loading base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-09 14:35:16,750 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-09 14:35:16,751 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-09 14:35:16,751 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-09 14:35:16,751 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-09 14:35:16,751 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-09 14:35:16,752 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-09 14:35:16,752 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-09 14:35:16,752 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-09 14:35:16,752 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-09 14:35:16,752 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-09 14:35:17,972 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-09 14:35:17,973 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-09 14:35:19,534 - multicoco.model - INFO - MultiCoCo model initialized with 938193024 parameters
+2025-07-09 14:35:19,534 - __main__ - INFO - Base model 'OpenGVLab/InternVL3-1B-Pretrained' initialized successfully
+2025-07-09 14:35:19,534 - __main__ - INFO - Model dtype: bfloat16
+2025-07-09 14:35:19,534 - __main__ - INFO - Model precision - BF16: True, FP16: False
+2025-07-09 14:35:19,534 - __main__ - INFO - Training mode: cot_train
+2025-07-09 14:35:19,534 - __main__ - INFO - CoCoNut enabled: False
+2025-07-09 14:35:19,563 - multicoco.data - INFO - Loaded 17056 samples from /workspace/multicoco/data/aokvqa_train.json
+2025-07-09 14:35:19,563 - __main__ - INFO - Training dataset loaded with 17056 samples
+2025-07-09 14:35:19,566 - multicoco.data - INFO - Loaded 1145 samples from /workspace/multicoco/data/aokvqa_validation.json
+2025-07-09 14:35:19,566 - __main__ - INFO - Evaluation dataset loaded with 1145 samples
+2025-07-09 14:35:19,566 - __main__ - INFO - Starting CoT training...
+2025-07-09 14:35:19,977 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-09 14:35:19,978 - __main__ - INFO - Trainer created successfully
+2025-07-09 14:35:19,978 - __main__ - INFO - Starting training...
+2025-07-09 14:35:21,337 - multicoco.trainer - INFO - Resuming training from checkpoint: checkpoints/aokvqa_cot/checkpoint-epoch-3
+2025-07-09 14:35:21,537 - multicoco.trainer - INFO - Loaded training info: resuming from epoch 4
+2025-07-09 14:35:21,538 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-09 14:35:21,538 - multicoco.trainer - INFO -   Steps per epoch: 533
+2025-07-09 14:35:21,538 - multicoco.trainer - INFO -   Total epochs: 10
+2025-07-09 14:35:21,539 - multicoco.trainer - INFO -   Total steps: 5330
+2025-07-09 14:35:21,554 - multicoco.trainer - INFO - 
+Starting Epoch 4/10
+2025-07-09 14:40:10,280 - multicoco.trainer - INFO -   Training completed - Average loss: 1.3224
+2025-07-09 14:40:12,513 - multicoco.trainer - INFO -   Checkpoint saved: checkpoints/aokvqa_cot/checkpoint-epoch-4
+2025-07-09 14:40:12,514 - multicoco.trainer - INFO -   Running evaluation after epoch 4...
+2025-07-09 14:40:47,040 - multicoco.trainer - WARNING - Could not extract valid choice from: 21
+2025-07-09 14:40:47,041 - multicoco.trainer - WARNING - Could not extract valid choice from: 21
+2025-07-09 14:41:36,371 - multicoco.trainer - WARNING - Could not extract valid choice from: 21
+2025-07-09 14:41:36,379 - multicoco.trainer - INFO -   New best accuracy: 0.6917
+2025-07-09 14:41:36,379 - multicoco.trainer - INFO - 
+Epoch 4 Summary:
+2025-07-09 14:41:36,380 - multicoco.trainer - INFO -   Training time: 374.83s
+2025-07-09 14:41:36,380 - multicoco.trainer - INFO -   Evaluation accuracy: 0.6917
+2025-07-09 14:41:36,380 - multicoco.trainer - INFO -   Evaluation loss: -1.0000
+2025-07-09 14:41:36,380 - multicoco.trainer - INFO -   Best accuracy so far: 0.6917
+2025-07-09 14:41:36,380 - multicoco.trainer - INFO -   Checkpoint saved to: checkpoints/aokvqa_cot/checkpoint-epoch-4
+2025-07-09 14:41:36,380 - multicoco.trainer - INFO - ================================================================================
+2025-07-09 14:41:36,576 - multicoco.trainer - INFO - 
+Starting Epoch 5/10
+2025-07-09 14:46:26,364 - multicoco.trainer - INFO -   Training completed - Average loss: 1.2644
+2025-07-09 14:46:28,683 - multicoco.trainer - INFO -   Checkpoint saved: checkpoints/aokvqa_cot/checkpoint-epoch-5
+2025-07-09 14:46:28,684 - multicoco.trainer - INFO -   Running evaluation after epoch 5...
+2025-07-09 14:47:03,989 - multicoco.trainer - WARNING - Could not extract valid choice from: 21
+2025-07-09 14:47:03,990 - multicoco.trainer - WARNING - Could not extract valid choice from: 21
+2025-07-09 14:47:54,175 - multicoco.trainer - WARNING - Could not extract valid choice from: 21
+2025-07-09 14:47:54,180 - multicoco.trainer - INFO - 
+Epoch 5 Summary:
+2025-07-09 14:47:54,180 - multicoco.trainer - INFO -   Training time: 377.60s
+2025-07-09 14:47:54,180 - multicoco.trainer - INFO -   Evaluation accuracy: 0.6900
+2025-07-09 14:47:54,180 - multicoco.trainer - INFO -   Evaluation loss: -1.0000
+2025-07-09 14:47:54,180 - multicoco.trainer - INFO -   Best accuracy so far: 0.6917
+2025-07-09 14:47:54,180 - multicoco.trainer - INFO -   Checkpoint saved to: checkpoints/aokvqa_cot/checkpoint-epoch-5
+2025-07-09 14:47:54,181 - multicoco.trainer - INFO - ================================================================================
+2025-07-09 14:47:54,449 - multicoco.trainer - INFO - 
+Starting Epoch 6/10
+2025-07-09 14:52:46,258 - multicoco.trainer - INFO -   Training completed - Average loss: 1.2238
+2025-07-09 14:52:48,579 - multicoco.trainer - INFO -   Checkpoint saved: checkpoints/aokvqa_cot/checkpoint-epoch-6
+2025-07-09 14:52:48,579 - multicoco.trainer - INFO -   Running evaluation after epoch 6...
+2025-07-09 14:54:13,432 - multicoco.trainer - INFO -   New best accuracy: 0.6987
+2025-07-09 14:54:13,432 - multicoco.trainer - INFO - 
+Epoch 6 Summary:
+2025-07-09 14:54:13,432 - multicoco.trainer - INFO -   Training time: 378.98s
+2025-07-09 14:54:13,432 - multicoco.trainer - INFO -   Evaluation accuracy: 0.6987
+2025-07-09 14:54:13,432 - multicoco.trainer - INFO -   Evaluation loss: -1.0000
+2025-07-09 14:54:13,433 - multicoco.trainer - INFO -   Best accuracy so far: 0.6987
+2025-07-09 14:54:13,433 - multicoco.trainer - INFO -   Checkpoint saved to: checkpoints/aokvqa_cot/checkpoint-epoch-6
+2025-07-09 14:54:13,433 - multicoco.trainer - INFO - ================================================================================
+2025-07-09 14:54:13,740 - multicoco.trainer - INFO - 
+Starting Epoch 7/10
+2025-07-09 14:59:07,014 - multicoco.trainer - INFO -   Training completed - Average loss: 1.2014
+2025-07-09 14:59:09,197 - multicoco.trainer - INFO -   Checkpoint saved: checkpoints/aokvqa_cot/checkpoint-epoch-7
+2025-07-09 14:59:09,197 - multicoco.trainer - INFO -   Running evaluation after epoch 7...
+2025-07-09 15:00:30,590 - multicoco.trainer - INFO - 
+Epoch 7 Summary:
+2025-07-09 15:00:30,590 - multicoco.trainer - INFO -   Training time: 376.85s
+2025-07-09 15:00:30,591 - multicoco.trainer - INFO -   Evaluation accuracy: 0.6908
+2025-07-09 15:00:30,591 - multicoco.trainer - INFO -   Evaluation loss: -1.0000
+2025-07-09 15:00:30,591 - multicoco.trainer - INFO -   Best accuracy so far: 0.6987
+2025-07-09 15:00:30,591 - multicoco.trainer - INFO -   Checkpoint saved to: checkpoints/aokvqa_cot/checkpoint-epoch-7
+2025-07-09 15:00:30,591 - multicoco.trainer - INFO - ================================================================================
+2025-07-09 15:00:30,889 - multicoco.trainer - INFO - 
+Starting Epoch 8/10
+2025-07-09 15:05:18,689 - multicoco.trainer - INFO -   Training completed - Average loss: 1.1914
+2025-07-09 15:05:21,110 - multicoco.trainer - INFO -   Checkpoint saved: checkpoints/aokvqa_cot/checkpoint-epoch-8
+2025-07-09 15:05:21,111 - multicoco.trainer - INFO -   Running evaluation after epoch 8...
