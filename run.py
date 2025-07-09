@@ -266,8 +266,11 @@ class MultiCoCoRunner:
             weight_decay=training_config.weight_decay,
             do_train=is_training,
             do_eval=not is_training,
-            # Use a placeholder for predict_with_generate; our custom loop handles it
-            predict_with_generate=True
+            deepspeed=training_config.deepspeed_config if training_config.deepspeed else None,
+            bf16=training_config.bf16,
+            fp16=training_config.fp16,
+            report_to=["wandb"] if self.config.logging.use_wandb else [],
+            run_name=self.config.training.run_name
         )
 
     def _create_generation_kwargs(self) -> Dict[str, Any]:
