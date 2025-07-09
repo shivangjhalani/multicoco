@@ -992,24 +992,22 @@ class CoCoTrainer(Trainer):
         prediction: str, 
         sample_idx: int
     ) -> None:
-        """Log detailed result for a single sample."""
-        eval_config = self.args.eval_config
-        is_cot = eval_config.get('cot', False)
-        
-        # Extract answer for correctness check
-        extracted_answer = self.extract_answer_choice(prediction, is_cot)
-        is_correct = extracted_answer == ground_truth.strip()
-        tokens_generated = len(self.processing_class.tokenize(prediction))
-        
-        # Write to log file
-        log_file.write(SAMPLE_LOG_SEPARATOR + "\n")
-        log_file.write(f"Question: {question}\n")
-        log_file.write(f"Ground Truth Answer: {ground_truth}\n")
-        log_file.write(f"Generated Answer: {prediction}\n")
-        log_file.write(f"Extracted Answer: {extracted_answer}\n")
-        log_file.write(f"Tokens Generated: {tokens_generated}\n")
-        log_file.write(f"Correct: {'Yes' if is_correct else 'No'}\n")
-        log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
+        """Log a single sample's result to the detailed log file."""
+        if log_file is None:
+            return
+            
+        try:
+            log_file.write(f"Sample {sample_idx}:\n")
+            log_file.write(f"  Question: {question}\n")
+            log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
+            log_file.write(f"  Generated Answer: {prediction}\n")
+            log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, self.coconut_enabled)}\n")
+            log_file.write(f"  Tokens Generated: {len(self.processing_class.tokenize(prediction))}\n")
+            log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, self.coconut_enabled) == ground_truth.strip() else 'No'}\n")
+            log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
+
+        except Exception as e:
+            logger.warning(f"Failed to log sample result for sample {sample_idx}: {e}")
 
     def _compute_final_metrics(
         self, 

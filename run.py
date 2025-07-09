@@ -107,6 +107,12 @@ class MultiCoCoRunner:
 
     def _setup_logging(self) -> None:
         """Configure logging based on configuration."""
+        # Only configure logging on the main process (rank 0)
+        local_rank = int(os.environ.get("LOCAL_RANK", -1))
+        if local_rank not in [-1, 0]:
+            logging.getLogger().setLevel(logging.CRITICAL)
+            return
+            
         log_config = self.config.logging
         os.makedirs(log_config.log_dir, exist_ok=True)
         log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
