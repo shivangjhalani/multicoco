@@ -145,23 +145,31 @@ class MultiCoCoRunner:
             logging.getLogger("torch").setLevel(logging.WARNING)
 
     def initialize_model(self) -> None:
-        """Initialize the model with configuration."""
+        """Initialize the model from configuration."""
         try:
             model_config = self.config.model
-            special_tokens = COCONUT_SPECIAL_TOKENS if self.config.coconut.enabled else []
+            coconut_config = self.config.coconut
             
+            # Get special tokens for the model
+            special_tokens = model_config.get_special_tokens(coconut_config)
+            
+            # Initialize model with consistent dtype from configuration
             self.model = MultiCoCo(
                 model_id=model_config.model_name,
+                config_id=model_config.config_id,
+                tokenizer_id=model_config.tokenizer_id,
+                image_processor_id=model_config.image_processor_id,
                 special_tokens=special_tokens,
-                torch_dtype=model_config.torch_dtype,
+                torch_dtype=model_config.torch_dtype,  # Use dtype from config
                 trust_remote_code=model_config.trust_remote_code,
                 low_cpu_mem_usage=model_config.low_cpu_mem_usage
             )
             
-            logger.info(f"Model '{model_config.model_name}' initialized successfully")
+            logger.info(f"Model '{model_config.model_name}' initialized successfully with dtype: {model_config.torch_dtype}")
+            logger.info(f"Model precision - BF16: {self.config.training.bf16}, FP16: {self.config.training.fp16}")
             
         except Exception as e:
-            raise ModelInitializationError(f"Failed to initialize model: {e}")
+            raise ModelInitializationError(f"Model initialization failed: {e}")
 
     def setup_datasets(self) -> None:
         """Set up training and evaluation datasets."""
@@ -258,19 +266,16 @@ class MultiCoCoRunner:
             load_best_model_at_end=training_config.load_best_model_at_end,
             metric_for_best_model=training_config.metric_for_best_model,
             greater_is_better=training_config.greater_is_better,
+            weight_decay=training_config.weight_decay,
             bf16=training_config.bf16,
             fp16=training_config.fp16,
             remove_unused_columns=training_config.remove_unused_columns,
             dataloader_pin_memory=training_config.dataloader_pin_memory,
             dataloader_num_workers=training_config.dataloader_num_workers,
-            weight_decay=training_config.weight_decay,
             do_train=is_training,
             do_eval=not is_training,
-            deepspeed=training_config.deepspeed_config if training_config.deepspeed else None,
-            bf16=training_config.bf16,
-            fp16=training_config.fp16,
             report_to=["wandb"] if self.config.logging.use_wandb else [],
-            run_name=self.config.training.run_name
+            run_name=self.config.training.run_name if hasattr(training_config, 'run_name') else None
         )
 
     def _create_generation_kwargs(self) -> Dict[str, Any]:

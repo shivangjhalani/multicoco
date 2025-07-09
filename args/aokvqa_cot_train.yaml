@@ -1,7 +1,7 @@
 # Training Configuration
 mode: "cot_train"
 output_dir: "checkpoints/aokvqa_cot"
-num_epochs: 3
+num_epochs: 10
 batch_size: 8
 eval_batch_size: 16
 learning_rate: 1.0e-5
@@ -9,12 +9,16 @@ gradient_accumulation_steps: 2
 resume_from_checkpoint: false
 limit_for_testing: true
 
+# Precision Configuration
+bf16: true          # Use bfloat16 for better performance and numerical stability
+fp16: false         # Disable fp16 (mutually exclusive with bf16)
+
 # Model Configuration
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
 use_flash_attention_2: true
 torch_compile: false
 
-# Data Configuration
+# Data Configuration  
 data_dir: "data/"
 train_data_path: "data/aokvqa_train.json"
 eval_data_path: "data/aokvqa_validation.json"
@@ -22,11 +26,10 @@ eval_data_path: "data/aokvqa_validation.json"
 # Logging Configuration
 log_dir: "logs/"
 log_level: "INFO"
-use_wandb: false
 console_output: true
 verbose: false
 
-# Evaluation Configuration (not strictly used in training, but good practice to keep)
+# Evaluation Mode
 eval_config:
   cot: true
   coconut: false 

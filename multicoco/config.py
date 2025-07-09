@@ -200,9 +200,31 @@ class MultiCoCoConfig:
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'MultiCoCoConfig':
         """Create configuration from dictionary (typically loaded from YAML)."""
+        # Extract bf16 setting early to use throughout configuration
+        bf16_setting = config_dict.get('bf16', True)  # Default to True for better performance
+        fp16_setting = config_dict.get('fp16', False)
+        
+        # Validate bf16/fp16 mutual exclusivity
+        if bf16_setting and fp16_setting:
+            raise ValueError("Cannot enable both bf16 and fp16 simultaneously")
+        
+        # Determine torch_dtype based on precision settings
+        if bf16_setting:
+            torch_dtype = "bfloat16"
+        elif fp16_setting:
+            torch_dtype = "float16"
+        else:
+            torch_dtype = "float32"
+        
         # Extract sub-configurations
         model_config = ModelConfig(
             model_name=config_dict.get('model_name', DEFAULT_MODEL_NAME),
+            torch_dtype=torch_dtype,  # Use consistent dtype
+            config_id=config_dict.get('config_id'),
+            tokenizer_id=config_dict.get('tokenizer_id'),
+            image_processor_id=config_dict.get('image_processor_id'),
+            trust_remote_code=config_dict.get('trust_remote_code', True),
+            low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True)
         )
         
         training_config = TrainingConfig(
@@ -213,7 +235,21 @@ class MultiCoCoConfig:
             learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)),
             gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1),
             resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False),
-            mode=TrainingMode(config_dict.get('mode', 'cot_train'))
+            mode=TrainingMode(config_dict.get('mode', 'cot_train')),
+            bf16=bf16_setting,  # Use consistent bf16 setting
+            fp16=fp16_setting,  # Use consistent fp16 setting
+            gradient_checkpointing=config_dict.get('gradient_checkpointing', True),
+            warmup_steps=config_dict.get('warmup_steps', 500),
+            logging_steps=config_dict.get('logging_steps', 10),
+            save_steps=config_dict.get('save_steps', 1000),
+            eval_steps=config_dict.get('eval_steps', 1000),
+            save_total_limit=config_dict.get('save_total_limit', 2),
+            load_best_model_at_end=config_dict.get('load_best_model_at_end', True),
+            metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'),
+            greater_is_better=config_dict.get('greater_is_better', False),
+            weight_decay=config_dict.get('weight_decay', 0.01),
+            seed=config_dict.get('seed', 42),
+            data_seed=config_dict.get('data_seed', 42)
         )
         
         # Handle both 'eval_data_path' and 'val_data_path' for backward compatibility

@@ -10,6 +10,10 @@ resume_from_checkpoint: false
 limit_for_testing: true
 reset_optimizer: True
 
+# Precision Configuration
+bf16: true          # Use bfloat16 for better performance and numerical stability
+fp16: false         # Disable fp16 (mutually exclusive with bf16)
+
 # CoCoNuT Specific Configuration
 coconut:
   enabled: true
@@ -18,11 +22,11 @@ coconut:
   max_latent_stage: 6
 
 # Model Configuration
-model_name: "checkpoints/aokvqa_cot" # Start from a CoT-finetuned model
+model_name: "checkpoints/aokvqa_cot"  # Start from CoT-finetuned model
 use_flash_attention_2: true
 torch_compile: false
 
-# Data Configuration
+# Data Configuration  
 data_dir: "data/"
 train_data_path: "data/aokvqa_train.json"
 eval_data_path: "data/aokvqa_validation.json"
@@ -30,11 +34,10 @@ eval_data_path: "data/aokvqa_validation.json"
 # Logging Configuration
 log_dir: "logs/"
 log_level: "INFO"
-use_wandb: false
 console_output: true
 verbose: false
 
-# Evaluation Configuration (for validation during training)
+# Evaluation Mode
 eval_config:
   cot: false
   coconut: true

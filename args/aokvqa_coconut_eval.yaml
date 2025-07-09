@@ -2,13 +2,18 @@
 mode: "eval_only"
 limit_for_testing: true
 
+# Precision Configuration
+bf16: true          # Use bfloat16 for better performance and numerical stability
+fp16: false         # Disable fp16 (mutually exclusive with bf16)
+
 # Model Configuration
-model_name: "checkpoints/aokvqa_coconut" # Assumes you are evaluating a CoCoNuT-trained model
+model_name: "checkpoints/aokvqa_coconut" # Or a path to a fine-tuned model checkpoint
 use_flash_attention_2: true
 torch_compile: false
 
 # Data Configuration
 data_dir: "data/"
+# Note: For evaluation, only `eval_data_path` is used.
 eval_data_path: "data/aokvqa_validation.json"
 
 # Logging Configuration

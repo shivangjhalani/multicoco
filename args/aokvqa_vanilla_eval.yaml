@@ -2,6 +2,10 @@
 mode: "eval_only"
 limit_for_testing: true
 
+# Precision Configuration
+bf16: true          # Use bfloat16 for better performance and numerical stability
+fp16: false         # Disable fp16 (mutually exclusive with bf16)
+
 # Model Configuration
 model_name: "OpenGVLab/InternVL3-1B-Pretrained" # Or a path to a fine-tuned model checkpoint
 use_flash_attention_2: true
