@@ -588,8 +588,8 @@ class CoCoTrainer(Trainer):
                 gen_kwargs[key] = value
         
         # Add pad token ID to suppress warnings
-        if self.processing_class.pad_token_id is not None:
-            gen_kwargs["pad_token_id"] = self.processing_class.pad_token_id
+        if self.tokenizer.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
         
         return gen_kwargs
 
@@ -946,16 +946,23 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair."""
         try:
-            # For multiple choice questions, we need choice numbers, not literal answers
-            # Check if this is a multiple choice question
-            if "choices are" in question.lower() or ": " in question:
-                # Multiple choice - ask for choice number
-                prompt = "Select the correct choice number (0, 1, 2, or 3)."
-            else:
-                # Open-ended - ask for literal answer
-                prompt = "Answer the question using a single word or phrase."
+            # Check if this is CoT evaluation to determine the prompt
+            eval_config = getattr(self.args, "eval_config", {})
+            is_cot_eval = eval_config.get('cot', False)
+
+            prompt = ""  # Default to no prompt for CoT, letting the model reason freely
+            if not is_cot_eval:
+                # For vanilla eval, explicitly ask for a direct answer
+                if "choices are" in question.lower() or ": " in question:
+                    prompt = "Select the correct choice number (0, 1, 2, or 3)."
+                else:
+                    prompt = "Answer the question using a single word or phrase."
             
-            user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
+            # Construct user content, only adding prompt if it exists
+            parts = [f"{IMAGE_TOKEN}\n{question}"]
+            if prompt:
+                parts.append(prompt)
+            user_content = "\n".join(parts)
             
             # Create generation config
             generation_config = self._create_generation_config()
@@ -968,7 +975,7 @@ class CoCoTrainer(Trainer):
             
             # Generate response using InternVL's chat method
             response = underlying_model.chat(
-                self.processing_class,
+                self.tokenizer,
                 pixel_values,
                 user_content,
                 generation_config
@@ -1026,7 +1033,7 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
             log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
-            log_file.write(f"  Tokens Generated: {len(self.processing_class.tokenize(prediction))}\n")
+            log_file.write(f"  Tokens Generated: {len(self.tokenizer.tokenize(prediction))}\n")
             log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
