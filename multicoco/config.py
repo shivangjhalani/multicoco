@@ -213,6 +213,7 @@ class MultiCoCoConfig:
             data_dir=config_dict.get('data_dir', ''),
             train_data_path=config_dict.get('train_data_path'),
             eval_data_path=eval_data_path,
+            limit_for_testing=config_dict.get('limit_for_testing', False)
         )
         
         evaluation_config = EvaluationConfig(
