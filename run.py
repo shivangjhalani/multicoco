@@ -54,7 +54,6 @@ from multicoco.exceptions import (
     DataLoadingError,
     EvaluationError
 )
-from multicoco.utils import load_image
 
 logger = logging.getLogger(__name__)
 
