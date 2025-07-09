@@ -669,6 +669,12 @@ def main() -> None:
         # Apply command line overrides
         config = apply_cli_overrides(config, args)
         
+        # Automatically set evaluation mode based on training mode
+        if config.training.mode == TrainingMode.COT_TRAIN:
+            logger.info("CoT training mode detected, setting evaluation to CoT mode automatically.")
+            config.evaluation.cot = True
+            config.evaluation.vanilla = False
+        
         # Create and run pipeline
         runner = MultiCoCoRunner(config)
         metrics = runner.run()

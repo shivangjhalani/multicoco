@@ -9,7 +9,7 @@ run_name: "aokvqa-cot-stage0"
 output_dir: "checkpoints/aokvqa_cot"
 num_epochs: 10
 batch_size: 16
-eval_batch_size: 16
+eval_batch_size: 32
 learning_rate: 1.0e-5
 gradient_accumulation_steps: 2
 resume_from_checkpoint: false
