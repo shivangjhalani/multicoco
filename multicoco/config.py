@@ -249,6 +249,7 @@ class MultiCoCoConfig:
             bf16=bf16_setting,  # Use consistent bf16 setting
             fp16=fp16_setting,  # Use consistent fp16 setting
             gradient_checkpointing=config_dict.get('gradient_checkpointing', True),
+            gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}),
             warmup_steps=config_dict.get('warmup_steps', 500),
             logging_steps=config_dict.get('logging_steps', 10),
             save_steps=config_dict.get('save_steps', 1000),
