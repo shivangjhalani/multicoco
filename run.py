@@ -246,17 +246,17 @@ class MultiCoCoRunner:
     def _create_training_arguments(self) -> TrainingArguments:
         """Create HuggingFace TrainingArguments from the configuration."""
         training_config = self.config.training
-        
         is_training = training_config.mode != TrainingMode.EVAL_ONLY
 
-        # Set evaluation strategy based on mode
         if is_training:
-            evaluation_strategy = "epoch"
-            save_strategy = "epoch"
+            # Training mode configuration
+            return self._create_training_args(training_config)
         else:
-            evaluation_strategy = "no"
-            save_strategy = "no"
+            # Evaluation-only mode configuration
+            return self._create_evaluation_args(training_config)
 
+    def _create_training_args(self, training_config) -> TrainingArguments:
+        """Create training arguments for training modes."""
         return TrainingArguments(
             output_dir=training_config.output_dir,
             num_train_epochs=training_config.num_epochs,
@@ -268,10 +268,10 @@ class MultiCoCoRunner:
             learning_rate=training_config.learning_rate,
             warmup_steps=training_config.warmup_steps,
             logging_steps=training_config.logging_steps,
-            save_steps=training_config.save_steps if is_training else 500,  # Default value for eval mode
-            eval_steps=training_config.eval_steps if is_training else 500,  # Default value for eval mode
+            save_steps=training_config.save_steps,
+            eval_steps=training_config.eval_steps,
             save_total_limit=training_config.save_total_limit,
-            load_best_model_at_end=training_config.load_best_model_at_end and is_training,  # Only for training
+            load_best_model_at_end=training_config.load_best_model_at_end,
             metric_for_best_model=training_config.metric_for_best_model,
             greater_is_better=training_config.greater_is_better,
             weight_decay=training_config.weight_decay,
@@ -280,12 +280,25 @@ class MultiCoCoRunner:
             remove_unused_columns=training_config.remove_unused_columns,
             dataloader_pin_memory=training_config.dataloader_pin_memory,
             dataloader_num_workers=training_config.dataloader_num_workers,
-            do_train=is_training,
-            do_eval=not is_training,
-            evaluation_strategy=evaluation_strategy,
-            save_strategy=save_strategy,
+            do_train=True,
+            do_eval=True,
             report_to=["wandb"] if self.config.logging.use_wandb else [],
             run_name=self.config.training.run_name if hasattr(training_config, 'run_name') else None
+        )
+
+    def _create_evaluation_args(self, training_config) -> TrainingArguments:
+        """Create training arguments for evaluation-only mode."""
+        return TrainingArguments(
+            output_dir=training_config.output_dir,
+            per_device_eval_batch_size=training_config.eval_batch_size,
+            bf16=training_config.bf16,
+            fp16=training_config.fp16,
+            remove_unused_columns=training_config.remove_unused_columns,
+            dataloader_pin_memory=training_config.dataloader_pin_memory,
+            dataloader_num_workers=training_config.dataloader_num_workers,
+            do_train=False,
+            do_eval=True,
+            report_to=[],  # Disable wandb for eval-only
         )
 
     def _create_generation_kwargs(self) -> Dict[str, Any]:
