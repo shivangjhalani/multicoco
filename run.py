@@ -420,7 +420,14 @@ class MultiCoCoRunner:
             
             # Execute based on training mode
             mode = self.config.training.mode
-            
+
+            if mode == TrainingMode.EVAL_ONLY:
+                logger.info("Starting evaluation only...")
+                self.create_trainer()
+                results = self.run_evaluation()
+                self._log_evaluation_results(results)
+                return results
+
             if mode == TrainingMode.VANILLA_TRAIN:
                 logger.info("Starting vanilla training...")
                 self.create_trainer()
@@ -435,10 +442,6 @@ class MultiCoCoRunner:
                 logger.info("Starting CoCoNuT training...")
                 self.create_trainer()
                 self.run_coconut_training()
-                
-            elif mode == TrainingMode.EVAL_ONLY:
-                logger.info("Starting evaluation only...")
-                self.create_trainer()
                 
             else:
                 raise ConfigurationError(f"Invalid training mode: {mode}")
