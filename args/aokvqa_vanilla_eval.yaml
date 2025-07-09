@@ -7,7 +7,7 @@ bf16: true          # Use bfloat16 for better performance and numerical stabilit
 fp16: false         # Disable fp16 (mutually exclusive with bf16)
 
 # Model Configuration
-model_name: "OpenGVLab/InternVL3-1B-Pretrained" # Or a path to a fine-tuned model checkpoint
+model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base pretrained model
 use_flash_attention_2: true
 torch_compile: false
 
@@ -25,4 +25,5 @@ verbose: false
 # Evaluation Mode
 eval_config:
   cot: false
-  coconut: false 
+  coconut: false
+  vanilla: true 
