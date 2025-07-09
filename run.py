@@ -414,24 +414,43 @@ class MultiCoCoRunner:
                            space reasoning.
         """
         try:
-            if self.config.training.mode == TrainingMode.EVAL_ONLY:
-                results = self.run_evaluation()
-            elif self.config.training.mode == TrainingMode.COT_TRAIN:
+            # Initialize model and datasets
+            self.initialize_model()
+            self.setup_datasets()
+            
+            # Execute based on training mode
+            mode = self.config.training.mode
+            
+            if mode == TrainingMode.VANILLA_TRAIN:
+                logger.info("Starting vanilla training...")
+                self.create_trainer()
                 self.run_training()
-                results = {"status": "CoT training completed"}
-            elif self.config.training.mode == TrainingMode.COCONUT_TRAIN:
+                
+            elif mode == TrainingMode.COT_TRAIN:
+                logger.info("Starting CoT training...")
+                self.create_trainer()
+                self.run_training()
+
+            elif mode == TrainingMode.COCONUT_TRAIN:
+                logger.info("Starting CoCoNuT training...")
+                self.create_trainer()
                 self.run_coconut_training()
-                results = {"status": "CoCoNuT training completed"}
+                
+            elif mode == TrainingMode.EVAL_ONLY:
+                logger.info("Starting evaluation only...")
+                self.create_trainer()
+                
             else:
-                # This case should ideally not be reached if config parsing is correct
-                raise ConfigurationError(f"Invalid training mode: {self.config.training.mode}")
-            
-            if self.trainer and self.trainer.is_world_process_zero():
-                logger.info("Pipeline completed successfully")
+                raise ConfigurationError(f"Invalid training mode: {mode}")
+
+            # Run final evaluation
+            logger.info("Running final evaluation...")
+            results = self.run_evaluation()
+            self._log_evaluation_results(results)
             return results
-            
-        except Exception as e:
-            logger.error(f"Pipeline failed: {e}", exc_info=True)
+
+        except (ConfigurationError, ModelInitializationError, DataLoadingError, EvaluationError) as e:
+            logger.error(f"Pipeline failed: {e}")
             raise
 
 
