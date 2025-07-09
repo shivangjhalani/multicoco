@@ -1,1 +1,0 @@
-# This file makes the 'internlm2' directory a Python package. 
