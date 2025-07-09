@@ -1,22 +1,30 @@
 # Training Configuration
 mode: "coconut_train"
-output_dir: "checkpoints/aokvqa_coconut" # A different directory for the final model
-num_epochs: 2
+output_dir: "checkpoints/aokvqa_coconut"
+num_epochs: 50
 batch_size: 8
 eval_batch_size: 16
-learning_rate: 5.0e-6 # A smaller learning rate is common for the 2nd phase
+learning_rate: 1.0e-5
 gradient_accumulation_steps: 2
-resume_from_checkpoint: false # This would be set to true to load the CoT model
+resume_from_checkpoint: false
 limit_for_testing: true
+reset_optimizer: True
+
+# CoCoNuT Specific Configuration
+coconut:
+  enabled: true
+  c_thought: 1
+  epochs_per_stage: 5
+  max_latent_stage: 6
 
 # Model Configuration
-model_name: "checkpoints/aokvqa_cot" # Load the model from the CoT training phase
+model_name: "checkpoints/aokvqa_cot" # Start from a CoT-finetuned model
 use_flash_attention_2: true
 torch_compile: false
 
 # Data Configuration
 data_dir: "data/"
-train_data_path: "data/aokvqa_train_with_latent.json" # Assumes a different dataset with <latent> tokens
+train_data_path: "data/aokvqa_train.json"
 eval_data_path: "data/aokvqa_validation.json"
 
 # Logging Configuration
@@ -26,7 +34,7 @@ use_wandb: false
 console_output: true
 verbose: false
 
-# Evaluation Configuration
+# Evaluation Configuration (for validation during training)
 eval_config:
   cot: false
-  coconut: true 
+  coconut: true
