@@ -480,11 +480,6 @@ class MultiCoCoRunner:
                 self._log_evaluation_results(results)
                 return results
 
-            if mode == TrainingMode.VANILLA_TRAIN:
-                logger.info("Starting vanilla training...")
-                self.create_trainer()
-                self.run_training()
-                
             elif mode == TrainingMode.COT_TRAIN:
                 logger.info("Starting CoT training...")
                 self.create_trainer()
