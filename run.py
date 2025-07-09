@@ -29,12 +29,14 @@ from multicoco.config import (
     CoCoNutConfig,
     GenerationConfig,
     LoggingConfig,
-    load_config_from_yaml
+    load_config_from_yaml,
+    TrainingMode
 )
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
 from multicoco.data import SupervisedDataset, collate_fn
 from multicoco.utils import TqdmLoggingHandler
+from multicoco.coconut_model import CoCoNutModel
 from multicoco.constants import (
     DEFAULT_MODEL_NAME,
     DEFAULT_BATCH_SIZE,
@@ -329,13 +331,37 @@ class MultiCoCoRunner:
         logger.info("Starting training...")
         self.trainer.train(resume_from_checkpoint=self.config.training.resume_from_checkpoint)
 
-    def run_evaluation(self) -> Dict[str, float]:
+    def run_coconut_training(self) -> None:
         """
-        Run the evaluation process.
+        Runs the second phase of training using the CoCoNutModel.
         
-        Returns:
-            Dictionary of evaluation metrics
+        This method wraps the base model (expected to be fine-tuned on CoT)
+        with the CoCoNutModel to enable state-injection training. It requires
+        a tokenizer with a special `<latent>` token.
         """
+        if self.trainer is None:
+            raise ConfigurationError("Trainer not initialized")
+        
+        # Wrap the base model with our CoCoNutModel
+        logger.info("Wrapping model with CoCoNutModel for state-injection training.")
+        
+        # Assumes a <latent> token has been added to the tokenizer
+        latent_token_id = self.model.tokenizer.convert_tokens_to_ids("<latent>")
+        if latent_token_id == self.model.tokenizer.unk_token_id:
+            raise ConfigurationError("<latent> token not found in tokenizer vocabulary.")
+
+        self.model = CoCoNutModel(
+            base_model=self.model,
+            tokenizer=self.model.tokenizer,
+            latent_token_id=latent_token_id
+        )
+        self.trainer.model = self.model
+        
+        logger.info("Starting CoCoNuT training...")
+        self.trainer.train(resume_from_checkpoint=self.config.training.resume_from_checkpoint)
+
+    def run_evaluation(self) -> Dict[str, float]:
+        """Run a standalone evaluation."""
         if self.trainer is None:
             raise ConfigurationError("Trainer must be created before running evaluation")
         
@@ -389,46 +415,59 @@ class MultiCoCoRunner:
 
     def run(self) -> Dict[str, float]:
         """
-        Run the complete pipeline (training and/or evaluation).
-        
-        Returns:
-            Dictionary of evaluation metrics
+        Orchestrates the full pipeline based on the training mode in the config.
+
+        This method acts as a dispatcher:
+        - `eval_only`: Runs only the evaluation loop.
+        - `cot_train`: Runs a standard supervised fine-tuning pass. This is
+                       the first phase of the full CoCoNuT process.
+        - `coconut_train`: Runs the second phase, loading a CoT-tuned model
+                           and training it with the CoCoNutModel for latent
+                           space reasoning.
         """
         try:
-            # Initialize components
-            logger.info("Initializing MultiCoCo pipeline...")
-            self.initialize_model()
-            self.setup_datasets()
-            self.create_trainer()
-            
-            # Run training if not eval-only
-            if not self.config.training.eval_only:
+            if self.config.training.mode == TrainingMode.EVAL_ONLY:
+                results = self.run_evaluation()
+            elif self.config.training.mode == TrainingMode.COT_TRAIN:
                 self.run_training()
-            
-            # Run evaluation
-            metrics = self.run_evaluation()
+                results = {"status": "CoT training completed"}
+            elif self.config.training.mode == TrainingMode.COCONUT_TRAIN:
+                self.run_coconut_training()
+                results = {"status": "CoCoNuT training completed"}
+            else:
+                # This case should ideally not be reached if config parsing is correct
+                raise ConfigurationError(f"Invalid training mode: {self.config.training.mode}")
             
             if self.trainer and self.trainer.is_world_process_zero():
                 logger.info("Pipeline completed successfully")
-            return metrics
+            return results
             
         except Exception as e:
-            logger.error(f"Pipeline failed: {e}")
+            logger.error(f"Pipeline failed: {e}", exc_info=True)
             raise
 
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create command line argument parser."""
+    """Create the command-line argument parser."""
     parser = argparse.ArgumentParser(
-        description="MultiCoCo: Chain of Continuous Thought for Multimodal AI",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="MultiCoCo Runner: A two-phase training pipeline for multimodal models.",
+        formatter_class=argparse.RawTextHelpFormatter
     )
     
     parser.add_argument(
-        "config",
+        "config_path",
         type=str,
-        help="Path to YAML configuration file"
+        help="""Path to the YAML configuration file.
+            
+To run the full pipeline, execute two runs:
+1. First, run with a 'cot_train' config to fine-tune the model.
+   Example: torchrun --nproc_per_node 1 run.py args/aokvqa_cot_train.yaml
+   
+2. Second, run with a 'coconut_train' config to perform latent reasoning training.
+   Make sure the `model_name` in this config points to the checkpoint from step 1.
+   Example: torchrun --nproc_per_node 1 run.py args/aokvqa_coconut_train.yaml
+"""
     )
     
     parser.add_argument(
@@ -495,7 +534,7 @@ def main() -> None:
         # Load configuration
         # Load config using from_dict to support flat YAML format
         import yaml
-        with open(args.config, 'r') as f:
+        with open(args.config_path, 'r') as f:
             yaml_config = yaml.safe_load(f)
         config = MultiCoCoConfig.from_dict(yaml_config)
         

@@ -1,0 +1,32 @@
+# Training Configuration
+mode: "cot_train"
+output_dir: "checkpoints/aokvqa_cot"
+num_epochs: 3
+batch_size: 8
+eval_batch_size: 16
+learning_rate: 1.0e-5
+gradient_accumulation_steps: 2
+resume_from_checkpoint: false
+limit_for_testing: true
+
+# Model Configuration
+model_name: "OpenGVLab/InternVL3-1B-Pretrained"
+use_flash_attention_2: true
+torch_compile: false
+
+# Data Configuration
+data_dir: "data/"
+train_data_path: "data/aokvqa_train.json"
+eval_data_path: "data/aokvqa_validation.json"
+
+# Logging Configuration
+log_dir: "logs/"
+log_level: "INFO"
+use_wandb: false
+console_output: true
+verbose: false
+
+# Evaluation Configuration (not strictly used in training, but good practice to keep)
+eval_config:
+  cot: true
+  coconut: false 

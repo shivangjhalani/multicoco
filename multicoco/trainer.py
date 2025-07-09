@@ -48,12 +48,12 @@ from .constants import (
     DEFAULT_MAX_NEW_TOKENS,
     IMAGE_TOKEN,
     EVAL_LOG_SEPARATOR,
-    SAMPLE_LOG_SEPARATOR
+    SAMPLE_LOG_SEPARATOR,
+    DEFAULT_INPUT_MAX_LENGTH
 )
 from .exceptions import (
     EvaluationError,
     AnswerExtractionError,
-    CoCoNutTrainingError,
     GenerationError
 )
 
@@ -70,10 +70,9 @@ class EvaluationResult:
 
 class CoCoTrainer(Trainer):
     """
-    Custom trainer for CoCoNut training and evaluation.
+    Custom trainer for MultiCoCo models.
     
     This trainer extends the HuggingFace Trainer to support:
-    - CoCoNut (Chain of Continuous Thought) training with progressive masking
     - Sophisticated answer extraction for multiple choice questions
     - Detailed evaluation logging
     - Proper dtype handling for multimodal inputs
@@ -81,13 +80,6 @@ class CoCoTrainer(Trainer):
     
     Attributes:
         best_val_acc: Best validation accuracy achieved
-        coconut_enabled: Whether CoCoNut training is enabled
-        c_thought: CoCoNut thought scaling factor
-        max_latent_stage: Maximum CoCoNut training stage
-        current_stage: Current CoCoNut training stage
-        thought_token_id: ID for thought tokens
-        start_thought_id: ID for start thought tokens
-        end_thought_id: ID for end thought tokens
         total_train_steps: Total training steps across all epochs
     """
 
@@ -108,14 +100,8 @@ class CoCoTrainer(Trainer):
         # Initialize trainer state
         self.best_val_acc = 0.0
         self.total_train_steps = 0
-
-        # Initialize CoCoNut parameters
-        self._initialize_coconut_config()
         
-        # Initialize special token IDs
-        self._initialize_special_tokens()
-        
-        logger.info(f"CoCoTrainer initialized with CoCoNut={'enabled' if self.coconut_enabled else 'disabled'}")
+        logger.info("CoCoTrainer initialized.")
 
     def train(
         self,
@@ -185,10 +171,6 @@ class CoCoTrainer(Trainer):
             
             logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
             
-            # Update current stage for CoCoNut
-            if self.coconut_enabled:
-                self._update_coconut_stage(epoch)
-            
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
             
@@ -257,14 +239,6 @@ class CoCoTrainer(Trainer):
                     config=self.args.to_dict() if hasattr(self.args, 'to_dict') else {}
                 )
 
-    def _update_coconut_stage(self, epoch: int) -> None:
-        """Update CoCoNut training stage based on epoch."""
-        if self.coconut_enabled:
-            # Get epochs_per_stage from training args or default to 2
-            epochs_per_stage = getattr(self.args, 'epochs_per_stage', 2)
-            self.current_stage = min(epoch // epochs_per_stage, self.max_latent_stage)
-            logger.info(f"  CoCoNut Stage: {self.current_stage}/{self.max_latent_stage} (epochs_per_stage: {epochs_per_stage})")
-
     def _train_one_epoch(
         self, 
         model: nn.Module, 
@@ -290,13 +264,9 @@ class CoCoTrainer(Trainer):
             # Forward pass
             batch = self._prepare_inputs(batch)
             
-            # Apply CoCoNut masking if enabled
-            if self.coconut_enabled:
-                batch = self._apply_coconut_masking_to_inputs(batch)
-            
             # Compute loss
-            outputs = model(**batch)
-            loss = outputs.loss / self.args.gradient_accumulation_steps
+            loss = self.compute_loss(model, batch)
+            loss = loss / self.args.gradient_accumulation_steps
             
             # Backward pass
             loss.backward()
@@ -332,8 +302,6 @@ class CoCoTrainer(Trainer):
                             "train/loss": current_loss,
                             "train/learning_rate": self.lr_scheduler.get_last_lr()[0]
                         }
-                        if self.coconut_enabled:
-                            log_dict["train/coconut_stage"] = self.current_stage
                         wandb.log(log_dict)
         
         pbar.close()
@@ -415,38 +383,7 @@ class CoCoTrainer(Trainer):
         logger.info(f"  Best accuracy so far: {self.best_val_acc:.4f}")
         logger.info(f"  Checkpoint saved to: {checkpoint_dir}")
         
-        if self.coconut_enabled:
-            logger.info(f"  CoCoNut stage: {self.current_stage}/{self.max_latent_stage}")
-        
         logger.info("="*80)
-
-    def _initialize_coconut_config(self) -> None:
-        """Initialize CoCoNut configuration from training arguments."""
-        eval_config = getattr(self.args, 'eval_config', {})
-        self.coconut_enabled = eval_config.get('coconut', False)
-        self.c_thought = getattr(self.args, 'c_thought', 0)
-        self.max_latent_stage = getattr(self.args, 'max_latent_stage', 0)
-        self.current_stage = 0
-
-    def _initialize_special_tokens(self) -> None:
-        """Initialize special token IDs for CoCoNut training."""
-        if hasattr(self.args, 'thought_token_id'):
-            self.thought_token_id = self.args.thought_token_id
-            self.start_thought_id = self.args.start_thought_id
-            self.end_thought_id = self.args.end_thought_id
-        else:
-            # Fallback to processing_class if not provided
-            self.thought_token_id = self._safe_convert_token('<thought>')
-            self.start_thought_id = self._safe_convert_token('<start_thought>')
-            self.end_thought_id = self._safe_convert_token('<end_thought>')
-
-    def _safe_convert_token(self, token: str) -> Optional[int]:
-        """Safely convert token to ID, returning None if not found."""
-        try:
-            return self.processing_class.convert_tokens_to_ids(token)
-        except (AttributeError, KeyError):
-            logger.warning(f"Token '{token}' not found in tokenizer vocabulary")
-            return None
 
     def _create_generation_config(self) -> Dict[str, Any]:
         """
@@ -473,147 +410,6 @@ class CoCoTrainer(Trainer):
             gen_kwargs["pad_token_id"] = self.processing_class.pad_token_id
         
         return gen_kwargs
-
-    def apply_coconut_masking(
-        self, 
-        input_ids: torch.Tensor, 
-        labels: torch.Tensor, 
-        stage: int
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Apply CoCoNut masking strategy for latent reasoning.
-        
-        This method implements progressive masking of thought tokens based on
-        the current training stage, encouraging the model to internalize reasoning.
-        
-        Args:
-            input_ids: Token IDs [batch_size, seq_len]
-            labels: Labels for training [batch_size, seq_len]
-            stage: Current training stage (0 = no masking, higher = more masking)
-            
-        Returns:
-            Tuple of (modified_input_ids, modified_labels)
-        """
-        if not self.coconut_enabled or stage == 0:
-            return input_ids, labels
-        
-        try:
-            batch_size, seq_len = input_ids.shape
-            modified_input_ids = input_ids.clone()
-            modified_labels = labels.clone()
-            
-            for i in range(batch_size):
-                modified_labels[i] = self._apply_sample_masking(
-                    input_ids[i], modified_labels[i], stage
-                )
-            
-            return modified_input_ids, modified_labels
-            
-        except Exception as e:
-            raise CoCoNutTrainingError(f"Failed to apply CoCoNut masking: {e}")
-
-    def _apply_sample_masking(
-        self, 
-        sample_input_ids: torch.Tensor, 
-        sample_labels: torch.Tensor, 
-        stage: int
-    ) -> torch.Tensor:
-        """Apply masking to a single sample."""
-        # Find thought token positions
-        thought_positions = self._find_token_positions(sample_input_ids, self.thought_token_id)
-        start_positions = self._find_token_positions(sample_input_ids, self.start_thought_id)
-        end_positions = self._find_token_positions(sample_input_ids, self.end_thought_id)
-        
-        # Apply progressive masking to thought tokens
-        if len(thought_positions) > 0:
-            sample_labels = self._mask_thought_tokens(
-                sample_labels, thought_positions, stage
-            )
-        
-        # Apply masking to thought content between start/end tokens
-        if len(start_positions) > 0 and len(end_positions) > 0:
-            sample_labels = self._mask_thought_content(
-                sample_labels, start_positions, end_positions, stage
-            )
-        
-        return sample_labels
-
-    def _find_token_positions(self, input_ids: torch.Tensor, token_id: Optional[int]) -> List[int]:
-        """Find positions of a specific token in input_ids."""
-        if token_id is None:
-            return []
-        return (input_ids == token_id).nonzero(as_tuple=True)[0].tolist()
-
-    def _mask_thought_tokens(
-        self, 
-        labels: torch.Tensor, 
-        positions: List[int], 
-        stage: int
-    ) -> torch.Tensor:
-        """Mask thought tokens based on stage and c_thought parameter."""
-        if not positions:
-            return labels
-        
-        # Calculate how many tokens to mask
-        mask_ratio = min(stage / self.max_latent_stage, 1.0)
-        num_to_mask = int(len(positions) * mask_ratio * self.c_thought / 10.0)
-        
-        if num_to_mask > 0:
-            mask_indices = random.sample(positions, min(num_to_mask, len(positions)))
-            for pos in mask_indices:
-                labels[pos] = LOSS_IGNORE_INDEX
-        
-        return labels
-
-    def _mask_thought_content(
-        self, 
-        labels: torch.Tensor, 
-        start_positions: List[int], 
-        end_positions: List[int], 
-        stage: int
-    ) -> torch.Tensor:
-        """Mask content between start and end thought tokens."""
-        for start_pos, end_pos in zip(start_positions, end_positions):
-            if start_pos < end_pos:
-                thought_length = end_pos - start_pos - 1
-                if thought_length > 0 and stage > 0:
-                    mask_ratio = min(stage / self.max_latent_stage, 1.0)
-                    num_to_mask = int(thought_length * mask_ratio)
-                    
-                    if num_to_mask > 0:
-                        thought_range = list(range(start_pos + 1, end_pos))
-                        mask_positions = random.sample(
-                            thought_range, min(num_to_mask, len(thought_range))
-                        )
-                        
-                        for pos in mask_positions:
-                            labels[pos] = LOSS_IGNORE_INDEX
-        
-        return labels
-
-    def compute_loss(
-        self, 
-        model: nn.Module, 
-        inputs: Dict[str, torch.Tensor], 
-        return_outputs: bool = False,
-        num_items_in_batch: Optional[int] = None
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
-        """
-        Override compute_loss to implement CoCoNut training logic.
-        
-        Args:
-            model: The model to compute loss for
-            inputs: Input batch
-            return_outputs: Whether to return model outputs
-            num_items_in_batch: Number of items in batch (for newer transformers compatibility)
-            
-        Returns:
-            Loss tensor or tuple of (loss, outputs)
-        """
-        if self.coconut_enabled:
-            inputs = self._apply_coconut_masking_to_inputs(inputs)
-        
-        return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
         """
@@ -687,15 +483,14 @@ class CoCoTrainer(Trainer):
         labels = inputs.get('labels')
         
         if input_ids is not None and labels is not None:
-            modified_input_ids, modified_labels = self.apply_coconut_masking(
-                input_ids, labels, self.current_stage
-            )
-            inputs['input_ids'] = modified_input_ids
-            inputs['labels'] = modified_labels
+            # The progressive masking logic is removed, so this function is now a no-op
+            # or will need to be re-implemented if masking is re-introduced.
+            # For now, we'll just return the original inputs.
+            pass # No masking applied
         
         return inputs
 
-    def extract_answer_choice(self, generated_text: str, is_cot: bool = False) -> str:
+    def extract_answer_choice(self, generated_text: str) -> str:
         """
         Extract answer choice from generated text with sophisticated pattern matching.
         
@@ -704,7 +499,6 @@ class CoCoTrainer(Trainer):
         
         Args:
             generated_text: Text generated by the model
-            is_cot: Whether this is Chain of Thought generation
             
         Returns:
             Extracted answer choice as string
@@ -714,10 +508,6 @@ class CoCoTrainer(Trainer):
         """
         try:
             text = generated_text.strip()
-            
-            # Handle CoT format - look for "the answer is" pattern first
-            if is_cot and "the answer is" in text.lower():
-                text = text.lower().split("the answer is")[-1].strip()
             
             # Try different extraction patterns in order of specificity
             extractors = [
@@ -966,35 +756,36 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair."""
         try:
-            # For multiple choice questions, we need choice numbers, not literal answers
-            # Check if this is a multiple choice question
-            if "choices are" in question.lower() or ": " in question:
-                # Multiple choice - ask for choice number
-                prompt = "Select the correct choice number (0, 1, 2, or 3)."
-            else:
-                # Open-ended - ask for literal answer
-                prompt = "Answer the question using a single word or phrase."
-            
-            user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
+            # Prepare the text prompt
+            # For simplicity, we'll use a generic prompt structure.
+            # This can be customized further if needed.
+            user_content = f"{IMAGE_TOKEN}\n{question}"
+
+            # Tokenize the input text
+            text_inputs = self.processing_class(
+                user_content,
+                return_tensors='pt',
+                truncation=True,
+                max_length=DEFAULT_INPUT_MAX_LENGTH
+            ).to(self.args.device)
             
             # Create generation config
             generation_config = self._create_generation_config()
             
-            # Access underlying model
-            underlying_model = model.model if hasattr(model, 'model') else model
-            
-            # Ensure correct dtype
-            pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
-            
-            # Generate response
-            response = underlying_model.chat(
-                self.processing_class,
-                pixel_values,
-                user_content,
-                generation_config
+            # Ensure correct dtype for pixel values
+            pixel_values = self._ensure_correct_dtype(pixel_values, model)
+
+            # Generate response using the custom generate method
+            generated_ids = model.generate(
+                input_ids=text_inputs.input_ids,
+                pixel_values=pixel_values,
+                attention_mask=text_inputs.attention_mask,
+                **generation_config
             )
             
-            # Clean up response
+            # Decode the generated tokens
+            response = self.processing_class.decode(generated_ids[0], skip_special_tokens=True)
+
             return self._clean_generated_response(response)
             
         except Exception as e:
@@ -1013,11 +804,9 @@ class CoCoTrainer(Trainer):
 
     def _clean_generated_response(self, response: str) -> str:
         """Clean up generated response by removing thought tokens."""
-        if self.coconut_enabled:
-            # Remove thought tokens that might have been generated
-            for token in ['<thought>', '<start_thought>', '<end_thought>']:
-                response = response.replace(token, '')
-        
+        # The progressive masking logic is removed, so this function is now a no-op
+        # or will need to be re-implemented if masking is re-introduced.
+        # For now, we'll just return the original response.
         return response.strip()
 
     def _log_sample_result(
@@ -1037,9 +826,9 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Question: {question}\n")
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
-            log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, self.coconut_enabled)}\n")
+            log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction)}\n")
             log_file.write(f"  Tokens Generated: {len(self.processing_class.tokenize(prediction))}\n")
-            log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, self.coconut_enabled) == ground_truth.strip() else 'No'}\n")
+            log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
         except Exception as e:
@@ -1052,14 +841,11 @@ class CoCoTrainer(Trainer):
         metric_key_prefix: str
     ) -> Dict[str, float]:
         """Compute final evaluation metrics."""
-        eval_config = self.args.eval_config
-        is_cot = eval_config.get('cot', False)
-        
         correct = 0
         total = len(labels)
         
         for pred, label in zip(predictions, labels):
-            extracted_answer = self.extract_answer_choice(pred, is_cot)
+            extracted_answer = self.extract_answer_choice(pred)
             if extracted_answer == label.strip():
                 correct += 1
         
@@ -1070,13 +856,6 @@ class CoCoTrainer(Trainer):
             f"{metric_key_prefix}_accuracy": accuracy,
             f"{metric_key_prefix}_loss": -1.0,  # Placeholder
         }
-        
-        # Add CoCoNut stage information if applicable
-        if self.coconut_enabled:
-            metrics.update({
-                f"{metric_key_prefix}_coconut_stage": self.current_stage,
-                f"{metric_key_prefix}_max_latent_stage": self.max_latent_stage
-            })
 
         return metrics
 

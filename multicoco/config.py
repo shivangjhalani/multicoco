@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 import os
 from pathlib import Path
+from enum import Enum
 
 from .constants import (
     DEFAULT_MODEL_NAME, DEFAULT_LEARNING_RATE, DEFAULT_BATCH_SIZE,
@@ -16,6 +17,12 @@ from .constants import (
     DEFAULT_OUTPUT_DIR, DEFAULT_MAX_NEW_TOKENS, DEFAULT_C_THOUGHT,
     DEFAULT_MAX_LATENT_STAGE, COCONUT_SPECIAL_TOKENS
 )
+
+
+class TrainingMode(str, Enum):
+    EVAL_ONLY = "eval_only"
+    COT_TRAIN = "cot_train"
+    COCONUT_TRAIN = "coconut_train"
 
 
 @dataclass
@@ -124,7 +131,7 @@ class ModelConfig:
 
 @dataclass
 class TrainingConfig:
-    """Configuration for training parameters."""
+    """Configuration for training-related settings."""
     eval_only: bool = False
     output_dir: str = DEFAULT_OUTPUT_DIR
     num_epochs: int = DEFAULT_NUM_EPOCHS
@@ -136,12 +143,11 @@ class TrainingConfig:
     learning_rate: float = DEFAULT_LEARNING_RATE
     warmup_steps: int = 500
     logging_steps: int = 10
-    save_steps: int = 500
-    eval_steps: int = 500
-    eval_strategy: str = "steps"
-    save_strategy: str = "steps"
+    save_steps: int = 1000
+    eval_steps: int = 1000
+    save_total_limit: int = 2
     load_best_model_at_end: bool = True
-    metric_for_best_model: str = "eval_loss"
+    metric_for_best_model: str = "accuracy"
     greater_is_better: bool = False
     bf16: bool = True
     fp16: bool = False
@@ -152,6 +158,7 @@ class TrainingConfig:
     weight_decay: float = 0.01
     seed: int = 42
     data_seed: int = 42
+    mode: TrainingMode = TrainingMode.COT_TRAIN
     
     def __post_init__(self):
         """Validate training configuration."""
@@ -207,7 +214,8 @@ class MultiCoCoConfig:
             eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE),
             learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)),
             gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1),
-            resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False)
+            resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False),
+            mode=TrainingMode(config_dict.get('mode', 'cot_train'))
         )
         
         # Handle both 'eval_data_path' and 'val_data_path' for backward compatibility
