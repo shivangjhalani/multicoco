@@ -132,7 +132,6 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training-related settings."""
-    eval_only: bool = False
     output_dir: str = DEFAULT_OUTPUT_DIR
     num_epochs: int = DEFAULT_NUM_EPOCHS
     batch_size: int = DEFAULT_BATCH_SIZE
@@ -207,7 +206,6 @@ class MultiCoCoConfig:
         )
         
         training_config = TrainingConfig(
-            eval_only=config_dict.get('eval_only', False),
             output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR),
             num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS),
             batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE),
@@ -262,10 +260,10 @@ class MultiCoCoConfig:
     def validate(self) -> None:
         """Validate the entire configuration."""
         # Check that we have data for the intended operation
-        if not self.training.eval_only and not self.data.train_data_path:
+        if not self.training.mode == TrainingMode.EVAL_ONLY and not self.data.train_data_path:
             raise ValueError("Training data path is required when not in eval_only mode")
         
-        if self.training.eval_only and not self.data.eval_data_path:
+        if self.training.mode == TrainingMode.EVAL_ONLY and not self.data.eval_data_path:
             raise ValueError("Evaluation data path is required in eval_only mode")
         
         # Validate CoCoNut configuration

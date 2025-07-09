@@ -236,20 +236,11 @@ class MultiCoCoRunner:
             raise ConfigurationError(f"Failed to create trainer: {e}")
 
     def _create_training_arguments(self) -> TrainingArguments:
-        """Create training arguments from configuration."""
+        """Create HuggingFace TrainingArguments from the configuration."""
         training_config = self.config.training
-        logging_config = self.config.logging
         
-        # Configure wandb based on eval_only flag and explicit settings
-        if training_config.eval_only:
-            # Disable wandb for evaluation
-            report_to = []
-            run_name = f"eval_{self._get_eval_type_name()}"
-        else:
-            # Enable wandb for training if configured
-            report_to = ["wandb"] if logging_config.use_wandb else []
-            run_name = f"train_{self._get_eval_type_name()}"
-        
+        is_training = training_config.mode != TrainingMode.EVAL_ONLY
+
         return TrainingArguments(
             output_dir=training_config.output_dir,
             num_train_epochs=training_config.num_epochs,
@@ -263,23 +254,20 @@ class MultiCoCoRunner:
             logging_steps=training_config.logging_steps,
             save_steps=training_config.save_steps,
             eval_steps=training_config.eval_steps,
-            eval_strategy=training_config.eval_strategy,
-            save_strategy=training_config.save_strategy,
+            save_total_limit=training_config.save_total_limit,
             load_best_model_at_end=training_config.load_best_model_at_end,
             metric_for_best_model=training_config.metric_for_best_model,
             greater_is_better=training_config.greater_is_better,
             bf16=training_config.bf16,
             fp16=training_config.fp16,
             remove_unused_columns=training_config.remove_unused_columns,
-            resume_from_checkpoint=training_config.resume_from_checkpoint,
             dataloader_pin_memory=training_config.dataloader_pin_memory,
             dataloader_num_workers=training_config.dataloader_num_workers,
             weight_decay=training_config.weight_decay,
-            seed=training_config.seed,
-            data_seed=training_config.data_seed,
-            report_to=report_to,
-            run_name=run_name,
-            logging_dir=logging_config.log_dir,
+            do_train=is_training,
+            do_eval=not is_training,
+            # Use a placeholder for predict_with_generate; our custom loop handles it
+            predict_with_generate=True
         )
 
     def _create_generation_kwargs(self) -> Dict[str, Any]:

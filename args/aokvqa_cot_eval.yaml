@@ -1,68 +1,23 @@
-# Configuration for evaluating the CoT (Chain of Thought) model on A-OKVQA dataset
-
-# Project info for wandb logging
-project: multicoco
-name: aokvqa-cot-eval
+# Evaluation Configuration
+mode: "eval_only"
+limit_for_testing: true
 
 # Model Configuration
-model_name: "OpenGVLab/InternVL3-1B-Pretrained"
-torch_dtype: "bfloat16"
-trust_remote_code: true
-low_cpu_mem_usage: true
-
-# Training Configuration
-eval_only: true
-output_dir: "output/aokvqa_cot_eval"
-batch_size: 8
-eval_batch_size: 16
-learning_rate: 5.0e-5
-num_epochs: 1
-gradient_accumulation_steps: 2
-warmup_steps: 0
-logging_steps: 10
-save_steps: 500
-eval_steps: 500
-evaluation_strategy: "no"
-save_strategy: "no"
-load_best_model_at_end: false
-metric_for_best_model: "eval_accuracy"
-greater_is_better: true
-seed: 42
-data_seed: 42
-bf16: true
-fp16: false
-dataloader_num_workers: 4
-remove_unused_columns: false
+model_name: "checkpoints/aokvqa_cot" # Assumes you are evaluating a CoT-trained model
+use_flash_attention_2: true
+torch_compile: false
 
 # Data Configuration
-train_data_path: null  # Not used in eval
+data_dir: "data/"
 eval_data_path: "data/aokvqa_validation.json"
-data_dir: "data"
-limit_for_testing: false
-
-# Evaluation Configuration
-vanilla: false
-cot: true
-coconut: false
-detailed_logging: true
-
-# CoCoNut Configuration
-coconut: false
-c_thought: 0
-max_latent_stage: 0
-epochs_per_stage: 0  # Not used in eval
-
-# Generation Configuration
-max_new_tokens: 256
-do_sample: false
-num_beams: 1
-temperature: 1.0
-top_p: 1.0
-top_k: 50
 
 # Logging Configuration
 log_dir: "logs/"
 log_level: "INFO"
-use_wandb: false
-console_output: false
-verbose: false 
+console_output: true
+verbose: false
+
+# Evaluation Mode
+eval_config:
+  cot: true
+  coconut: false 
