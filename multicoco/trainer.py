@@ -768,80 +768,55 @@ class CoCoTrainer(Trainer):
             eval_config = self.args.eval_config
             if eval_config.get('coconut', False) or eval_config.get('cot', False):
                 # For CoT or CoCoNuT, we ask for reasoning.
+                # The model should have learned to produce "The answer is X" at the end.
                 prompt = "Explain your reasoning step-by-step and then provide the final answer."
             else:
                 # For vanilla evaluation, we ask for a direct answer.
                 prompt = "Answer the question directly."
 
-            # Format question for InternVL using proper conversation format
-            user_content = f"<image>\n{question}\n{prompt}"
+            user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
+
+            # Tokenize the input
+            inputs = self.processing_class(
+                text=user_content, 
+                images=None,  # pixel_values will be provided separately
+                return_tensors="pt",
+                padding=True,
+                truncation=True
+            )
             
-            # Create generation config dictionary
+            # Move to correct device
+            inputs = {k: v.to(self.args.device) if isinstance(v, torch.Tensor) else v 
+                     for k, v in inputs.items()}
+            
+            # Add pixel values
+            inputs["pixel_values"] = pixel_values.to(self.args.device)
+            
+            # Create generation config
             generation_config = self._create_generation_config()
             
-            # Ensure correct dtype for pixel values
-            pixel_values = self._ensure_correct_dtype(pixel_values, model)
-            
-            # Use InternVL's chat interface for proper conversation handling
-            if hasattr(model, 'chat'):
-                # Use the model's chat method (preferred for InternVL)
-                response = model.chat(
-                    self.processing_class,  # tokenizer
-                    pixel_values,
-                    user_content,
-                    generation_config
-                )
-            else:
-                # Fallback to direct generation if chat method unavailable
-                # Format input using InternVL conversation template
-                from ..conversation import get_conv_template
-                
-                conv = get_conv_template("internvl_v1.1")
-                conv.append_message(conv.roles[0], user_content)  # user message
-                conv.append_message(conv.roles[1], "")  # empty assistant message
-                prompt_formatted = conv.get_prompt()
-                
-                # Tokenize the formatted prompt
-                text_inputs = self.processing_class(
-                    prompt_formatted,
-                    return_tensors='pt',
-                    truncation=True,
-                    max_length=DEFAULT_INPUT_MAX_LENGTH
-                ).to(self.args.device)
-
-                # Generate response
-                generated_ids = model.generate(
-                    input_ids=text_inputs.input_ids,
-                    pixel_values=pixel_values,
-                    attention_mask=text_inputs.attention_mask,
+            # Generate using the model's generate method
+            with torch.no_grad():
+                generated_tokens = model.generate(
+                    **inputs,
                     **generation_config
                 )
-                
-                # Decode the generated tokens and extract new content
-                full_response = self.processing_class.decode(generated_ids[0], skip_special_tokens=True)
-                
-                # Extract only the newly generated part (after the prompt)
-                input_text = self.processing_class.decode(text_inputs.input_ids[0], skip_special_tokens=True)
-                if full_response.startswith(input_text):
-                    response = full_response[len(input_text):].strip()
-                else:
-                    response = full_response.strip()
-
-            return self._clean_generated_response(response)
+            
+            # Decode the generated tokens
+            # Skip the input tokens to get only the generated response
+            input_length = inputs["input_ids"].shape[1]
+            generated_tokens = generated_tokens[:, input_length:]
+            
+            response = self.processing_class.batch_decode(
+                generated_tokens, skip_special_tokens=True
+            )[0]
+            
+            return response.strip()
             
         except Exception as e:
             raise GenerationError(f"Failed to generate prediction: {e}")
 
-    def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
-        """Ensure pixel values have correct dtype for model."""
-        if hasattr(model, 'dtype'):
-            target_dtype = model.dtype
-        elif hasattr(model, 'vision_model') and hasattr(model.vision_model, 'dtype'):
-            target_dtype = model.vision_model.dtype
-        else:
-            target_dtype = torch.bfloat16  # Default
-        
-        return pixel_values.to(target_dtype)
+
 
     def _clean_generated_response(self, response: str) -> str:
         """Clean up generated response by removing thought tokens."""
