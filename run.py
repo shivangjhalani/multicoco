@@ -16,9 +16,14 @@ import random
 
 # ** Core libraries
 import torch
+import torch.utils.checkpoint as cp  # type: ignore
+from functools import partial
 import numpy as np
 from transformers import TrainingArguments
 
+if not getattr(cp.checkpoint, "__patched_use_reentrant", False):
+    cp.checkpoint = partial(cp.checkpoint, use_reentrant=False)  # type: ignore[arg-type]
+    cp.checkpoint.__patched_use_reentrant = True  # type: ignore[attr-defined]
 # ** Local imports
 from multicoco.config import (
     MultiCoCoConfig,
