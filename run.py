@@ -84,7 +84,7 @@ class MultiCoCoRunner:
         self._setup_environment()
         self._setup_logging()
         
-        logger.info(f"MultiCoCoRunner initialized for {'training' if not config.training.eval_only else 'evaluation'}")
+        logger.info(f"MultiCoCoRunner initialized for {'training' if self.config.training.mode != TrainingMode.EVAL_ONLY else 'evaluation'}")
 
     def _setup_environment(self) -> None:
         """Set up the execution environment."""
@@ -172,7 +172,7 @@ class MultiCoCoRunner:
             test_limit = TEST_DATASET_LIMIT if data_config.limit_for_testing else None
             
             # Load training dataset if not eval-only
-            if not self.config.training.eval_only and data_config.train_data_path:
+            if self.config.training.mode != TrainingMode.EVAL_ONLY and data_config.train_data_path:
                 self.train_dataset = SupervisedDataset(
                     data_path=data_config.train_data_path,
                     data_dir=data_config.data_dir,
