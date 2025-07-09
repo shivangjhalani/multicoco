@@ -34,6 +34,7 @@ from multicoco.config import (
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
 from multicoco.data import SupervisedDataset, collate_fn
+from multicoco.utils import TqdmLoggingHandler
 from multicoco.constants import (
     DEFAULT_MODEL_NAME,
     DEFAULT_BATCH_SIZE,
@@ -125,7 +126,8 @@ class MultiCoCoRunner:
 
         # Create console handler if enabled
         if log_config.console_output:
-            console_handler = logging.StreamHandler(sys.stdout)
+            # Use TqdmLoggingHandler for clean console output with progress bars
+            console_handler = TqdmLoggingHandler()
             console_handler.setFormatter(logging.Formatter(log_format))
             root_logger.addHandler(console_handler)
         

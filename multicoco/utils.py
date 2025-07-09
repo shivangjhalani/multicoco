@@ -5,8 +5,9 @@ This module provides utility functions for image preprocessing, dynamic image
 processing, and transform creation for use with InternVL models.
 """
 
+import os
 import logging
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Dict, Any
 
 # ** Core libraries
 import torch
@@ -24,7 +25,29 @@ from .constants import (
 )
 from .exceptions import ImageProcessingError
 
+from tqdm import tqdm
+
+
 logger = logging.getLogger(__name__)
+
+
+class TqdmLoggingHandler(logging.Handler):
+    """
+    Custom logging handler that routes messages through tqdm.write().
+    
+    This ensures that log messages do not interfere with the tqdm progress bar.
+    """
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a log record."""
+        try:
+            msg = self.format(record)
+            tqdm.write(msg)
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 def build_transform(input_size: int = DEFAULT_IMAGE_SIZE) -> T.Compose:
