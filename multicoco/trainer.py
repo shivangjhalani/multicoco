@@ -768,55 +768,31 @@ class CoCoTrainer(Trainer):
             eval_config = self.args.eval_config
             if eval_config.get('coconut', False) or eval_config.get('cot', False):
                 # For CoT or CoCoNuT, we ask for reasoning.
-                # The model should have learned to produce "The answer is X" at the end.
                 prompt = "Explain your reasoning step-by-step and then provide the final answer."
             else:
                 # For vanilla evaluation, we ask for a direct answer.
                 prompt = "Answer the question directly."
 
-            # Use the correct image token for InternVL
-            user_content = f"<img>\n{question}\n{prompt}"
-
-            # Tokenize the text input only (InternVL uses separate tokenizer)
-            inputs = self.processing_class(
-                user_content,
-                return_tensors="pt",
-                padding=True,
-                truncation=True
-            )
+            # Format question for InternVL using the proper <image> token
+            user_content = f"<image>\n{question}\n{prompt}"
             
-            # Move to correct device
-            inputs = {k: v.to(self.args.device) if isinstance(v, torch.Tensor) else v 
-                     for k, v in inputs.items()}
+            # Create generation config for chat method
+            generation_config = {
+                "max_new_tokens": 512,
+                "do_sample": False,
+                "temperature": 0.0,
+            }
             
-            # Add pixel values separately
-            inputs["pixel_values"] = pixel_values.to(self.args.device)
-            
-            # Create generation config
-            generation_config = self._create_generation_config()
-            
-            # Generate using the model's generate method
+            # Use InternVL's chat method instead of raw generate
             with torch.no_grad():
-                generated_tokens = model.generate(
-                    **inputs,
-                    **generation_config
+                response = model.chat(
+                    self.processing_class, 
+                    pixel_values, 
+                    user_content, 
+                    generation_config
                 )
             
-            # Decode the generated tokens
-            # Skip the input tokens to get only the generated response
-            input_length = inputs["input_ids"].shape[1]
-            generated_tokens = generated_tokens[:, input_length:]
-            
-            # Check if we have any generated tokens
-            if generated_tokens.shape[1] == 0:
-                logger.warning("No new tokens generated!")
-                return ""
-            
-            response = self.processing_class.batch_decode(
-                generated_tokens, skip_special_tokens=True
-            )[0]
-            
-            return response.strip()
+            return response.strip() if response else ""
             
         except Exception as e:
             raise GenerationError(f"Failed to generate prediction: {e}")
