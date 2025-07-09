@@ -776,10 +776,9 @@ class CoCoTrainer(Trainer):
 
             user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
 
-            # Tokenize the input
+            # Tokenize the text input only (InternVL uses separate tokenizer)
             inputs = self.processing_class(
-                text=user_content, 
-                images=None,  # pixel_values will be provided separately
+                user_content,
                 return_tensors="pt",
                 padding=True,
                 truncation=True
@@ -789,7 +788,7 @@ class CoCoTrainer(Trainer):
             inputs = {k: v.to(self.args.device) if isinstance(v, torch.Tensor) else v 
                      for k, v in inputs.items()}
             
-            # Add pixel values
+            # Add pixel values separately
             inputs["pixel_values"] = pixel_values.to(self.args.device)
             
             # Create generation config
