@@ -23,7 +23,8 @@ This folder contains a script to upload its contents to a Hugging Face Hub repos
     ```bash
     python checkpoints/upload_checkpoints.py
     ```
-3.  By default, it will upload to `ThefirstM/checkpoints`. To upload to a different repository, use the `--repo_id` argument:
+3.  The script will first list the files it is going to upload.
+4.  By default, it will upload to `ThefirstM/checkpoints`. To upload to a different repository, use the `--repo_id` argument:
     ```bash
     python checkpoints/upload_checkpoints.py --repo_id "your-username/your-repo-name"
     ``` 
