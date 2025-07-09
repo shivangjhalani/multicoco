@@ -146,6 +146,7 @@ class TrainingConfig:
     bf16: bool = True
     fp16: bool = False
     remove_unused_columns: bool = False
+    resume_from_checkpoint: bool = False
     dataloader_pin_memory: bool = False
     dataloader_num_workers: int = 4
     weight_decay: float = 0.01
@@ -206,6 +207,7 @@ class MultiCoCoConfig:
             eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE),
             learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)),
             gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1),
+            resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False)
         )
         
         # Handle both 'eval_data_path' and 'val_data_path' for backward compatibility

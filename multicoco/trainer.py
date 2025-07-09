@@ -33,6 +33,7 @@ from transformers.trainer_pt_utils import (
     nested_truncate,
     nested_detach
 )
+from transformers.trainer_utils import get_last_checkpoint
 from transformers.integrations.deepspeed import deepspeed_init
 from transformers.trainer_pt_utils import LabelSmoother
 from transformers.trainer_utils import EvalPrediction
@@ -130,6 +131,7 @@ class CoCoTrainer(Trainer):
         - Individual progress bars for each epoch
         - Evaluation and checkpoint saving after each epoch
         - Detailed logging of training progress
+        - Support for resuming from the last checkpoint
         
         Args:
             resume_from_checkpoint: Path to checkpoint to resume from
@@ -144,6 +146,21 @@ class CoCoTrainer(Trainer):
         # Setup training
         self._setup_epoch_training()
         
+        # Handle checkpoint resumption
+        start_epoch = 0
+        if resume_from_checkpoint:
+            checkpoint_path = None
+            if resume_from_checkpoint is True:
+                checkpoint_path = get_last_checkpoint(self.args.output_dir)
+            else:
+                checkpoint_path = resume_from_checkpoint
+            
+            if checkpoint_path:
+                logger.info(f"Resuming training from checkpoint: {checkpoint_path}")
+                start_epoch = self._load_epoch_checkpoint(checkpoint_path)
+            else:
+                logger.warning("`resume_from_checkpoint` is True but no checkpoint was found. Starting from scratch.")
+
         # Get training dataloader
         train_dataloader = self.get_train_dataloader()
         
@@ -163,7 +180,7 @@ class CoCoTrainer(Trainer):
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
         
         # Training loop - epoch by epoch
-        for epoch in range(int(self.args.num_train_epochs)):
+        for epoch in range(start_epoch, int(self.args.num_train_epochs)):
             epoch_start_time = time.time()
             
             logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
@@ -197,6 +214,25 @@ class CoCoTrainer(Trainer):
             training_loss=0.0,  # Will be updated by actual loss tracking
             metrics={}
         )
+
+    def _load_epoch_checkpoint(self, checkpoint_path: str) -> int:
+        """Load state from an epoch-based checkpoint."""
+        # Load model, optimizer, and scheduler states using the parent method
+        # This is a protected method, but it's the intended way to do this
+        self._load_from_checkpoint(checkpoint_path)
+        
+        # Load custom training info
+        training_info_path = os.path.join(checkpoint_path, "training_info.pt")
+        if os.path.exists(training_info_path):
+            training_info = torch.load(training_info_path)
+            start_epoch = training_info.get("epoch", 0)
+            self.total_train_steps = training_info.get("total_train_steps", 0)
+            self.best_val_acc = training_info.get("best_val_acc", 0.0)
+            logger.info(f"Loaded training info: resuming from epoch {start_epoch + 1}")
+            return start_epoch
+        else:
+            logger.warning("Could not find training_info.pt in checkpoint. Resuming epoch from 0.")
+            return 0
 
     def _setup_epoch_training(self) -> None:
         """Setup for epoch-based training."""

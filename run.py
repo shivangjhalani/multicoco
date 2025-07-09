@@ -261,17 +261,20 @@ class MultiCoCoRunner:
             logging_steps=training_config.logging_steps,
             save_steps=training_config.save_steps,
             eval_steps=training_config.eval_steps,
-            eval_strategy=training_config.evaluation_strategy,
+            evaluation_strategy=training_config.evaluation_strategy,
             save_strategy=training_config.save_strategy,
             load_best_model_at_end=training_config.load_best_model_at_end,
             metric_for_best_model=training_config.metric_for_best_model,
             greater_is_better=training_config.greater_is_better,
-            seed=training_config.seed,
-            data_seed=training_config.data_seed,
             bf16=training_config.bf16,
             fp16=training_config.fp16,
-            dataloader_num_workers=training_config.dataloader_num_workers,
             remove_unused_columns=training_config.remove_unused_columns,
+            resume_from_checkpoint=training_config.resume_from_checkpoint,
+            dataloader_pin_memory=training_config.dataloader_pin_memory,
+            dataloader_num_workers=training_config.dataloader_num_workers,
+            weight_decay=training_config.weight_decay,
+            seed=training_config.seed,
+            data_seed=training_config.data_seed,
             report_to=report_to,
             run_name=run_name,
             logging_dir=logging_config.log_dir,
@@ -319,28 +322,12 @@ class MultiCoCoRunner:
             return "vanilla"
 
     def run_training(self) -> None:
-        """Run the training process."""
+        """Run the training loop."""
         if self.trainer is None:
-            raise ConfigurationError("Trainer must be created before running training")
+            raise ConfigurationError("Trainer not initialized")
         
-        if self.config.training.eval_only:
-            logger.info("Skipping training (eval_only=True)")
-            return
-        
-        try:
-            logger.info("Starting training...")
-            
-            # Run training
-            self.trainer.train()
-            
-            # Save final model
-            final_model_path = os.path.join(self.config.training.output_dir, "final_model")
-            self.trainer.save_model(final_model_path)
-            
-            logger.info(f"Training completed. Model saved to {final_model_path}")
-            
-        except Exception as e:
-            raise ConfigurationError(f"Training failed: {e}")
+        logger.info("Starting training...")
+        self.trainer.train(resume_from_checkpoint=self.config.training.resume_from_checkpoint)
 
     def run_evaluation(self) -> Dict[str, float]:
         """
