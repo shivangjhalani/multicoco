@@ -292,8 +292,8 @@ class MultiCoCoRunner:
             learning_rate=training_config.learning_rate,
             warmup_steps=training_config.warmup_steps,
             logging_steps=training_config.logging_steps,
-            save_steps=training_config.save_steps,
-            eval_steps=training_config.eval_steps,
+            evaluation_strategy="epoch",  # Evaluate after each epoch
+            save_strategy="epoch",        # Save after each epoch  
             save_total_limit=training_config.save_total_limit,
             load_best_model_at_end=training_config.load_best_model_at_end,
             metric_for_best_model=training_config.metric_for_best_model,

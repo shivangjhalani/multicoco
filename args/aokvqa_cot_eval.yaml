@@ -5,7 +5,6 @@
 mode: "eval_only"
 project: "multicoco"
 name: "aokvqa-cot-eval"
-only_eval: true
 limit_for_testing: true
 debug: false
 
