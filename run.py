@@ -306,7 +306,8 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=True,
             do_eval=True,
-            report_to=["wandb"] if self.config.logging.use_wandb else []
+            report_to=["wandb"] if self.config.logging.use_wandb else [],
+            run_name=training_config.name if hasattr(training_config, 'name') else None
         )
 
     def _create_evaluation_args(self, training_config) -> TrainingArguments:

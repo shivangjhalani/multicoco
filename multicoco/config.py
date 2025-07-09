@@ -166,6 +166,7 @@ class TrainingConfig:
     seed: int = 42
     data_seed: int = 42
     mode: TrainingMode = TrainingMode.COT_TRAIN
+    name: Optional[str] = None  # Run name for wandb and logging
     
     def __post_init__(self):
         """Validate training configuration."""
@@ -258,7 +259,8 @@ class MultiCoCoConfig:
             greater_is_better=config_dict.get('greater_is_better', False),
             weight_decay=config_dict.get('weight_decay', 0.01),
             seed=config_dict.get('seed', 42),
-            data_seed=config_dict.get('data_seed', 42)
+            data_seed=config_dict.get('data_seed', 42),
+            name=config_dict.get('name') or config_dict.get('run_name')
         )
         
         # Handle both 'eval_data_path' and 'val_data_path' for backward compatibility

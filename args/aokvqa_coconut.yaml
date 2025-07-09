@@ -6,6 +6,7 @@
 mode: "coconut_train"
 project: "multicoco"
 name: "aokvqa-coconut-multistage"
+run_name: "aokvqa-coconut-multistage"
 output_dir: "checkpoints/aokvqa_coconut"
 num_epochs: 50  # Total epochs across all stages
 batch_size: 8
