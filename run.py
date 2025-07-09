@@ -249,6 +249,14 @@ class MultiCoCoRunner:
         
         is_training = training_config.mode != TrainingMode.EVAL_ONLY
 
+        # Set evaluation strategy based on mode
+        if is_training:
+            evaluation_strategy = "epoch"
+            save_strategy = "epoch"
+        else:
+            evaluation_strategy = "no"
+            save_strategy = "no"
+
         return TrainingArguments(
             output_dir=training_config.output_dir,
             num_train_epochs=training_config.num_epochs,
@@ -260,8 +268,8 @@ class MultiCoCoRunner:
             learning_rate=training_config.learning_rate,
             warmup_steps=training_config.warmup_steps,
             logging_steps=training_config.logging_steps,
-            save_steps=training_config.save_steps if is_training else None,  # No saving in eval mode
-            eval_steps=training_config.eval_steps if is_training else None,  # No eval steps in eval mode
+            save_steps=training_config.save_steps if is_training else 500,  # Default value for eval mode
+            eval_steps=training_config.eval_steps if is_training else 500,  # Default value for eval mode
             save_total_limit=training_config.save_total_limit,
             load_best_model_at_end=training_config.load_best_model_at_end and is_training,  # Only for training
             metric_for_best_model=training_config.metric_for_best_model,
@@ -274,6 +282,8 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=is_training,
             do_eval=not is_training,
+            evaluation_strategy=evaluation_strategy,
+            save_strategy=save_strategy,
             report_to=["wandb"] if self.config.logging.use_wandb else [],
             run_name=self.config.training.run_name if hasattr(training_config, 'run_name') else None
         )
