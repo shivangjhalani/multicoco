@@ -137,7 +137,7 @@ class CoCoTrainer(Trainer):
         if resume_from_checkpoint:
             checkpoint_path = None
             if resume_from_checkpoint is True:
-                checkpoint_path = get_last_checkpoint(self.args.output_dir)
+                checkpoint_path = self._get_last_epoch_checkpoint(self.args.output_dir)
             else:
                 checkpoint_path = resume_from_checkpoint
             
@@ -334,6 +334,29 @@ class CoCoTrainer(Trainer):
             training_loss=0.0,
             metrics={}
         )
+
+    def _get_last_epoch_checkpoint(self, output_dir: str) -> Optional[str]:
+        """Find the last epoch-based checkpoint in the output directory."""
+        if not os.path.isdir(output_dir):
+            return None
+        
+        checkpoints = []
+        for d in os.listdir(output_dir):
+            if os.path.isdir(os.path.join(output_dir, d)) and d.startswith("checkpoint-epoch-"):
+                checkpoints.append(d)
+
+        if not checkpoints:
+            return None
+            
+        # Sort checkpoints by epoch number (the integer after the last '-')
+        try:
+            checkpoints.sort(key=lambda x: int(x.split('-')[-1]))
+        except (ValueError, IndexError):
+            logger.warning(f"Could not parse epoch number from checkpoint directories in {output_dir}")
+            return None
+        
+        last_checkpoint_name = checkpoints[-1]
+        return os.path.join(output_dir, last_checkpoint_name)
 
     def _load_epoch_checkpoint(self, checkpoint_path: str) -> int:
         """Load state from an epoch-based checkpoint."""
@@ -809,9 +832,9 @@ class CoCoTrainer(Trainer):
                     torch.distributed.all_gather_object(gathered_labels, all_labels)
                     
                     if is_main_process:
-                        # Flatten gathered results
-                        all_predictions = [pred for sublist in gathered_predictions for pred in sublist]
-                        all_labels = [label for sublist in gathered_labels for label in sublist]
+                        # Flatten gathered results, safely handling None
+                        all_predictions = [pred for sublist in gathered_predictions if sublist for pred in sublist]
+                        all_labels = [label for sublist in gathered_labels if sublist for label in sublist]
 
                 # Compute final metrics (only on main process)
                 metrics = {}
