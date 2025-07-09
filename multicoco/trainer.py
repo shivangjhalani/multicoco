@@ -774,7 +774,8 @@ class CoCoTrainer(Trainer):
                 # For vanilla evaluation, we ask for a direct answer.
                 prompt = "Answer the question directly."
 
-            user_content = f"{IMAGE_TOKEN}\n{question}\n{prompt}"
+            # Use the correct image token for InternVL
+            user_content = f"<img>\n{question}\n{prompt}"
 
             # Tokenize the text input only (InternVL uses separate tokenizer)
             inputs = self.processing_class(
@@ -805,6 +806,11 @@ class CoCoTrainer(Trainer):
             # Skip the input tokens to get only the generated response
             input_length = inputs["input_ids"].shape[1]
             generated_tokens = generated_tokens[:, input_length:]
+            
+            # Check if we have any generated tokens
+            if generated_tokens.shape[1] == 0:
+                logger.warning("No new tokens generated!")
+                return ""
             
             response = self.processing_class.batch_decode(
                 generated_tokens, skip_special_tokens=True
