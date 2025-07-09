@@ -389,7 +389,7 @@ class CoCoTrainer(Trainer):
         # Create epoch-specific progress bar
         pbar = tqdm(
             total=steps_per_epoch,
-            desc=f"Training Epoch {epoch + 1}",
+            desc=f"Epoch {epoch + 1}/{int(self.args.num_train_epochs)}",
             colour="blue",
             dynamic_ncols=True
         )
@@ -422,12 +422,10 @@ class CoCoTrainer(Trainer):
                 step_count += 1
                 pbar.update(1)
                 
-                # Update progress bar description
-                current_loss = loss.item() * self.args.gradient_accumulation_steps
-                pbar.set_description(
-                    f"Training Epoch {epoch + 1}/{int(self.args.num_train_epochs)}, "
-                    f"Step {step_count}/{steps_per_epoch} "
-                    f"(loss: {current_loss:.4f})"
+                # Update progress bar postfix instead of description to avoid flicker
+                pbar.set_postfix(
+                    step=f"{step_count}/{steps_per_epoch}",
+                    loss=f"{loss.item() * self.args.gradient_accumulation_steps:.4f}"
                 )
                 
                 # Log to wandb
@@ -437,7 +435,7 @@ class CoCoTrainer(Trainer):
                         log_dict = {
                             "train/epoch": epoch + 1,
                             "train/step": epoch * len(train_dataloader) + step,
-                            "train/loss": current_loss,
+                            "train/loss": loss.item() * self.args.gradient_accumulation_steps,
                             "train/learning_rate": self.lr_scheduler.get_last_lr()[0]
                         }
                         wandb.log(log_dict)
