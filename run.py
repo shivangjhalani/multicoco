@@ -10,8 +10,7 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 import random
 
 # ** Core libraries
@@ -27,21 +26,13 @@ if not getattr(cp.checkpoint, "__patched_use_reentrant", False):
 # ** Local imports
 from multicoco.config import (
     MultiCoCoConfig,
-    ModelConfig,
-    TrainingConfig, 
-    DataConfig,
-    EvaluationConfig,
-    CoCoNutConfig,
-    GenerationConfig,
-    LoggingConfig,
-    load_config_from_yaml,
+    MultiCoCoConfig as _MC,
     TrainingMode
 )
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
 from multicoco.data import SupervisedDataset, collate_fn
 from multicoco.utils import TqdmLoggingHandler
-from multicoco.coconut_model import CoCoNutModel
 from multicoco.constants import (
     DEFAULT_MODEL_NAME,
     DEFAULT_BATCH_SIZE,
