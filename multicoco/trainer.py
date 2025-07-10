@@ -101,23 +101,7 @@ class CoCoTrainer(Trainer):
         # Initialize trainer state
         self.best_val_acc = 0.0
         self.total_train_steps = 0
-
-        # ------------------------------------------------------------------
-        # Suppress HF deprecation warning: `Trainer.tokenizer` is deprecated.
-        # We cache the tokenizer (passed via `processing_class`) in an instance
-        # attribute named `tokenizer`, which shadows the deprecated property, so
-        # subsequent accesses no longer invoke the property wrapper that emits
-        # the warning.
-        # ------------------------------------------------------------------
-        if hasattr(self, "processing_class") and self.processing_class is not None:
-            # One-time use of the property may still warn, so use the cached
-            # object directly if possible.
-            object.__setattr__(self, "tokenizer", self.processing_class)
-        elif hasattr(self, "tokenizer") and self.tokenizer is not None:
-            # Fallback: property already initialised; shadow it anyway.
-            tok = super().tokenizer  # may print a single warning
-            object.__setattr__(self, "tokenizer", tok)
-
+        
         logger.info("CoCoTrainer initialized.")
 
     def train(
@@ -605,8 +589,9 @@ class CoCoTrainer(Trainer):
                 gen_kwargs[key] = value
         
         # Add pad token ID to suppress warnings
-        if self.tokenizer.pad_token_id is not None:
-            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
+        tokenizer = getattr(self, 'processing_class', None) or self.tokenizer
+        if tokenizer.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
         
         return gen_kwargs
 
@@ -923,84 +908,37 @@ class CoCoTrainer(Trainer):
         model: nn.Module, 
         log_file
     ) -> Dict[str, List[str]]:
-        """Process an evaluation batch – vectorised generation for speed."""
-
-        pixel_values = inputs["pixel_values"]  # (B, 3, H, W)
-        questions = inputs.get("questions", [])
-        answers = inputs.get("answers", [])
-
-        # Fast path: generate for whole batch at once
-        try:
-            predictions = self._generate_batch_predictions(
-                questions, pixel_values, model
-            )
-        except Exception as e:
-            logger.warning(f"Batch generation fallback to slow path due to: {e}")
-            predictions = [self._generate_single_prediction(q, pv.unsqueeze(0), model)
-                           for q, pv in zip(questions, pixel_values)]
-
-        # Log each sample
-        is_cot = self.args.eval_config.get('cot', False)
-        for idx, (q, a, pred) in enumerate(zip(questions, answers, predictions)):
-            self._log_sample_result(log_file, q, a, pred, idx, is_cot)
-
+        """Process a single evaluation batch."""
+        # Extract batch components
+        questions = inputs.pop("questions")
+        answers = inputs.pop("answers")
+        pixel_values = inputs["pixel_values"].to(self.args.device)
+        
+        predictions = []
+        
+        # Generate predictions for each sample
+        for i, question in enumerate(questions):
+            try:
+                prediction = self._generate_single_prediction(
+                    question, pixel_values[i:i+1], model
+                )
+                predictions.append(prediction)
+                
+                # Log sample details
+                is_cot = self.args.eval_config.get('cot', False)
+                self._log_sample_result(
+                    log_file, question, answers[i], prediction, i, is_cot
+                )
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate prediction for sample {i}: {e}")
+                predictions.append("")
+        
         return {
             'predictions': predictions,
             'labels': answers,
             'questions': questions
         }
-
-    # ------------------------------------------------------------------
-    # Batch generation helper (vectorised across GPU for speed)
-    # ------------------------------------------------------------------
-    def _generate_batch_predictions(
-        self,
-        questions: List[str],
-        pixel_values: torch.Tensor,
-        model: nn.Module
-    ) -> List[str]:
-        """Generate answers for an entire batch in parallel."""
-
-        eval_config = getattr(self.args, "eval_config", {})
-        is_cot_eval = eval_config.get('cot', False)
-
-        prompts = []
-        for q in questions:
-            prompt_suffix = ""
-            if not is_cot_eval:
-                if "choices are" in q.lower() or ": " in q:
-                    prompt_suffix = "Select the correct choice number (0, 1, 2, or 3)."
-                else:
-                    prompt_suffix = "Answer the question using a single word or phrase."
-
-            parts = [f"{IMAGE_TOKEN}\n{q}"]
-            if prompt_suffix:
-                parts.append(prompt_suffix)
-            prompts.append("\n".join(parts))
-
-        # Build visual placeholder tokens (same for every sample – 1 image per)
-        underlying_model = model.model if hasattr(model, 'model') else model
-        num_ctx_tokens = underlying_model.num_image_token
-        img_block = f"{IMG_START_TOKEN}{IMG_CONTEXT_TOKEN * num_ctx_tokens}{IMG_END_TOKEN}"
-        prompts = [p.replace(IMAGE_TOKEN, img_block, 1) for p in prompts]
-
-        # Tokenise as a batch (left padding)
-        tok = self.tokenizer
-        tok.padding_side = "left"
-        model_inputs = tok(prompts, return_tensors='pt', padding=True).to(pixel_values.device)
-
-        pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
-        gen_cfg = self._create_generation_config()
-
-        gen_out = underlying_model.generate(
-            pixel_values=pixel_values,
-            input_ids=model_inputs['input_ids'],
-            attention_mask=model_inputs['attention_mask'],
-            **gen_cfg
-        )
-
-        decoded = tok.batch_decode(gen_out, skip_special_tokens=True)
-        return [self._clean_generated_response(r) for r in decoded]
 
     def _generate_single_prediction(
         self, 
@@ -1059,11 +997,19 @@ class CoCoTrainer(Trainer):
             prompt_text = user_content.replace(IMAGE_TOKEN, image_tokens, 1)
             
             # Tokenise prompt (left-pad to keep positions stable)
-            tokenizer = self.tokenizer
+            tokenizer = getattr(self, 'processing_class', None) or self.tokenizer
+            
+            # Cache the padding side setting to avoid repeated changes
+            original_padding_side = tokenizer.padding_side
             tokenizer.padding_side = "left"
-            model_inputs = tokenizer(prompt_text, return_tensors="pt")
-            input_ids = model_inputs["input_ids"].to(pixel_values.device)
-            attention_mask = model_inputs["attention_mask"].to(pixel_values.device)
+            
+            try:
+                model_inputs = tokenizer(prompt_text, return_tensors="pt")
+                input_ids = model_inputs["input_ids"].to(pixel_values.device)
+                attention_mask = model_inputs["attention_mask"].to(pixel_values.device)
+            finally:
+                # Restore original padding side
+                tokenizer.padding_side = original_padding_side
             
             # Generate
             gen_outputs = underlying_model.generate(
@@ -1072,7 +1018,11 @@ class CoCoTrainer(Trainer):
                 attention_mask=attention_mask,
                 **generation_config
             )
-            response = tokenizer.batch_decode(gen_outputs, skip_special_tokens=True)[0]
+            
+            # Only decode the newly generated tokens to improve performance
+            input_length = input_ids.shape[1]
+            generated_tokens = gen_outputs[0, input_length:]
+            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
             
             # Clean up response
             return self._clean_generated_response(response)
@@ -1126,7 +1076,8 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
             log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
-            log_file.write(f"  Tokens Generated: {len(self.tokenizer.tokenize(prediction))}\n")
+            tokenizer = getattr(self, 'processing_class', None) or self.tokenizer
+            log_file.write(f"  Tokens Generated: {len(tokenizer.tokenize(prediction))}\n")
             log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
