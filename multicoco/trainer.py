@@ -96,6 +96,11 @@ class CoCoTrainer(Trainer):
             kwargs.pop('processor')
             
         super().__init__(*args, **kwargs)
+
+        # Preserve a direct reference to the tokenizer to avoid repeated access
+        # to the deprecated `self.tokenizer` property (HF emits a warning).
+        # If the base `Trainer` did not receive a tokenizer, this will be None.
+        self._tokenizer = kwargs.get('tokenizer', getattr(self, 'tokenizer', None))
         
         # Initialize trainer state
         self.best_val_acc = 0.0
