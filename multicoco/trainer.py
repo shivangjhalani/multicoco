@@ -56,6 +56,7 @@ from .exceptions import (
     AnswerExtractionError,
     GenerationError
 )
+from multicoco.constants import IMG_START_TOKEN, IMG_CONTEXT_TOKEN, IMG_END_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -990,7 +991,7 @@ class CoCoTrainer(Trainer):
             from multicoco.constants import IMG_CONTEXT_TOKEN
             # Build visual token block (<img> <IMG_CONTEXT>*N </img>)
             num_patches = 1  # one image per call in this helper
-            image_tokens = "<img>" + IMG_CONTEXT_TOKEN * underlying_model.num_image_token * num_patches + "</img>"
+            image_tokens = f"{IMG_START_TOKEN}{IMG_CONTEXT_TOKEN * underlying_model.num_image_token * num_patches}{IMG_END_TOKEN}"
             
             prompt_text = user_content.replace(IMAGE_TOKEN, image_tokens, 1)
             
