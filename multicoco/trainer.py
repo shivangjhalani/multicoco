@@ -56,7 +56,6 @@ from .exceptions import (
     AnswerExtractionError,
     GenerationError
 )
-from internvl.conversation import get_conv_template
 
 logger = logging.getLogger(__name__)
 
@@ -594,15 +593,11 @@ class CoCoTrainer(Trainer):
         else:
             tokenizer = self.tokenizer
         
-        # Add pad and eos token IDs to suppress warnings and control generation
+        # Add pad token ID to suppress warnings
         if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
             gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
         elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
-            # Fallback to eos_token_id for padding if pad_token_id is not set
             gen_kwargs["pad_token_id"] = tokenizer.eos_token_id
-
-        if hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
-            gen_kwargs["eos_token_id"] = tokenizer.eos_token_id
         
         return gen_kwargs
 
@@ -952,74 +947,82 @@ class CoCoTrainer(Trainer):
         }
 
     def _generate_single_prediction(
-        self,
-        question: str,
-        pixel_values: torch.Tensor,
+        self, 
+        question: str, 
+        pixel_values: torch.Tensor, 
         model: nn.Module
     ) -> str:
-        """Generate prediction for a single question-image pair using .generate()."""
+        """Generate prediction for a single question-image pair."""
         try:
-            # Access the core InternVL model and tokenizer
-            internvl_model = model.model if hasattr(model, 'model') else model
-            tokenizer = self.processing_class if hasattr(self, 'processing_class') and self.processing_class is not None else self.tokenizer
+            # Check if this is CoT evaluation to determine the prompt
+            eval_config = getattr(self.args, "eval_config", {})
+            is_cot_eval = eval_config.get('cot', False)
 
-            # Define special tokens from InternVL's chat implementation
-            IMG_START_TOKEN = '<img>'
-            IMG_END_TOKEN = '</img>'
-            IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'
-
-            # Set the image context token ID on the model, which is required by its generate function
-            img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
-            internvl_model.img_context_token_id = img_context_token_id
-            
-            # Manually construct the prompt using the model's conversation template
+            # Prepare the input question with proper formatting
             if '<image>' not in question:
                 question = '<image>\n' + question
             
-            template = get_conv_template(internvl_model.template)
-            template.append_message(template.roles[0], question)
-            template.append_message(template.roles[1], None)
-            prompt = template.get_prompt()
-
-            # Replace the placeholder with special image tokens
-            num_image_token = internvl_model.num_image_token
-            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * num_image_token + IMG_END_TOKEN
-            prompt = prompt.replace('<image>', image_tokens, 1)
+            # Add instruction prompt for vanilla evaluation (non-CoT)
+            if not is_cot_eval:
+                if "choices are" in question.lower() or ": " in question:
+                    question += "\nSelect the correct choice number (0, 1, 2, or 3)."
+                else:
+                    question += "\nAnswer the question using a single word or phrase."
             
-            # Tokenize the prompt
-            model_inputs = tokenizer(prompt, return_tensors='pt')
-
-            # Prepare inputs for generation
+            # Get generation kwargs from args, with fallbacks
+            gen_kwargs = getattr(self.args, "generation_kwargs", {}) or {}
+            
+            # Get the tokenizer - handle deprecation warning consistently
+            if hasattr(self, 'processing_class') and self.processing_class is not None:
+                tokenizer = self.processing_class
+            else:
+                tokenizer = self.tokenizer
+            
+            # Create generation config in the format expected by InternVL
+            generation_config = {
+                'max_new_tokens': gen_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
+                'do_sample': gen_kwargs.get('do_sample', False),
+                'temperature': gen_kwargs.get('temperature', 0.0),
+                'top_p': gen_kwargs.get('top_p', 1.0),
+                'num_beams': gen_kwargs.get('num_beams', 1),
+                'repetition_penalty': 1.0,
+            }
+            
+            # Explicitly set pad_token_id to suppress warnings
+            if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
+                generation_config['pad_token_id'] = tokenizer.pad_token_id
+            elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
+                generation_config['pad_token_id'] = tokenizer.eos_token_id
+            
+            # Access the correct model - no need for underlying_model with InternVL
+            internvl_model = model.model if hasattr(model, 'model') else model
+            
+            # Ensure pixel values are in the correct format and dtype
+            if pixel_values.dim() == 3:
+                pixel_values = pixel_values.unsqueeze(0)  # Add batch dimension if missing
+            
+            # Ensure correct device and dtype
             device = next(internvl_model.parameters()).device
             dtype = next(internvl_model.parameters()).dtype
-            input_ids = model_inputs['input_ids'].to(device)
-            attention_mask = model_inputs['attention_mask'].to(device)
-
-            if pixel_values.dim() == 3:
-                pixel_values = pixel_values.unsqueeze(0)
             pixel_values = pixel_values.to(device=device, dtype=dtype)
-
-            # Get generation kwargs and ensure EOS token is set correctly from the template
-            gen_kwargs = self._create_generation_config()
-            gen_kwargs["eos_token_id"] = tokenizer.convert_tokens_to_ids(template.sep.strip())
-
+            
+            # Use InternVL's .chat() method - this is the correct API
+            # Unlike our previous attempt, we pass pixel_values directly to chat
             with torch.no_grad():
-                generation_output = internvl_model.generate(
+                response = internvl_model.chat(
+                    tokenizer=tokenizer,
                     pixel_values=pixel_values,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    **gen_kwargs,
+                    question=question,
+                    generation_config=generation_config,
+                    history=None,
+                    return_history=False
                 )
-
-            # Decode only the newly generated tokens
-            input_length = input_ids.shape[1]
-            generated_ids = generation_output[0, input_length:]
-            response = tokenizer.decode(generated_ids, skip_special_tokens=True)
-
+            
+            # Clean up response
             return self._clean_generated_response(response)
-
+            
         except Exception as e:
-            logger.error(f"Error in _generate_single_prediction: {e}", exc_info=True)
+            logger.error(f"Error in _generate_single_prediction: {e}")
             logger.error(f"Question: {question}")
             logger.error(f"Pixel values shape: {pixel_values.shape if pixel_values is not None else 'None'}")
             raise GenerationError(f"Failed to generate prediction: {e}")
