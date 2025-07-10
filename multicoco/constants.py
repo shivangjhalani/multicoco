@@ -35,18 +35,8 @@ END_LATENT_TOKEN = '<|end_latent|>'
 # Collection for easy tokenizer addition
 COCONUT_SPECIAL_TOKENS = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
 
-# Visual placeholder tokens expected by InternVL models
-IMAGE_TOKEN = '<image>'          # Placeholder inserted before the user question
-
-# InternVL uses *three* distinct tokens for image embedding mapping:
-#   1. <img>        – marks the start of the image region
-#   2. <IMG_CONTEXT> – repeated N times (num_image_token * num_patches) and later
-#                      replaced by vision patch embeddings inside the model
-#   3. </img>       – marks the end of the image region
-
-IMG_START_TOKEN   = '<img>'
-IMG_END_TOKEN     = '</img>'
-IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'  # Must be upper-case to match InternVL tokenizer
+IMAGE_TOKEN = '<image>'
+IMG_CONTEXT_TOKEN = '<img>'
 
 # CoCoNut Training Parameters
 DEFAULT_C_THOUGHT = 0

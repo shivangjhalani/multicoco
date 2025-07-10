@@ -96,11 +96,6 @@ class CoCoTrainer(Trainer):
             kwargs.pop('processor')
             
         super().__init__(*args, **kwargs)
-
-        # Preserve a direct reference to the tokenizer to avoid repeated access
-        # to the deprecated `self.tokenizer` property (HF emits a warning).
-        # If the base `Trainer` did not receive a tokenizer, this will be None.
-        self._tokenizer = kwargs.get('tokenizer', getattr(self, 'tokenizer', None))
         
         # Initialize trainer state
         self.best_val_acc = 0.0
@@ -593,8 +588,8 @@ class CoCoTrainer(Trainer):
                 gen_kwargs[key] = value
         
         # Add pad token ID to suppress warnings
-        if self._tokenizer is not None and self._tokenizer.pad_token_id is not None:
-            gen_kwargs["pad_token_id"] = self._tokenizer.pad_token_id
+        if self.tokenizer.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
         
         return gen_kwargs
 
@@ -955,8 +950,19 @@ class CoCoTrainer(Trainer):
             eval_config = getattr(self.args, "eval_config", {})
             is_cot_eval = eval_config.get('cot', False)
 
-            # Format input text to match training format exactly
-            formatted_input = self._format_input_for_generation(question, is_cot_eval)
+            prompt = ""  # Default to no prompt for CoT, letting the model reason freely
+            if not is_cot_eval:
+                # For vanilla eval, explicitly ask for a direct answer
+                if "choices are" in question.lower() or ": " in question:
+                    prompt = "Select the correct choice number (0, 1, 2, or 3)."
+                else:
+                    prompt = "Answer the question using a single word or phrase."
+            
+            # Construct user content, only adding prompt if it exists
+            parts = [f"{IMAGE_TOKEN}\n{question}"]
+            if prompt:
+                parts.append(prompt)
+            user_content = "\n".join(parts)
             
             # Create generation config
             generation_config = self._create_generation_config()
@@ -967,12 +973,11 @@ class CoCoTrainer(Trainer):
             # Ensure correct dtype
             pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
             
-            # Use direct generation instead of chat to match training format
-            response = self._generate_with_training_format(
-                underlying_model,
-                self._tokenizer, 
+            # Generate response using InternVL's chat method
+            response = underlying_model.chat(
+                self.tokenizer,
                 pixel_values,
-                formatted_input,
+                user_content,
                 generation_config
             )
             
@@ -981,139 +986,6 @@ class CoCoTrainer(Trainer):
             
         except Exception as e:
             raise GenerationError(f"Failed to generate prediction: {e}")
-
-    def _format_input_for_generation(self, question: str, is_cot_eval: bool) -> str:
-        """
-        Format input text to match the training format exactly.
-        
-        Training format is: "<image>\n{question} {answer_start}"
-        where answer_start depends on evaluation type.
-        """
-        # Use the same image token as training
-        from multicoco.constants import IMAGE_TOKEN
-        
-        # Start with image token and question (matching training format)
-        formatted_input = f"{IMAGE_TOKEN}\n{question}"
-        
-        if not is_cot_eval:
-            # For vanilla evaluation, we want the model to give a direct answer
-            # Add a space to encourage generation but don't constrain format
-            formatted_input += " "
-        else:
-            # For CoT evaluation, let the model reason freely
-            # Add a space to encourage generation
-            formatted_input += " "
-        
-        return formatted_input
-
-    def _generate_with_training_format(
-        self,
-        model: nn.Module,
-        tokenizer,
-        pixel_values: torch.Tensor,
-        formatted_input: str,
-        generation_config: Dict[str, Any]
-    ) -> str:
-        """
-        Generate response using the same format as training data.
-        
-        This method bypasses the .chat() method to avoid conversation templates
-        and uses direct .generate() with manual tokenization to match training format.
-        """
-        try:
-            from multicoco.constants import (
-                IMG_START_TOKEN,
-                IMG_END_TOKEN,
-                IMG_CONTEXT_TOKEN,
-            )
-
-            if '<image>' in formatted_input:
-                # How many image context tokens to insert?
-                num_image_token = getattr(model, 'num_image_token', 256)
-                num_patches = pixel_values.shape[0]  # Usually 1 patch group per image
-
-                image_tokens = (
-                    IMG_START_TOKEN
-                    + IMG_CONTEXT_TOKEN * (num_image_token * num_patches)
-                    + IMG_END_TOKEN
-                )
-
-                formatted_input = formatted_input.replace('<image>', image_tokens, 1)
-
-            # Ensure the model knows the ID of <IMG_CONTEXT>
-            if getattr(model, 'img_context_token_id', None) is None and tokenizer is not None:
-                model.img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
-
-            # Manually tokenize the prompt
-            model_inputs = tokenizer(
-                formatted_input,
-                return_tensors='pt',
-                add_special_tokens=True,
-                padding=False,
-                truncation=True,
-                max_length=DEFAULT_INPUT_MAX_LENGTH
-            )
-            
-            # Move inputs to model device
-            device = model.device
-            input_ids = model_inputs['input_ids'].to(device)
-            attention_mask = model_inputs['attention_mask'].to(device)
-            pixel_values = pixel_values.to(device)
-            
-            # Set up generation config for the underlying model
-            gen_kwargs = generation_config.copy()
-            
-            # Generate using the model's generate method directly
-            with torch.no_grad():
-                generated_ids = model.generate(
-                    pixel_values=pixel_values,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    **gen_kwargs
-                )
-            
-            # Decode only the newly generated tokens (excluding input)
-            input_length = input_ids.shape[1]
-            generated_tokens = generated_ids[0, input_length:]
-            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-
-            return response.strip()
-            
-        except Exception as e:
-            # Fallback to original chat method if generation fails
-            logger.warning(f"Direct generation failed, falling back to chat method: {e}")
-            return self._fallback_to_chat_method(
-                model, tokenizer, pixel_values, formatted_input, generation_config
-            )
-
-    def _fallback_to_chat_method(
-        self,
-        model: nn.Module,
-        tokenizer,
-        pixel_values: torch.Tensor,
-        formatted_input: str,
-        generation_config: Dict[str, Any]
-    ) -> str:
-        """
-        Fallback to original chat method if direct generation fails.
-        This ensures backward compatibility while we transition to the new method.
-        """
-        try:
-            # Extract just the question part for chat method
-            question_part = formatted_input.replace('<image>\n', '').strip()
-            
-            # Use original chat method
-            response = model.chat(
-                tokenizer,
-                pixel_values,
-                question_part,
-                generation_config
-            )
-            
-            return response
-            
-        except Exception as e:
-            raise GenerationError(f"Both direct generation and fallback chat failed: {e}")
 
     def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
         """Ensure pixel values have correct dtype for model."""
@@ -1161,11 +1033,7 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
             log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
-            if self._tokenizer is not None:
-                token_count = len(self._tokenizer.tokenize(prediction))
-            else:
-                token_count = len(prediction.split())
-            log_file.write(f"  Tokens Generated: {token_count}\n")
+            log_file.write(f"  Tokens Generated: {len(self.tokenizer.tokenize(prediction))}\n")
             log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 

@@ -190,31 +190,12 @@ class MultiCoCo(nn.Module):
 
     def _setup_special_tokens(self) -> None:
         """Set up special token IDs for the model."""
-        # ------------------------------------------------------------------
-        # Ensure visual placeholder tokens (<img>, </img>, <IMG_CONTEXT>) are
-        # present in the tokenizer vocabulary. If any are missing, add them
-        # as *additional_special_tokens* and resize embeddings accordingly.
-        # ------------------------------------------------------------------
-
-        from multicoco.constants import (
-            IMG_START_TOKEN,
-            IMG_END_TOKEN,
-            IMG_CONTEXT_TOKEN,
-        )
-
-        visual_tokens = [IMG_START_TOKEN, IMG_END_TOKEN, IMG_CONTEXT_TOKEN]
-
-        tokens_to_add = [tok for tok in visual_tokens if tok not in self.tokenizer.get_vocab()]
-
-        if tokens_to_add:
-            self.tokenizer.add_special_tokens({"additional_special_tokens": tokens_to_add})
-            self._resize_token_embeddings()
-            logger.info(f"Added visual special tokens to tokenizer: {tokens_to_add}")
-
-        # Set <IMG_CONTEXT> id on the wrapped InternVL model so that its
-        # custom `generate()` implementation can identify the placeholder
+        # Set image context token ID for InternVL
         img_token_id = self.tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
-        self.model.img_context_token_id = img_token_id
+        if img_token_id is not None:
+            self.model.img_context_token_id = img_token_id
+        else:
+            logger.warning(f"Image context token '{IMG_CONTEXT_TOKEN}' not found in tokenizer")
 
         # Keep reference to eos id for convenience
         self.eos_token_id = self.tokenizer.eos_token_id
