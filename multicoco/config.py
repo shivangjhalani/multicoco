@@ -10,6 +10,8 @@ from typing import Optional, Dict, Any, List
 import os
 from pathlib import Path
 from enum import Enum
+import logging
+import random
 
 from .constants import (
     DEFAULT_MODEL_NAME, DEFAULT_LEARNING_RATE, DEFAULT_BATCH_SIZE,
@@ -171,13 +173,22 @@ class TrainingConfig:
     dataloader_pin_memory: bool = False
     dataloader_num_workers: int = 4
     weight_decay: float = 0.01
-    seed: int = 42
-    data_seed: int = 42
+    seed: Optional[int] = None
+    data_seed: Optional[int] = None
     mode: TrainingMode = TrainingMode.COT_TRAIN
     name: Optional[str] = None  # Run name for wandb and logging
     
     def __post_init__(self):
         """Validate training configuration."""
+        if self.seed is None:
+            self.seed = random.randint(0, 2**32 - 1)
+            logging.info(f"Random seed not specified, using: {self.seed}")
+        else:
+            logging.info(f"Using specified seed: {self.seed}")
+
+        if self.data_seed is None:
+            self.data_seed = self.seed
+        
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
         if self.batch_size <= 0:
@@ -267,8 +278,8 @@ class MultiCoCoConfig:
             metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'),
             greater_is_better=config_dict.get('greater_is_better', False),
             weight_decay=config_dict.get('weight_decay', 0.01),
-            seed=config_dict.get('seed', 42),
-            data_seed=config_dict.get('data_seed', 42),
+            seed=config_dict.get('seed'),
+            data_seed=config_dict.get('data_seed'),
             name=config_dict.get('name') or config_dict.get('run_name')
         )
         

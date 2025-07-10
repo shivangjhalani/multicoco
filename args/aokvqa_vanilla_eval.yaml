@@ -8,6 +8,7 @@ name: "aokvqa-vanilla-eval"
 run_name: "aokvqa-vanilla-eval"
 limit_for_testing: true
 debug: false
+seed: 42
 
 # Precision Configuration
 bf16: true

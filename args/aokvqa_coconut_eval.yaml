@@ -10,6 +10,7 @@ run_name: "aokvqa-coconut-evaluation"
 only_eval: true
 limit_for_testing: true
 debug: false
+seed: 42
 
 # Precision Configuration
 bf16: true

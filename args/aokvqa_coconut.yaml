@@ -17,6 +17,7 @@ resume_from_checkpoint: false
 limit_for_testing: true
 debug: false
 reset_optimizer: true  # Reset optimizer between stages
+seed: 42
 
 # Precision Configuration
 bf16: true
