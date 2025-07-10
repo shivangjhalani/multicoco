@@ -984,10 +984,9 @@ class CoCoTrainer(Trainer):
             #     generation_config
             # )
             # ------------------------------------------------------------------
-            # NEW: use low-level generate() with the same flat prompt format that
-            #       the model saw during fine-tuning.  We still inject the visual
-            #       placeholder tokens (<img> … </img>) so the vision encoder
-            #       receives patches, but we skip the chat template entirely.
+            # NEW: Use the same prompt format as training but call underlying generate
+            # directly to match the flat format used during fine-tuning. This bypasses
+            # chat templates while still providing the visual tokens properly.
             
             # Build visual token block (<img> <IMG_CONTEXT>*N </img>)
             num_patches = 1  # one image per call in this helper
@@ -995,44 +994,37 @@ class CoCoTrainer(Trainer):
             
             prompt_text = user_content.replace(IMAGE_TOKEN, image_tokens, 1)
             
-            # Tokenise prompt (left-pad to keep positions stable)
+            # Tokenise prompt using same approach as training
             tokenizer = getattr(self, 'processing_class', None) or self.tokenizer
+            model_inputs = tokenizer(prompt_text, return_tensors="pt", add_special_tokens=True)
+            input_ids = model_inputs["input_ids"].to(pixel_values.device)
+            attention_mask = model_inputs["attention_mask"].to(pixel_values.device)
             
-            # Cache the padding side setting to avoid repeated changes
-            original_padding_side = tokenizer.padding_side
-            tokenizer.padding_side = "left"
+            # Set image context token id to ensure proper vision injection
+            underlying_model.img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
             
-            try:
-                model_inputs = tokenizer(prompt_text, return_tensors="pt")
-                input_ids = model_inputs["input_ids"].to(pixel_values.device)
-                attention_mask = model_inputs["attention_mask"].to(pixel_values.device)
-            finally:
-                # Restore original padding side
-                tokenizer.padding_side = original_padding_side
+            # Generate with same config as training would use
+            generation_config_final = generation_config.copy()
+            generation_config_final.setdefault('eos_token_id', tokenizer.eos_token_id)
+            generation_config_final.setdefault('pad_token_id', tokenizer.pad_token_id)
             
-            # Add proper eos token to match what chat() method does
-            generation_config_with_eos = generation_config.copy()
-            if 'eos_token_id' not in generation_config_with_eos:
-                # Use the default eos token id
-                generation_config_with_eos['eos_token_id'] = tokenizer.eos_token_id
-            
-            # Generate
+            # Generate using the underlying model's generate method
             gen_outputs = underlying_model.generate(
                 pixel_values=pixel_values,
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                **generation_config_with_eos
+                **generation_config_final
             )
             
-            # Only decode the newly generated tokens to improve performance
+            # Decode only the newly generated part
             input_length = input_ids.shape[1]
-            generated_tokens = gen_outputs[0, input_length:]
-            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            if gen_outputs.shape[1] > input_length:
+                generated_tokens = gen_outputs[0, input_length:]
+                response = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+            else:
+                logger.warning(f"No new tokens generated. Input: {input_length}, Output: {gen_outputs.shape[1]}")
+                response = ""
             
-            # Clean up response and strip eos token if present
-            response = response.split(tokenizer.eos_token)[0].strip() if tokenizer.eos_token else response.strip()
-            
-            # Clean up response
             return self._clean_generated_response(response)
             
         except Exception as e:
