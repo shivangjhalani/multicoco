@@ -56,6 +56,7 @@ from .exceptions import (
     AnswerExtractionError,
     GenerationError
 )
+from internvl.conversation import get_conv_template
 
 logger = logging.getLogger(__name__)
 
@@ -962,15 +963,31 @@ class CoCoTrainer(Trainer):
             internvl_model = model.model if hasattr(model, 'model') else model
             tokenizer = self.processing_class if hasattr(self, 'processing_class') and self.processing_class is not None else self.tokenizer
 
-            # Prepare the prompt without any special chat or image tokens
-            prompt = question
+            # Define special tokens from InternVL's chat implementation
+            IMG_START_TOKEN = '<img>'
+            IMG_END_TOKEN = '</img>'
+            IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'
+
+            # Set the image context token ID on the model, which is required by its generate function
+            img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+            internvl_model.img_context_token_id = img_context_token_id
+            
+            # Manually construct the prompt using the model's conversation template
+            if '<image>' not in question:
+                question = '<image>\n' + question
+            
+            template = get_conv_template(internvl_model.template)
+            template.append_message(template.roles[0], question)
+            template.append_message(template.roles[1], None)
+            prompt = template.get_prompt()
+
+            # Replace the placeholder with special image tokens
+            num_image_token = internvl_model.num_image_token
+            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * num_image_token + IMG_END_TOKEN
+            prompt = prompt.replace('<image>', image_tokens, 1)
             
             # Tokenize the prompt
-            # We add an image token here to be compatible with the model's expectation of image + text input
-            model_inputs = tokenizer(
-                f"{IMAGE_TOKEN}\n{prompt}",
-                return_tensors='pt'
-            )
+            model_inputs = tokenizer(prompt, return_tensors='pt')
 
             # Prepare inputs for generation
             device = next(internvl_model.parameters()).device
@@ -982,10 +999,9 @@ class CoCoTrainer(Trainer):
                 pixel_values = pixel_values.unsqueeze(0)
             pixel_values = pixel_values.to(device=device, dtype=dtype)
 
-            # Get generation kwargs and ensure EOS token is set correctly
+            # Get generation kwargs and ensure EOS token is set correctly from the template
             gen_kwargs = self._create_generation_config()
-            if "eos_token_id" not in gen_kwargs:
-                gen_kwargs["eos_token_id"] = tokenizer.eos_token_id
+            gen_kwargs["eos_token_id"] = tokenizer.convert_tokens_to_ids(template.sep.strip())
 
             with torch.no_grad():
                 generation_output = internvl_model.generate(
