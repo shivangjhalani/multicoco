@@ -188,7 +188,8 @@ def collate_fn(
     Collate function for the SupervisedDataset.
     
     This function processes a batch of samples, handling image processing
-    and text tokenization for training with InternVL models.
+    and text tokenization for training with InternVL models. It now
+    formats the data into a chat-style format consistent with evaluation.
     
     Args:
         batch: List of sample dictionaries from the dataset
@@ -214,25 +215,33 @@ def collate_fn(
         # Process images
         pixel_values = _process_images(images, image_processor)
         
-        # Create training data - format depends on whether we have reasoning steps
+        # Create chat-formatted training data
         full_texts = []
+        prompts = []
         for i, (question, answer) in enumerate(zip(questions, answers)):
             # Check if we have reasoning steps for CoT training
             reasoning_steps = batch[i].get('steps', [])
             reasoning_text = batch[i].get('reasoning', '')
             
+            assistant_part = ''
             if reasoning_text:
-                # Progressive curriculum format: question + reasoning (with latent tokens) + answer
-                full_text = f"{question} {reasoning_text} The answer is {answer}"
+                # Progressive curriculum format
+                assistant_part = f"{reasoning_text} The answer is {answer}"
             elif reasoning_steps and len(reasoning_steps) > 0:
-                # CoT format: question + reasoning + "The answer is " + answer
+                # CoT format
                 reasoning_combined = " ".join(reasoning_steps)
-                full_text = f"{question} {reasoning_combined} The answer is {answer}"
+                assistant_part = f"{reasoning_combined} The answer is {answer}"
             else:
-                # Vanilla format: question + answer
-                full_text = f"{question} {answer}"
+                # Vanilla format
+                assistant_part = f"{answer}"
+            
+            # Construct the prompt using the chat format with the <image> token
+            # This aligns training with the evaluation format used by .chat()
+            prompt = f"<|im_start|>user\n<image>\n{question}<|im_end|><|im_start|>assistant\n"
+            full_text = f"{prompt}{assistant_part}"
             
             full_texts.append(full_text)
+            prompts.append(prompt)
         
         # Tokenize the full texts
         full_encodings = tokenizer(
@@ -244,101 +253,80 @@ def collate_fn(
             add_special_tokens=True
         )
         
-        # Create labels for training - mask the question part
-        labels = _create_training_labels(full_encodings['input_ids'], questions, tokenizer)
+        # Create labels for training - mask the prompt part
+        labels = _create_training_labels(full_encodings['input_ids'], prompts, tokenizer)
         
         return {
             'pixel_values': pixel_values,
             'input_ids': full_encodings['input_ids'],
             'attention_mask': full_encodings['attention_mask'],
-            'labels': labels,
-            'questions': questions,  # Preserve for evaluation
-            'answers': answers       # Preserve for evaluation
+            'labels': labels
         }
-        
+    
     except Exception as e:
-        raise DatasetError(f"Failed to process batch: {e}")
+        logger.error(f"Error in collate_fn: {e}", exc_info=True)
+        # Depending on desired behavior, either raise or return an empty batch
+        raise DatasetError(f"Failed to collate batch: {e}")
 
 
 def _process_images(images: List[Image.Image], image_processor: Any) -> torch.Tensor:
     """
-    Process a list of images using the provided image processor.
+    Process a list of PIL images into a batch of tensors.
     
     Args:
-        images: List of PIL Images
-        image_processor: Image processor from transformers
+        images: List of PIL images
+        image_processor: Image processor (e.g., from Hugging Face)
         
     Returns:
-        Processed pixel values as a tensor
+        A batch of preprocessed image tensors
         
     Raises:
         ImageProcessingError: If image processing fails
     """
     try:
-        # Validate inputs
-        if not images:
-            raise ImageProcessingError("Empty images list provided")
-        
-        for i, img in enumerate(images):
-            if img is None:
-                raise ImageProcessingError(f"Image at index {i} is None")
-            if not hasattr(img, 'mode'):
-                raise ImageProcessingError(f"Image at index {i} is not a valid PIL Image")
-        
-        # Process images
+        # The image_processor from Hugging Face expects a list of PIL images
+        # and returns a dictionary containing 'pixel_values'
         processed = image_processor(images, return_tensors='pt')
-        
-        # Validate output
-        if processed is None:
-            raise ImageProcessingError("Image processor returned None")
-        if 'pixel_values' not in processed:
-            raise ImageProcessingError("Image processor output missing 'pixel_values' key")
-        
-        pixel_values = processed['pixel_values']
-        if pixel_values is None:
-            raise ImageProcessingError("Pixel values are None")
-        
-        return pixel_values
+        return processed['pixel_values']
     except Exception as e:
-        raise ImageProcessingError(f"Failed to process images: {e}")
+        logger.error(f"Failed to process images: {e}", exc_info=True)
+        raise ImageProcessingError(f"Error during image processing: {e}")
 
 
 def _create_training_labels(
     input_ids: torch.Tensor, 
-    questions: List[str], 
+    prompts: List[str], 
     tokenizer: Any
 ) -> torch.Tensor:
     """
-    Create training labels by masking question tokens.
+    Create labels for training, masking the prompt part of the input.
     
-    For training, we want the model to learn to generate answers given questions.
-    This function masks question tokens in the labels so the model only learns
-    to predict answer tokens.
+    This ensures that the loss is only calculated on the assistant's
+    response, not on the user's prompt.
     
     Args:
-        input_ids: Tokenized input sequences
-        questions: List of original questions
-        tokenizer: Tokenizer used for encoding
+        input_ids: The tokenized input sequences for the batch
+        prompts: The list of prompt strings for each item in the batch
+        tokenizer: The tokenizer used for encoding
         
     Returns:
-        Labels tensor with question tokens masked (set to LOSS_IGNORE_INDEX)
+        A tensor of labels with the prompt tokens masked
     """
     labels = input_ids.clone()
     
-    for i, question in enumerate(questions):
-        try:
-            # Tokenize just the question to determine mask length
-            question_tokens = tokenizer(question, add_special_tokens=False)['input_ids']
-            question_len = len(question_tokens)
-            
-            # Mask question tokens in labels (ignore in loss calculation)
-            if question_len < labels.shape[1]:
-                labels[i, :question_len] = LOSS_IGNORE_INDEX
-        except Exception as e:
-            logger.warning(f"Failed to mask question tokens for sample {i}: {e}")
-            # If masking fails, keep original labels
-            continue
-    
+    for i, prompt in enumerate(prompts):
+        # Tokenize the prompt to find its length (without adding special tokens)
+        prompt_tokens = tokenizer(
+            prompt,
+            add_special_tokens=False,
+            return_tensors='pt'
+        ).input_ids[0]
+        
+        prompt_length = len(prompt_tokens)
+        
+        # Mask the prompt tokens by setting them to the ignore index
+        labels[i, :prompt_length] = LOSS_IGNORE_INDEX
+        
     return labels
 
 
