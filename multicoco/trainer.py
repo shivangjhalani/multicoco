@@ -952,25 +952,11 @@ class CoCoTrainer(Trainer):
         pixel_values: torch.Tensor, 
         model: nn.Module
     ) -> str:
-        """Generate prediction for a single question-image pair."""
+        """Generate prediction for a single question-image pair using the same format as training."""
         try:
             # Check if this is CoT evaluation to determine the prompt
             eval_config = getattr(self.args, "eval_config", {})
             is_cot_eval = eval_config.get('cot', False)
-
-            # Prepare the input question with proper formatting
-            if '<image>' not in question:
-                question = '<image>\n' + question
-            
-            # Add instruction prompt for vanilla evaluation (non-CoT)
-            if not is_cot_eval:
-                if "choices are" in question.lower() or ": " in question:
-                    question += "\nSelect the correct choice number (0, 1, 2, or 3)."
-                else:
-                    question += "\nAnswer the question using a single word or phrase."
-            
-            # Get generation kwargs from args, with fallbacks
-            gen_kwargs = getattr(self.args, "generation_kwargs", {}) or {}
             
             # Get the tokenizer - handle deprecation warning consistently
             if hasattr(self, 'processing_class') and self.processing_class is not None:
@@ -978,23 +964,24 @@ class CoCoTrainer(Trainer):
             else:
                 tokenizer = self.tokenizer
             
-            # Create generation config in the format expected by InternVL
-            generation_config = {
-                'max_new_tokens': gen_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
-                'do_sample': gen_kwargs.get('do_sample', False),
-                'temperature': gen_kwargs.get('temperature', 0.0),
-                'top_p': gen_kwargs.get('top_p', 1.0),
-                'num_beams': gen_kwargs.get('num_beams', 1),
-                'repetition_penalty': 1.0,
-            }
+            # Get generation kwargs from args, with fallbacks
+            gen_kwargs = getattr(self.args, "generation_kwargs", {}) or {}
             
-            # Explicitly set pad_token_id to suppress warnings
-            if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
-                generation_config['pad_token_id'] = tokenizer.pad_token_id
-            elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
-                generation_config['pad_token_id'] = tokenizer.eos_token_id
+            # Format the input to EXACTLY match training format
+            # Training uses: "{question} {reasoning} The answer is {answer}"
+            # So evaluation should start with: "{question} "
+            # Let the model complete with reasoning and "The answer is X"
             
-            # Access the correct model - no need for underlying_model with InternVL
+            # For vanilla evaluation, we might want to guide the model slightly
+            if not is_cot_eval:
+                # For vanilla evaluation, we expect direct answers
+                # Still use the training format but the model should give shorter responses
+                formatted_input = f"{question} "
+            else:
+                # For CoT evaluation, let the model reason freely
+                formatted_input = f"{question} "
+            
+            # Access the underlying InternVL model
             internvl_model = model.model if hasattr(model, 'model') else model
             
             # Ensure pixel values are in the correct format and dtype
@@ -1006,17 +993,57 @@ class CoCoTrainer(Trainer):
             dtype = next(internvl_model.parameters()).dtype
             pixel_values = pixel_values.to(device=device, dtype=dtype)
             
-            # Use InternVL's .chat() method - this is the correct API
-            # Unlike our previous attempt, we pass pixel_values directly to chat
+            # Tokenize the input manually (matching training format)
+            # Note: We need to handle the image token properly
+            # In training, images are processed separately, text is tokenized normally
+            inputs = tokenizer(
+                formatted_input,
+                return_tensors="pt",
+                padding=False,
+                truncation=True,
+                max_length=512  # Reasonable limit for questions
+            )
+            
+            input_ids = inputs.input_ids.to(device)
+            attention_mask = inputs.attention_mask.to(device)
+            
+            # Create generation config with proper pad_token_id
+            generation_config = {
+                'max_new_tokens': gen_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
+                'do_sample': gen_kwargs.get('do_sample', False),
+                'temperature': gen_kwargs.get('temperature', 0.0),
+                'top_p': gen_kwargs.get('top_p', 1.0),
+                'num_beams': gen_kwargs.get('num_beams', 1),
+                'repetition_penalty': 1.0,
+                'eos_token_id': tokenizer.eos_token_id,
+            }
+            
+            # Explicitly set pad_token_id to suppress warnings
+            if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
+                generation_config['pad_token_id'] = tokenizer.pad_token_id
+            elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
+                generation_config['pad_token_id'] = tokenizer.eos_token_id
+            
+            # Generate using the lower-level .generate() method
+            # This matches the training paradigm exactly
             with torch.no_grad():
-                response = internvl_model.chat(
-                    tokenizer=tokenizer,
+                generated_ids = internvl_model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
                     pixel_values=pixel_values,
-                    question=question,
-                    generation_config=generation_config,
-                    history=None,
-                    return_history=False
+                    **generation_config
                 )
+            
+            # Decode only the newly generated tokens (exclude the input prompt)
+            input_length = input_ids.shape[1]
+            generated_tokens = generated_ids[:, input_length:]
+            
+            # Decode the generated response
+            response = tokenizer.decode(
+                generated_tokens[0], 
+                skip_special_tokens=True, 
+                clean_up_tokenization_spaces=True
+            )
             
             # Clean up response
             return self._clean_generated_response(response)
