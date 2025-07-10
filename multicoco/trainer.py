@@ -958,24 +958,35 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair using .generate()."""
         try:
-            # Get the tokenizer
+            # Access the core InternVL model and tokenizer
+            internvl_model = model.model if hasattr(model, 'model') else model
             tokenizer = self.processing_class if hasattr(self, 'processing_class') and self.processing_class is not None else self.tokenizer
+
+            # Define special tokens from InternVL's chat implementation
+            IMG_START_TOKEN = '<img>'
+            IMG_END_TOKEN = '</img>'
+            IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'
+
+            # Set the image context token ID on the model, which is required by its generate function
+            img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+            internvl_model.img_context_token_id = img_context_token_id
             
-            # Prepare the prompt to match the training format (no chat templates)
-            if IMAGE_TOKEN not in question:
-                prompt = f"{IMAGE_TOKEN}\n{question}"
-            else:
-                prompt = question
+            # Manually construct the prompt to match the logic in InternVL's chat method
+            # This ensures the generate method can correctly replace context tokens with image embeddings
+            if '<image>' not in question:
+                question = '<image>\n' + question
+
+            # The number of patches is determined by the model's configuration
+            num_image_token = internvl_model.num_image_token
+            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * num_image_token + IMG_END_TOKEN
+            prompt = question.replace('<image>', image_tokens, 1)
 
             # Tokenize the prompt
             model_inputs = tokenizer(prompt, return_tensors='pt')
 
-            # Access the core InternVL model
-            internvl_model = model.model if hasattr(model, 'model') else model
+            # Prepare inputs for generation
             device = next(internvl_model.parameters()).device
             dtype = next(internvl_model.parameters()).dtype
-
-            # Prepare inputs for generation
             input_ids = model_inputs['input_ids'].to(device)
             attention_mask = model_inputs['attention_mask'].to(device)
             if pixel_values.dim() == 3:
@@ -984,7 +995,7 @@ class CoCoTrainer(Trainer):
 
             # Get generation kwargs from args
             gen_kwargs = self._create_generation_config()
-            
+
             with torch.no_grad():
                 generation_output = internvl_model.generate(
                     pixel_values=pixel_values,
@@ -1001,7 +1012,7 @@ class CoCoTrainer(Trainer):
             return self._clean_generated_response(response)
 
         except Exception as e:
-            logger.error(f"Error in _generate_single_prediction: {e}")
+            logger.error(f"Error in _generate_single_prediction: {e}", exc_info=True)
             logger.error(f"Question: {question}")
             logger.error(f"Pixel values shape: {pixel_values.shape if pixel_values is not None else 'None'}")
             raise GenerationError(f"Failed to generate prediction: {e}")
