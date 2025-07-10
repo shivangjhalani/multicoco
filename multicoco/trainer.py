@@ -989,7 +989,6 @@ class CoCoTrainer(Trainer):
             #       placeholder tokens (<img> … </img>) so the vision encoder
             #       receives patches, but we skip the chat template entirely.
             
-            from multicoco.constants import IMG_CONTEXT_TOKEN
             # Build visual token block (<img> <IMG_CONTEXT>*N </img>)
             num_patches = 1  # one image per call in this helper
             image_tokens = f"{IMG_START_TOKEN}{IMG_CONTEXT_TOKEN * underlying_model.num_image_token * num_patches}{IMG_END_TOKEN}"
@@ -1011,18 +1010,27 @@ class CoCoTrainer(Trainer):
                 # Restore original padding side
                 tokenizer.padding_side = original_padding_side
             
+            # Add proper eos token to match what chat() method does
+            generation_config_with_eos = generation_config.copy()
+            if 'eos_token_id' not in generation_config_with_eos:
+                # Use the default eos token id
+                generation_config_with_eos['eos_token_id'] = tokenizer.eos_token_id
+            
             # Generate
             gen_outputs = underlying_model.generate(
                 pixel_values=pixel_values,
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                **generation_config
+                **generation_config_with_eos
             )
             
             # Only decode the newly generated tokens to improve performance
             input_length = input_ids.shape[1]
             generated_tokens = gen_outputs[0, input_length:]
             response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            
+            # Clean up response and strip eos token if present
+            response = response.split(tokenizer.eos_token)[0].strip() if tokenizer.eos_token else response.strip()
             
             # Clean up response
             return self._clean_generated_response(response)
