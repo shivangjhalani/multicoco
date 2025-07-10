@@ -973,13 +973,42 @@ class CoCoTrainer(Trainer):
             # Ensure correct dtype
             pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
             
-            # Generate response using InternVL's chat method
-            response = underlying_model.chat(
-                self.tokenizer,
-                pixel_values,
-                user_content,
-                generation_config
+            # ------------------------------------------------------------------
+            # OLD: InternVL convenience chat wrapper (creates format mismatch)
+            # response = underlying_model.chat(
+            #     self.tokenizer,
+            #     pixel_values,
+            #     user_content,
+            #     generation_config
+            # )
+            # ------------------------------------------------------------------
+            # NEW: use low-level generate() with the same flat prompt format that
+            #       the model saw during fine-tuning.  We still inject the visual
+            #       placeholder tokens (<img> … </img>) so the vision encoder
+            #       receives patches, but we skip the chat template entirely.
+            
+            from multicoco.constants import IMG_CONTEXT_TOKEN
+            # Build visual token block (<img> <IMG_CONTEXT>*N </img>)
+            num_patches = 1  # one image per call in this helper
+            image_tokens = "<img>" + IMG_CONTEXT_TOKEN * underlying_model.num_image_token * num_patches + "</img>"
+            
+            prompt_text = user_content.replace(IMAGE_TOKEN, image_tokens, 1)
+            
+            # Tokenise prompt (left-pad to keep positions stable)
+            tokenizer = self.tokenizer
+            tokenizer.padding_side = "left"
+            model_inputs = tokenizer(prompt_text, return_tensors="pt")
+            input_ids = model_inputs["input_ids"].to(pixel_values.device)
+            attention_mask = model_inputs["attention_mask"].to(pixel_values.device)
+            
+            # Generate
+            gen_outputs = underlying_model.generate(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **generation_config
             )
+            response = tokenizer.batch_decode(gen_outputs, skip_special_tokens=True)[0]
             
             # Clean up response
             return self._clean_generated_response(response)
