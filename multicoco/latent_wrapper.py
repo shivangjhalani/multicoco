@@ -25,8 +25,14 @@ class LatentWrapper(nn.Module):
 
     def __getattr__(self, name):
         """Delegate unknown attributes to base_model for compatibility."""
+        # Prevent recursion by checking if base_model exists
+        if name == 'base_model':
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        
+        # Get base_model using object.__getattribute__ to avoid recursion
         try:
-            return getattr(self.base_model, name)
+            base_model = object.__getattribute__(self, 'base_model')
+            return getattr(base_model, name)
         except AttributeError:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
