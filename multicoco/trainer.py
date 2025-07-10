@@ -1021,14 +1021,11 @@ class CoCoTrainer(Trainer):
         and uses direct .generate() with manual tokenization to match training format.
         """
         try:
-            # InternVL expects the placeholder <image> to be expanded into:
-            #   <img> + (<IMG_CONTEXT> * num_image_token * num_patches) + </img>
-            # Where <IMG_CONTEXT> marks the positions that will later be
-            # substituted with visual embeddings inside `InternVLChatModel.generate`.
-
-            IMG_START_TOKEN = '<img>'
-            IMG_END_TOKEN = '</img>'
-            IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'  # Must be upper-case to match tokenizer vocab
+            from multicoco.constants import (
+                IMG_START_TOKEN,
+                IMG_END_TOKEN,
+                IMG_CONTEXT_TOKEN,
+            )
 
             if '<image>' in formatted_input:
                 # How many image context tokens to insert?
