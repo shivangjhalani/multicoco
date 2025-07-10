@@ -281,8 +281,11 @@ class LatentWrapper(nn.Module):
                 # NOTE: This assumes the token at `s-1` is a text token. If the
                 # prompt format changes such that `s-1` could be an image token,
                 # this injection logic may become unstable.
-                # Replace the latent tokens *inside* the span (s … e-1)
-                inputs_embeds[b, s:e] = last_hidden[b, s - 1].unsqueeze(0)
+                # Sequentially replace the latent tokens *inside* the span (s … e-1)
+                # with the hidden states from the previous tokens. This creates a
+                # "latent reasoning chain" where each step builds on the last.
+                for i in range(s, e):
+                    inputs_embeds[b, i] = last_hidden[b, i - 1]
 
         # ------------------------------------------------------------------
         # Pass 2: real forward with modified embeddings and cached vision embeds
