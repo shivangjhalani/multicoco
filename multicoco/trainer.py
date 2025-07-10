@@ -1021,7 +1021,21 @@ class CoCoTrainer(Trainer):
         and uses direct .generate() with manual tokenization to match training format.
         """
         try:
-            # Manually tokenize the input (same as training collate_fn)
+            # Dynamically replace the <image> placeholder with the correct number of
+            # <img> context tokens so that InternVL can map image patches.
+            from multicoco.constants import IMG_CONTEXT_TOKEN
+
+            if '<image>' in formatted_input:
+                num_image_token = getattr(model, 'num_image_token', 256)
+                num_patches = pixel_values.shape[0]  # assuming 1 image per sample
+                image_tokens = IMG_CONTEXT_TOKEN * (num_image_token * num_patches)
+                formatted_input = formatted_input.replace('<image>', image_tokens, 1)
+
+            # Ensure the model knows what token id corresponds to IMG_CONTEXT_TOKEN
+            if getattr(model, 'img_context_token_id', None) is None and tokenizer is not None:
+                model.img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+
+            # Manually tokenize the prompt
             model_inputs = tokenizer(
                 formatted_input,
                 return_tensors='pt',
@@ -1037,10 +1051,6 @@ class CoCoTrainer(Trainer):
             attention_mask = model_inputs['attention_mask'].to(device)
             pixel_values = pixel_values.to(device)
             
-            # Prepare image flags for InternVL (indicates which samples have images)
-            batch_size = input_ids.shape[0]
-            image_flags = torch.ones(batch_size, 1, dtype=torch.long, device=device)
-            
             # Set up generation config for the underlying model
             gen_kwargs = generation_config.copy()
             
@@ -1050,7 +1060,6 @@ class CoCoTrainer(Trainer):
                     pixel_values=pixel_values,
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    image_flags=image_flags,
                     **gen_kwargs
                 )
             
