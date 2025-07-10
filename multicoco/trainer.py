@@ -961,13 +961,16 @@ class CoCoTrainer(Trainer):
                 else:
                     question += "\nAnswer the question using a single word or phrase."
             
+            # Get generation kwargs from args, with fallbacks
+            gen_kwargs = getattr(self.args, "generation_kwargs", {}) or {}
+            
             # Create generation config in the format expected by InternVL
             generation_config = {
-                'max_new_tokens': self.args.generation_max_length,
-                'do_sample': False,  # Deterministic generation for evaluation
-                'temperature': 0.0,
-                'top_p': 1.0,
-                'num_beams': 1,
+                'max_new_tokens': gen_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
+                'do_sample': gen_kwargs.get('do_sample', False),
+                'temperature': gen_kwargs.get('temperature', 0.0),
+                'top_p': gen_kwargs.get('top_p', 1.0),
+                'num_beams': gen_kwargs.get('num_beams', 1),
                 'repetition_penalty': 1.0,
             }
             
