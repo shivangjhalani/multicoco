@@ -20,8 +20,7 @@ class LatentWrapper(nn.Module):
         self.latent_id = tokenizer.convert_tokens_to_ids(LATENT_TOKEN)
         self.start_id = tokenizer.convert_tokens_to_ids(START_LATENT_TOKEN)
         self.end_id = tokenizer.convert_tokens_to_ids(END_LATENT_TOKEN)
-
-        self.embedding = self.base_model.get_input_embeddings()
+        self.embedding = base_model.get_input_embeddings()
 
     def __getattr__(self, name):
         """Delegate unknown attributes to base_model for compatibility."""
