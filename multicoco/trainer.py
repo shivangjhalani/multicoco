@@ -950,59 +950,64 @@ class CoCoTrainer(Trainer):
             eval_config = getattr(self.args, "eval_config", {})
             is_cot_eval = eval_config.get('cot', False)
 
-            prompt = ""  # Default to no prompt for CoT, letting the model reason freely
+            # Prepare the input question with proper formatting
+            if '<image>' not in question:
+                question = '<image>\n' + question
+            
+            # Add instruction prompt for vanilla evaluation (non-CoT)
             if not is_cot_eval:
-                # For vanilla eval, explicitly ask for a direct answer
                 if "choices are" in question.lower() or ": " in question:
-                    prompt = " Select the correct choice number (0, 1, 2, or 3)."
+                    question += "\nSelect the correct choice number (0, 1, 2, or 3)."
                 else:
-                    prompt = " Answer the question using a single word or phrase."
+                    question += "\nAnswer the question using a single word or phrase."
             
-            # Construct plain text input matching training format
-            # No chat templates - use same format as training data
-            full_text = f"{question}{prompt}" if prompt else question
+            # Create generation config in the format expected by InternVL
+            generation_config = {
+                'max_new_tokens': self.args.generation_max_length,
+                'do_sample': False,  # Deterministic generation for evaluation
+                'temperature': 0.0,
+                'top_p': 1.0,
+                'num_beams': 1,
+                'repetition_penalty': 1.0,
+            }
             
-            # Create generation config
-            generation_config = self._create_generation_config()
+            # Access the correct model - no need for underlying_model with InternVL
+            internvl_model = model.model if hasattr(model, 'model') else model
             
-            # Access underlying model
-            underlying_model = model.model if hasattr(model, 'model') else model
+            # Get the tokenizer - handle deprecation warning
+            if hasattr(self, 'processing_class'):
+                tokenizer = self.processing_class
+            else:
+                tokenizer = self.tokenizer
             
-            # Ensure correct dtype
-            pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
+            # Ensure pixel values are in the correct format and dtype
+            if pixel_values.dim() == 3:
+                pixel_values = pixel_values.unsqueeze(0)  # Add batch dimension if missing
             
-            # Tokenize input manually (same as training collate_fn approach)
-            input_encoding = self.tokenizer(
-                full_text,
-                padding=False,
-                truncation=True,
-                max_length=DEFAULT_INPUT_MAX_LENGTH,
-                return_tensors='pt',
-                add_special_tokens=True
-            )
+            # Ensure correct device and dtype
+            device = next(internvl_model.parameters()).device
+            dtype = next(internvl_model.parameters()).dtype
+            pixel_values = pixel_values.to(device=device, dtype=dtype)
             
-            input_ids = input_encoding['input_ids'].to(pixel_values.device)
-            attention_mask = input_encoding['attention_mask'].to(pixel_values.device)
-            
-            # Generate using model.generate() directly (not chat method)
-            # This avoids chat templates and matches training format
+            # Use InternVL's .chat() method - this is the correct API
+            # Unlike our previous attempt, we pass pixel_values directly to chat
             with torch.no_grad():
-                generated_ids = underlying_model.generate(
+                response = internvl_model.chat(
+                    tokenizer=tokenizer,
                     pixel_values=pixel_values,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    **generation_config
+                    question=question,
+                    generation_config=generation_config,
+                    history=None,
+                    return_history=False
                 )
-            
-            # Decode response, removing input tokens
-            input_length = input_ids.shape[1]
-            generated_tokens = generated_ids[0][input_length:]
-            response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
             
             # Clean up response
             return self._clean_generated_response(response)
             
         except Exception as e:
+            logger.error(f"Error in _generate_single_prediction: {e}")
+            logger.error(f"Question: {question}")
+            logger.error(f"Pixel values shape: {pixel_values.shape if pixel_values is not None else 'None'}")
             raise GenerationError(f"Failed to generate prediction: {e}")
 
     def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
