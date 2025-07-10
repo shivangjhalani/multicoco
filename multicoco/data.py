@@ -16,16 +16,12 @@ from torch.utils.data import Dataset
 from PIL import Image
 
 # ** Local imports
-# Added latent token constants for label masking
 from .constants import (
     DEFAULT_INPUT_MAX_LENGTH,
     DEFAULT_TARGET_MAX_LENGTH,
     DEFAULT_MAX_LENGTH,
     TEST_DATASET_LIMIT,
-    LOSS_IGNORE_INDEX,
-    LATENT_TOKEN,
-    START_LATENT_TOKEN,
-    END_LATENT_TOKEN
+    LOSS_IGNORE_INDEX
 )
 from .exceptions import (
     DataLoadingError,
@@ -328,36 +324,21 @@ def _create_training_labels(
         Labels tensor with question tokens masked (set to LOSS_IGNORE_INDEX)
     """
     labels = input_ids.clone()
-
-    # 1) Mask the question part (as before)
+    
     for i, question in enumerate(questions):
         try:
+            # Tokenize just the question to determine mask length
             question_tokens = tokenizer(question, add_special_tokens=False)['input_ids']
             question_len = len(question_tokens)
+            
+            # Mask question tokens in labels (ignore in loss calculation)
             if question_len < labels.shape[1]:
                 labels[i, :question_len] = LOSS_IGNORE_INDEX
         except Exception as e:
             logger.warning(f"Failed to mask question tokens for sample {i}: {e}")
+            # If masking fails, keep original labels
             continue
-
-    # 2) Mask latent-reasoning tokens (<|start_latent|>, <|latent|>, <|end_latent|>)
-    try:
-        latent_token_ids = {
-            tok_id for tok_id in [
-                tokenizer.convert_tokens_to_ids(LATENT_TOKEN),
-                tokenizer.convert_tokens_to_ids(START_LATENT_TOKEN),
-                tokenizer.convert_tokens_to_ids(END_LATENT_TOKEN),
-            ] if tok_id is not None and tok_id != tokenizer.unk_token_id
-        }
-
-        if latent_token_ids:
-            # Vectorised masking: create boolean mask where label id is in latent_token_ids
-            latent_id_tensor = torch.tensor(list(latent_token_ids), device=labels.device)
-            mask = (labels.unsqueeze(-1) == latent_id_tensor).any(-1)
-            labels = labels.masked_fill(mask, LOSS_IGNORE_INDEX)
-    except Exception as e:
-        logger.warning(f"Failed to mask latent tokens in labels: {e}")
-
+    
     return labels
 
 

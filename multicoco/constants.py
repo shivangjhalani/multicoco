@@ -36,14 +36,7 @@ END_LATENT_TOKEN = '<|end_latent|>'
 COCONUT_SPECIAL_TOKENS = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
 
 IMAGE_TOKEN = '<image>'
-
-# Image placeholder tokens expected by InternVL chat / generate
-# <img>  : marks start of visual patch block
-# <IMG_CONTEXT> * N : per-patch placeholders to be replaced with Vit embeddings
-# </img> : marks end of visual patch block
-IMG_START_TOKEN = '<img>'
-IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'
-IMG_END_TOKEN = '</img>'
+IMG_CONTEXT_TOKEN = '<img>'
 
 # CoCoNut Training Parameters
 DEFAULT_C_THOUGHT = 0
