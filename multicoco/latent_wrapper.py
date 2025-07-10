@@ -31,27 +31,35 @@ class LatentWrapper(nn.Module):
         labels: Optional[torch.Tensor] = None,
         **kwargs,
     ):
-        # locate latent spans per sample
-        batch_size, seq_len = input_ids.shape
-        device = input_ids.device
-        inputs_embeds = self.embedding(input_ids)
+        """Forward pass with efficient two-pass latent injection.
 
-        # Pre-compute the positions of start/end tokens for each sample
-        spans = []
+        1. First pass (no grad) gets hidden states for the whole sequence.
+        2. Replace <|latent|> token embeddings for each span with the hidden
+           state of the token *before* the span (same semantics as original).
+        3. Second pass produces logits / loss in the usual way.
+        """
+
+        batch_size, seq_len = input_ids.shape
+
+        # ------------------------------------------------------------------
+        # Locate <|start_latent|> … <|end_latent|> spans per sample
+        # ------------------------------------------------------------------
+        spans: list[list[tuple[int, int]]] = []  # (start_idx, end_idx)
         for b in range(batch_size):
             ids = input_ids[b].tolist()
-            span_pairs = []
             cur = 0
+            sample_spans = []
             while True:
                 try:
                     s = ids.index(self.start_id, cur)
                     e = ids.index(self.end_id, s + 1)
-                    span_pairs.append((s, e))
+                    sample_spans.append((s, e))
                     cur = e + 1
                 except ValueError:
                     break
-            spans.append(span_pairs)
+            spans.append(sample_spans)
 
+        # Fast path – no latent spans → delegate directly
         if all(len(pairs) == 0 for pairs in spans):
             return self.base_model(
                 input_ids=input_ids,
@@ -61,32 +69,41 @@ class LatentWrapper(nn.Module):
                 **kwargs,
             )
 
-        past_kv = None
-        logits_chunks = []
-        for t in range(seq_len):
-            # prepare one-token slice to feed
-            tok_embed = inputs_embeds[:, t : t + 1, :]
-            attn_slice = attention_mask[:, t : t + 1] if attention_mask is not None else None
-            output = self.base_model.model(
-                inputs_embeds=tok_embed,
-                attention_mask=attention_mask[:, : t + 1] if attention_mask is not None else None,
-                past_key_values=past_kv,
-                pixel_values=pixel_values if t == 0 else None,
-                use_cache=True,
+        # ------------------------------------------------------------------
+        # Pass 1: obtain last hidden state for the whole sequence (no grad)
+        # ------------------------------------------------------------------
+        with torch.inference_mode():
+            first_out = self.base_model.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                output_hidden_states=True,
             )
-            logits_chunks.append(output.logits)
-            past_kv = output.past_key_values
+        last_hidden = first_out.hidden_states[-1]  # (bs, seq_len, hidden)
 
-            # if this token is END_LATENT, inject hidden state into the FOLLOWING LATENT token (if any)
-            last_hidden = output.hidden_states[-1][:, -1, :]
-            for b, pairs in enumerate(spans):
-                for s, e in pairs:
-                    # replace all latent tokens inside span with the hidden state at (e-1)
-                    if t == s - 1:
-                        # slice e-s-1 latent tokens
-                        inputs_embeds[b, s : e] = last_hidden[b]
+        # ------------------------------------------------------------------
+        # Build modified input embeddings with latent-token replacement
+        # ------------------------------------------------------------------
+        inputs_embeds = self.embedding(input_ids).clone()
+        for b, pairs in enumerate(spans):
+            for s, e in pairs:
+                # Need a token before <|start_latent|> to copy from
+                if s == 0:
+                    continue
+                # Replace the latent tokens *inside* the span (s … e-1)
+                inputs_embeds[b, s:e] = last_hidden[b, s - 1].unsqueeze(0)
 
-        logits = torch.cat(logits_chunks, dim=1)
+        # ------------------------------------------------------------------
+        # Pass 2: real forward with modified embeddings (autograd enabled)
+        # ------------------------------------------------------------------
+        second_out = self.base_model.model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            pixel_values=pixel_values,
+            use_cache=False,
+        )
+        logits = second_out.logits  # (bs, seq_len, vocab)
+
         loss = None
         if labels is not None:
             shift_logits = logits[..., :-1, :].contiguous()
