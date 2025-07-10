@@ -260,7 +260,9 @@ def collate_fn(
             'pixel_values': pixel_values,
             'input_ids': full_encodings['input_ids'],
             'attention_mask': full_encodings['attention_mask'],
-            'labels': labels
+            'labels': labels,
+            'questions': questions,
+            'answers': answers
         }
     
     except Exception as e:
