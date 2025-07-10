@@ -954,15 +954,13 @@ class CoCoTrainer(Trainer):
             if not is_cot_eval:
                 # For vanilla eval, explicitly ask for a direct answer
                 if "choices are" in question.lower() or ": " in question:
-                    prompt = "Select the correct choice number (0, 1, 2, or 3)."
+                    prompt = " Select the correct choice number (0, 1, 2, or 3)."
                 else:
-                    prompt = "Answer the question using a single word or phrase."
+                    prompt = " Answer the question using a single word or phrase."
             
-            # Construct user content, only adding prompt if it exists
-            parts = [f"{IMAGE_TOKEN}\n{question}"]
-            if prompt:
-                parts.append(prompt)
-            user_content = "\n".join(parts)
+            # Construct plain text input matching training format
+            # No chat templates - use same format as training data
+            full_text = f"{question}{prompt}" if prompt else question
             
             # Create generation config
             generation_config = self._create_generation_config()
@@ -973,13 +971,33 @@ class CoCoTrainer(Trainer):
             # Ensure correct dtype
             pixel_values = self._ensure_correct_dtype(pixel_values, underlying_model)
             
-            # Generate response using InternVL's chat method
-            response = underlying_model.chat(
-                self.tokenizer,
-                pixel_values,
-                user_content,
-                generation_config
+            # Tokenize input manually (same as training collate_fn approach)
+            input_encoding = self.tokenizer(
+                full_text,
+                padding=False,
+                truncation=True,
+                max_length=DEFAULT_INPUT_MAX_LENGTH,
+                return_tensors='pt',
+                add_special_tokens=True
             )
+            
+            input_ids = input_encoding['input_ids'].to(pixel_values.device)
+            attention_mask = input_encoding['attention_mask'].to(pixel_values.device)
+            
+            # Generate using model.generate() directly (not chat method)
+            # This avoids chat templates and matches training format
+            with torch.no_grad():
+                generated_ids = underlying_model.generate(
+                    pixel_values=pixel_values,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    **generation_config
+                )
+            
+            # Decode response, removing input tokens
+            input_length = input_ids.shape[1]
+            generated_tokens = generated_ids[0][input_length:]
+            response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
             
             # Clean up response
             return self._clean_generated_response(response)
