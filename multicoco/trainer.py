@@ -992,55 +992,17 @@ class CoCoTrainer(Trainer):
         and uses direct .generate() with manual tokenization to match training format.
         """
         try:
-            # Manually tokenize the input (same as training collate_fn)
-            model_inputs = tokenizer(
-                formatted_input,
-                return_tensors='pt',
-                add_special_tokens=True,
-                padding=False,
-                truncation=True,
-                max_length=DEFAULT_INPUT_MAX_LENGTH
-            )
-            
-            # Move inputs to model device
-            device = model.device
-            input_ids = model_inputs['input_ids'].to(device)
-            attention_mask = model_inputs['attention_mask'].to(device)
-            pixel_values = pixel_values.to(device)
-            
-            # Set up generation config for the underlying model
-            gen_kwargs = generation_config.copy()
-            
-            # For InternVL, we need to call the model's generate method with proper arguments
-            # Check if this is an InternVL model and adjust accordingly
-            if hasattr(model, 'generate'):
-                # Try InternVL-style generation first
-                try:
-                    with torch.no_grad():
-                        generated_ids = model.generate(
-                            pixel_values=pixel_values,
-                            input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            **gen_kwargs
-                        )
-                except Exception as e:
-                    logger.debug(f"InternVL-style generation failed: {e}")
-                    # Fallback to standard generation
-                    with torch.no_grad():
-                        generated_ids = model.generate(
-                            inputs_embeds=self._prepare_inputs_embeds(model, input_ids, pixel_values),
-                            attention_mask=attention_mask,
-                            **gen_kwargs
-                        )
+            # For InternVL models, we need to properly handle image tokens
+            # Check if this is an InternVL model that needs special image token handling
+            if hasattr(model, 'img_context_token_id') or 'InternVL' in model.__class__.__name__:
+                return self._generate_with_internvl_format(
+                    model, tokenizer, pixel_values, formatted_input, generation_config
+                )
             else:
-                raise RuntimeError("Model does not have generate method")
-            
-            # Decode only the newly generated tokens (excluding input)
-            input_length = input_ids.shape[1]
-            generated_tokens = generated_ids[0, input_length:]
-            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            
-            return response.strip()
+                # For other models, use the original direct generation approach
+                return self._generate_with_standard_format(
+                    model, tokenizer, pixel_values, formatted_input, generation_config
+                )
             
         except Exception as e:
             # Include the actual error message for better debugging
@@ -1050,6 +1012,131 @@ class CoCoTrainer(Trainer):
             return self._fallback_to_chat_method(
                 model, tokenizer, pixel_values, formatted_input, generation_config
             )
+    
+    def _generate_with_internvl_format(
+        self,
+        model: nn.Module,
+        tokenizer,
+        pixel_values: torch.Tensor,
+        formatted_input: str,
+        generation_config: Dict[str, Any]
+    ) -> str:
+        """
+        Generate response specifically for InternVL models with proper image token handling.
+        """
+        # Set up InternVL-specific image context tokens
+        IMG_START_TOKEN = '<img>'
+        IMG_END_TOKEN = '</img>'
+        IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'
+        
+        # Get or set the image context token ID
+        img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+        if img_context_token_id == tokenizer.unk_token_id:
+            # Token not found, this might not be an InternVL tokenizer
+            raise ValueError(f"Image context token '{IMG_CONTEXT_TOKEN}' not found in tokenizer")
+        
+        # Set the img_context_token_id on the model (required for InternVL)
+        model.img_context_token_id = img_context_token_id
+        
+        # Determine number of image patches (default to 1 for single image)
+        num_patches = 1
+        if pixel_values is not None:
+            # For InternVL, we typically have 1 patch per image
+            num_patches = pixel_values.shape[0] if len(pixel_values.shape) > 3 else 1
+        
+        # Get the number of image tokens per patch (default from InternVL)
+        num_image_token = getattr(model, 'num_image_token', 256)
+        
+        # Replace <image> token with InternVL format: <img><IMG_CONTEXT>*N</img>
+        image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * num_image_token * num_patches + IMG_END_TOKEN
+        processed_input = formatted_input.replace('<image>', image_tokens, 1)
+        
+        # Tokenize the processed input
+        model_inputs = tokenizer(
+            processed_input,
+            return_tensors='pt',
+            add_special_tokens=True,
+            padding=False,
+            truncation=True,
+            max_length=DEFAULT_INPUT_MAX_LENGTH
+        )
+        
+        # Move inputs to model device
+        device = model.device
+        input_ids = model_inputs['input_ids'].to(device)
+        attention_mask = model_inputs['attention_mask'].to(device)
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(device)
+        
+        # Set up generation config for the underlying model
+        gen_kwargs = generation_config.copy()
+        
+        # Generate using InternVL's generate method
+        with torch.no_grad():
+            generated_ids = model.generate(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **gen_kwargs
+            )
+        
+        # Decode only the newly generated tokens (excluding input)
+        input_length = input_ids.shape[1]
+        generated_tokens = generated_ids[0, input_length:]
+        response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        
+        return response.strip()
+
+    def _generate_with_standard_format(
+        self,
+        model: nn.Module,
+        tokenizer,
+        pixel_values: torch.Tensor,
+        formatted_input: str,
+        generation_config: Dict[str, Any]
+    ) -> str:
+        """
+        Generate response for standard models (non-InternVL).
+        """
+        # Manually tokenize the input (same as training collate_fn)
+        model_inputs = tokenizer(
+            formatted_input,
+            return_tensors='pt',
+            add_special_tokens=True,
+            padding=False,
+            truncation=True,
+            max_length=DEFAULT_INPUT_MAX_LENGTH
+        )
+        
+        # Move inputs to model device
+        device = model.device
+        input_ids = model_inputs['input_ids'].to(device)
+        attention_mask = model_inputs['attention_mask'].to(device)
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(device)
+        
+        # Set up generation config for the underlying model
+        gen_kwargs = generation_config.copy()
+        
+        # Generate using the model's generate method directly
+        with torch.no_grad():
+            if hasattr(model, 'generate'):
+                generated_ids = model.generate(
+                    pixel_values=pixel_values,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    **gen_kwargs
+                )
+            else:
+                # Fallback for models without generate method
+                raise RuntimeError("Model does not have generate method")
+        
+        # Decode only the newly generated tokens (excluding input)
+        input_length = input_ids.shape[1]
+        generated_tokens = generated_ids[0, input_length:]
+        response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        
+        return response.strip()
     
     def _prepare_inputs_embeds(self, model: nn.Module, input_ids: torch.Tensor, pixel_values: torch.Tensor) -> torch.Tensor:
         """Prepare input embeddings for models that need explicit embedding preparation."""
