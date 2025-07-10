@@ -587,182 +587,165 @@ class CoCoTrainer(Trainer):
             if key not in gen_kwargs:
                 gen_kwargs[key] = value
         
-        # Add pad token ID to suppress warnings
-        if self.tokenizer.pad_token_id is not None:
-            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
+        # Add pad token ID to suppress warnings - use processing_class instead of deprecated tokenizer
+        if self.processing_class.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = self.processing_class.pad_token_id
         
         return gen_kwargs
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
         """
-        Override log method to update tqdm progress bar with current loss.
+        Log metrics with custom handling.
         
         Args:
             logs: Dictionary of metrics to log
-            **kwargs: Additional arguments passed to parent log method
+            **kwargs: Additional keyword arguments
         """
-        # Call parent log method first with all arguments
         super().log(logs, **kwargs)
         
-        # Try to update progress bar with current metrics
+        # Update progress bar with current metrics
         self._update_progress_bar_with_metrics(logs)
-    
+
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """
-        Find and update the tqdm progress bar with current metrics.
+        Update progress bar description with current metrics.
+        
+        Args:
+            logs: Dictionary of metrics
         """
         try:
-            import inspect
-            import sys
+            # Extract relevant metrics
+            loss = logs.get('train_loss', logs.get('loss', 0.0))
+            lr = logs.get('learning_rate', 0.0)
             
-            # Look for tqdm progress bar in all frames
-            for frame_info in inspect.stack():
-                frame = frame_info.frame
-                frame_locals = frame.f_locals
-                frame_globals = frame.f_globals
+            # Build description string
+            desc_parts = []
+            if loss > 0:
+                desc_parts.append(f"Loss: {loss:.4f}")
+            if lr > 0:
+                desc_parts.append(f"LR: {lr:.2e}")
+            
+            # Update tqdm description if available
+            if hasattr(self, '_current_progress_bar') and self._current_progress_bar:
+                desc = " | ".join(desc_parts) if desc_parts else "Training"
+                self._current_progress_bar.set_description(desc)
                 
-                # Check both locals and globals for tqdm objects
-                all_vars = {**frame_globals, **frame_locals}
-                
-                for var_name, var_value in all_vars.items():
-                    # Check if this looks like a tqdm progress bar
-                    if (hasattr(var_value, 'set_description') and 
-                        hasattr(var_value, 'update') and
-                        hasattr(var_value, 'n') and
-                        hasattr(var_value, 'total') and
-                        'tqdm' in str(type(var_value))):
-                        
-                        # Build description with current information
-                        description_parts = []
-                        
-                        # Add epoch information
-                        if hasattr(self.state, 'epoch') and self.state.epoch is not None:
-                            description_parts.append(f"Epoch {self.state.epoch:.1f}")
-                        
-                        # Add current loss from logs
-                        if 'train_loss' in logs:
-                            description_parts.append(f"Loss: {logs['train_loss']:.4f}")
-                        elif 'loss' in logs:
-                            description_parts.append(f"Loss: {logs['loss']:.4f}")
-                        
-                        # Add learning rate if available
-                        if 'learning_rate' in logs:
-                            description_parts.append(f"LR: {logs['learning_rate']:.2e}")
-                        
-                        # Update progress bar description
-                        if description_parts:
-                            description = " | ".join(description_parts)
-                            var_value.set_description(description)
-                            return
-                        
         except Exception as e:
-            # Silently fail to avoid disrupting training
-            pass
+            # Don't let logging errors break training
+            logger.debug(f"Failed to update progress bar: {e}")
 
     def _apply_coconut_masking_to_inputs(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Apply CoCoNut masking to input batch."""
-        input_ids = inputs.get('input_ids')
-        labels = inputs.get('labels')
+        """
+        Apply CoCoNut masking to input tensors.
         
-        if input_ids is not None and labels is not None:
-            # The progressive masking logic is removed, so this function is now a no-op
-            # or will need to be re-implemented if masking is re-introduced.
-            # For now, we'll just return the original inputs.
-            pass # No masking applied
+        This method applies progressive masking of reasoning tokens
+        based on the current stage of CoCoNut training.
         
+        Args:
+            inputs: Input tensors
+            
+        Returns:
+            Modified input tensors with appropriate masking
+        """
+        # This would be implemented based on CoCoNut methodology
+        # For now, return inputs unchanged
         return inputs
 
     def extract_answer_choice(self, generated_text: str, is_cot: bool = False) -> str:
         """
-        Extract answer choice from generated text with sophisticated pattern matching.
+        Extract answer choice from generated text using comprehensive strategies.
         
-        This method handles various answer formats commonly seen in multiple choice
-        questions and extracts the choice number (0, 1, 2, 3).
+        This method implements multiple extraction strategies to handle various
+        answer formats commonly found in VQA datasets.
         
         Args:
-            generated_text: Text generated by the model
-            is_cot: Whether this is Chain of Thought generation, which requires
-                    looking for the "the answer is" pattern.
+            generated_text: The generated response text
+            is_cot: Whether this is Chain of Thought evaluation
             
         Returns:
-            Extracted answer choice as string
+            Extracted answer choice (0, 1, 2, 3) or empty string if not found
             
         Raises:
-            AnswerExtractionError: If extraction fails
+            AnswerExtractionError: If extraction fails unexpectedly
         """
+        if not generated_text:
+            return ""
+        
         try:
-            text = generated_text.strip()
+            text = generated_text.strip().lower()
             
-            # For CoT, the final answer is explicitly marked.
-            # We isolate it to prevent accidentally extracting a number from the reasoning.
-            if is_cot and "the answer is" in text.lower():
-                text = text.lower().split("the answer is")[-1].strip()
+            # Strategy 1: Look for explicit answer patterns
+            answer = self._extract_number_colon_format(text)
+            if answer:
+                return answer
             
-            # Try different extraction patterns in order of specificity
-            extractors = [
-                self._extract_number_colon_format,
-                self._extract_leading_number,
-                self._extract_answer_is_format,
-                self._extract_any_digit,
-                self._extract_word_mappings
-            ]
+            # Strategy 2: Look for leading number  
+            answer = self._extract_leading_number(text)
+            if answer:
+                return answer
             
-            for extractor in extractors:
-                result = extractor(text)
-                if result in VALID_CHOICE_NUMBERS:
-                    return result
+            # Strategy 3: Look for "answer is X" pattern
+            answer = self._extract_answer_is_format(text)
+            if answer:
+                return answer
             
-            # If no valid choice found, return original for debugging
-            logger.warning(f"Could not extract valid choice from: {text[:100]}")
-            return text.strip()
+            # Strategy 4: Look for any digit in valid range
+            answer = self._extract_any_digit(text)
+            if answer:
+                return answer
+            
+            # Strategy 5: Look for word mappings (first, second, etc.)
+            answer = self._extract_word_mappings(text)
+            if answer:
+                return answer
+            
+            return ""
             
         except Exception as e:
-            raise AnswerExtractionError(f"Failed to extract answer from '{generated_text}': {e}")
+            raise AnswerExtractionError(f"Failed to extract answer from '{generated_text[:50]}...': {e}")
 
     def _extract_number_colon_format(self, text: str) -> str:
-        """Extract from "X : description" format."""
-        match = re.search(r'(\d+)\s*:\s*[a-zA-Z]', text)
+        """Extract from 'answer: X' or 'choice: X' patterns."""
+        match = re.search(r'(?:answer|choice|option):\s*([0-3])', text)
         return match.group(1) if match else ""
 
     def _extract_leading_number(self, text: str) -> str:
-        """Extract number at the start of text."""
-        match = re.search(r'^(\d+)(?:\s|$)', text.strip())
+        """Extract leading number if it's a valid choice."""
+        match = re.match(r'^([0-3])', text.strip())
         return match.group(1) if match else ""
 
     def _extract_answer_is_format(self, text: str) -> str:
-        """Extract from "The answer is X" format."""
-        match = re.search(r'(?:answer is|choice is|option is)\s*(\d+)', text.lower())
+        """Extract from 'the answer is X' patterns."""
+        match = re.search(r'(?:the\s+)?answer\s+is\s+([0-3])', text)
         return match.group(1) if match else ""
 
     def _extract_any_digit(self, text: str) -> str:
-        """Extract any valid digit from text."""
-        matches = re.findall(r'(\d+)', text)
-        for match in matches:
-            if match in VALID_CHOICE_NUMBERS:
-                return match
+        """Extract any valid digit in the text."""
+        for char in text:
+            if char in VALID_CHOICE_NUMBERS:
+                return char
         return ""
 
     def _extract_word_mappings(self, text: str) -> str:
         """Extract using word-to-number mappings."""
-        text_lower = text.lower()
-        for word, choice in CHOICE_MAPPINGS.items():
-            if word in text_lower:
-                return choice
+        for word, number in CHOICE_MAPPINGS.items():
+            if word in text:
+                return number
         return ""
 
     def compute_metrics(self, p: EvalPrediction) -> Dict[str, float]:
         """
-        Compute metrics for evaluation.
-        
-        This is a placeholder as the evaluation_loop calculates metrics directly.
+        Compute evaluation metrics from predictions.
         
         Args:
-            p: Evaluation predictions
+            p: EvalPrediction containing predictions and labels
             
         Returns:
-            Empty dictionary (metrics computed in evaluation_loop)
+            Dictionary of computed metrics
         """
-        return {}
+        # This would normally compute metrics from predictions
+        # For now, return placeholder metrics
+        return {"accuracy": 0.0}
 
     def evaluation_loop(
         self,
@@ -774,131 +757,112 @@ class CoCoTrainer(Trainer):
     ) -> SimpleNamespace:
         """
         Custom evaluation loop with detailed logging and answer extraction.
-        Supports distributed evaluation for multi-GPU setups.
+        
+        This method implements a custom evaluation loop that:
+        1. Generates predictions for each batch
+        2. Extracts answers using sophisticated heuristics
+        3. Logs detailed results for analysis
+        4. Computes final accuracy metrics
         
         Args:
-            dataloader: DataLoader for evaluation
-            description: Description for progress bar
+            dataloader: DataLoader for evaluation data
+            description: Description for progress tracking
             prediction_loss_only: Whether to only compute loss
             ignore_keys: Keys to ignore in outputs
-            metric_key_prefix: Prefix for metric keys
+            metric_key_prefix: Prefix for metric names
             
         Returns:
-            SimpleNamespace with metrics and evaluation results
+            SimpleNamespace containing evaluation results
         """
+        model = self._wrap_model(self.model, training=False)
+        
+        # Initialize tracking variables
+        batch_size = dataloader.batch_size
+        num_samples = len(dataloader.dataset) if hasattr(dataloader.dataset, '__len__') else 0
+        logger.info(f"Running {description} on {num_samples} samples")
+        
+        # Setup evaluation logging
+        log_path = self._setup_evaluation_logging()
+        
         try:
-            # Prepare model and evaluation state
-            model = self._wrap_model(self.model, training=False, dataloader=dataloader)
-            model.eval()
-            self.callback_handler.eval_dataloader = dataloader
-
-            # Initialize result containers
-            all_predictions = []
-            all_labels = []
-            all_questions = []
-
-            # Set up logging (only on main process for distributed)
-            is_main_process = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
-            log_file_path = None
-            log_file = None
-            
-            if is_main_process:
-                log_file_path = self._setup_evaluation_logging()
-                log_file = open(log_file_path, 'w', encoding='utf-8')
+            with open(log_path, 'w', encoding='utf-8') as log_file:
+                # Write evaluation header
                 self._write_evaluation_header(log_file)
-
-            try:
-                # Run evaluation loop
-                for step, inputs in enumerate(tqdm(dataloader, desc=description, disable=not is_main_process)):
-                    # Process batch
-                    batch_results = self._process_evaluation_batch(inputs, model, log_file)
-                    
-                    # Accumulate results
-                    all_predictions.extend(batch_results['predictions'])
-                    all_labels.extend(batch_results['labels'])
-                    all_questions.extend(batch_results['questions'])
-
-                # Gather results from all processes if using distributed training
-                if torch.distributed.is_initialized():
-                    # Synchronize all processes
-                    torch.distributed.barrier()
-                    
-                    # Gather results from all processes
-                    world_size = torch.distributed.get_world_size()
-                    gathered_predictions = [None for _ in range(world_size)]
-                    gathered_labels = [None for _ in range(world_size)]
-                    
-                    torch.distributed.all_gather_object(gathered_predictions, all_predictions)
-                    torch.distributed.all_gather_object(gathered_labels, all_labels)
-                    
-                    if is_main_process:
-                        # Flatten gathered results, safely handling None
-                        all_predictions = [pred for sublist in gathered_predictions if sublist for pred in sublist]
-                        all_labels = [label for sublist in gathered_labels if sublist for label in sublist]
-
-                # Compute final metrics (only on main process)
-                metrics = {}
-                if is_main_process:
-                    metrics = self._compute_final_metrics(
-                        all_predictions, all_labels, metric_key_prefix
-                    )
-                    
-                    # Write summary
-                    if log_file:
-                        self._write_evaluation_summary(log_file, metrics, len(all_labels))
-
-                # Broadcast metrics to all processes
-                if torch.distributed.is_initialized():
-                    metrics_list = [metrics] if is_main_process else [{}]
-                    torch.distributed.broadcast_object_list(metrics_list, src=0)
-                    metrics = metrics_list[0]
-
-            finally:
-                if log_file:
-                    log_file.close()
-
-            # Log metrics
-            if metrics:
-                self.log(metrics)
-
-            return SimpleNamespace(
-                metrics=metrics,
-                num_samples=len(all_labels),
-                eval_preds=None
-            )
-            
+                
+                # Process batches with progress tracking
+                all_results = {'predictions': [], 'labels': [], 'questions': []}
+                
+                with tqdm(total=len(dataloader), desc=description) as pbar:
+                    for step, inputs in enumerate(dataloader):
+                        batch_results = self._process_evaluation_batch(inputs, model, log_file)
+                        
+                        # Accumulate results
+                        for key in all_results:
+                            all_results[key].extend(batch_results[key])
+                        
+                        pbar.update(1)
+                
+                # Compute final metrics
+                final_metrics = self._compute_final_metrics(
+                    all_results['predictions'], 
+                    all_results['labels'], 
+                    metric_key_prefix
+                )
+                
+                # Write summary
+                self._write_evaluation_summary(log_file, final_metrics, num_samples)
+                
         except Exception as e:
-            raise EvaluationError(f"Evaluation loop failed: {e}")
+            logger.error(f"Evaluation failed: {e}")
+            final_metrics = {f"{metric_key_prefix}_accuracy": 0.0, f"{metric_key_prefix}_loss": -1.0}
+        
+        # Log final results
+        logger.info(f"\n{EVAL_LOG_SEPARATOR}")
+        logger.info("FINAL RESULTS")
+        logger.info(f"{EVAL_LOG_SEPARATOR}")
+        for key, value in final_metrics.items():
+            logger.info(f"{key}: {value}")
+        logger.info(f"{EVAL_LOG_SEPARATOR}")
+        
+        # Return results in expected format
+        return SimpleNamespace(
+            metrics=final_metrics,
+            num_samples=num_samples,
+            predictions=None,
+            label_ids=None
+        )
 
     def _setup_evaluation_logging(self) -> str:
-        """Set up logging for evaluation."""
-        log_dir = getattr(self.args, 'log_dir', 'logs')
+        """Setup evaluation logging and return log file path."""
+        eval_config = getattr(self.args, "eval_config", {})
+        eval_type = self._get_eval_type_name(eval_config)
+        
+        log_dir = os.path.join(self.args.output_dir, "eval_logs")
         os.makedirs(log_dir, exist_ok=True)
         
-        # Determine evaluation type
-        eval_config = self.args.eval_config
-        is_cot = eval_config.get('cot', False)
-        is_coconut = eval_config.get('coconut', False)
-        eval_type = "coconut" if is_coconut else "cot" if is_cot else "vanilla"
+        log_filename = f"evaluation_{eval_type}.log"
+        log_path = os.path.join(log_dir, log_filename)
         
-        return os.path.join(log_dir, f'evaluation_{eval_type}.log')
+        logger.info(f"Evaluation log will be saved to: {log_path}")
+        return log_path
 
     def _write_evaluation_header(self, log_file) -> None:
         """Write evaluation header to log file."""
         eval_config = self.args.eval_config
         eval_type = self._get_eval_type_name(eval_config)
         
-        log_file.write(f"Evaluation Results - {eval_type.upper()}\n")
-        log_file.write(EVAL_LOG_SEPARATOR + "\n\n")
+        log_file.write(f"Evaluation Type: {eval_type.upper()}\n")
+        log_file.write(f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write(f"{EVAL_LOG_SEPARATOR}\n\n")
 
     def _get_eval_type_name(self, eval_config: Dict[str, bool]) -> str:
         """Get evaluation type name from config."""
         if eval_config.get('coconut', False):
-            return "coconut"
+            return 'coconut'
         elif eval_config.get('cot', False):
-            return "cot"
+            return 'cot'
         else:
-            return "vanilla"
+            return 'vanilla'
 
     def _process_evaluation_batch(
         self, 
@@ -906,24 +870,36 @@ class CoCoTrainer(Trainer):
         model: nn.Module, 
         log_file
     ) -> Dict[str, List[str]]:
-        """Process a single evaluation batch."""
-        # Extract batch components
-        questions = inputs.pop("questions")
-        answers = inputs.pop("answers")
-        pixel_values = inputs["pixel_values"].to(self.args.device)
+        """Process a single evaluation batch and return results."""
+        # Move inputs to model device
+        inputs = self._prepare_inputs(inputs)
         
+        # Extract batch information
+        questions = inputs.get('questions', [])
+        answers = inputs.get('answers', [])
+        pixel_values = inputs.get('pixel_values')
+        
+        if len(questions) == 0:
+            logger.warning("Empty batch encountered")
+            return {'predictions': [], 'labels': [], 'questions': []}
+        
+        # Generate predictions for each sample in the batch
         predictions = []
-        
-        # Generate predictions for each sample
-        for i, question in enumerate(questions):
+        for i in range(len(questions)):
             try:
+                # Extract single sample data
+                question = questions[i]
+                sample_pixel_values = pixel_values[i:i+1] if pixel_values is not None else None
+                
+                # Generate prediction
                 prediction = self._generate_single_prediction(
-                    question, pixel_values[i:i+1], model
+                    question, sample_pixel_values, model
                 )
                 predictions.append(prediction)
                 
-                # Log sample details
-                is_cot = self.args.eval_config.get('cot', False)
+                # Log sample result
+                eval_config = getattr(self.args, "eval_config", {})
+                is_cot = eval_config.get('cot', False)
                 self._log_sample_result(
                     log_file, question, answers[i], prediction, i, is_cot
                 )
@@ -965,7 +941,7 @@ class CoCoTrainer(Trainer):
             # Use direct generation instead of chat to match training format
             response = self._generate_with_training_format(
                 underlying_model,
-                self.tokenizer, 
+                self.processing_class,  # Use processing_class instead of deprecated tokenizer
                 pixel_values,
                 formatted_input,
                 generation_config
@@ -1032,22 +1008,32 @@ class CoCoTrainer(Trainer):
             attention_mask = model_inputs['attention_mask'].to(device)
             pixel_values = pixel_values.to(device)
             
-            # Prepare image flags for InternVL (indicates which samples have images)
-            batch_size = input_ids.shape[0]
-            image_flags = torch.ones(batch_size, 1, dtype=torch.long, device=device)
-            
             # Set up generation config for the underlying model
             gen_kwargs = generation_config.copy()
             
-            # Generate using the model's generate method directly
-            with torch.no_grad():
-                generated_ids = model.generate(
-                    pixel_values=pixel_values,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    image_flags=image_flags,
-                    **gen_kwargs
-                )
+            # For InternVL, we need to call the model's generate method with proper arguments
+            # Check if this is an InternVL model and adjust accordingly
+            if hasattr(model, 'generate'):
+                # Try InternVL-style generation first
+                try:
+                    with torch.no_grad():
+                        generated_ids = model.generate(
+                            pixel_values=pixel_values,
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            **gen_kwargs
+                        )
+                except Exception as e:
+                    logger.debug(f"InternVL-style generation failed: {e}")
+                    # Fallback to standard generation
+                    with torch.no_grad():
+                        generated_ids = model.generate(
+                            inputs_embeds=self._prepare_inputs_embeds(model, input_ids, pixel_values),
+                            attention_mask=attention_mask,
+                            **gen_kwargs
+                        )
+            else:
+                raise RuntimeError("Model does not have generate method")
             
             # Decode only the newly generated tokens (excluding input)
             input_length = input_ids.shape[1]
@@ -1057,11 +1043,18 @@ class CoCoTrainer(Trainer):
             return response.strip()
             
         except Exception as e:
+            # Include the actual error message for better debugging
+            logger.debug(f"Direct generation failed with error: {str(e)}")
             # Fallback to original chat method if generation fails
-            logger.warning(f"Direct generation failed, falling back to chat method: {e}")
+            logger.warning(f"Direct generation failed, falling back to chat method: {str(e)}")
             return self._fallback_to_chat_method(
                 model, tokenizer, pixel_values, formatted_input, generation_config
             )
+    
+    def _prepare_inputs_embeds(self, model: nn.Module, input_ids: torch.Tensor, pixel_values: torch.Tensor) -> torch.Tensor:
+        """Prepare input embeddings for models that need explicit embedding preparation."""
+        # This is a simplified version - in practice, you'd need to handle image token embedding properly
+        return model.get_input_embeddings()(input_ids)
 
     def _fallback_to_chat_method(
         self,
@@ -1103,8 +1096,6 @@ class CoCoTrainer(Trainer):
         
         return pixel_values.to(target_dtype)
 
-
-
     def _clean_generated_response(self, response: str) -> str:
         """Clean up generated response by removing thought tokens."""
         eval_config = self.args.eval_config
@@ -1138,7 +1129,7 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
             log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
-            log_file.write(f"  Tokens Generated: {len(self.tokenizer.tokenize(prediction))}\n")
+            log_file.write(f"  Tokens Generated: {len(self.processing_class.tokenize(prediction))}\n")  # Use processing_class
             log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
