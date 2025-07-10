@@ -23,6 +23,145 @@ class LatentWrapper(nn.Module):
 
         self.embedding = self.base_model.get_input_embeddings()
 
+    def __getattr__(self, name):
+        """Delegate unknown attributes to base_model for compatibility."""
+        try:
+            return getattr(self.base_model, name)
+        except AttributeError:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        pixel_values: Optional[torch.Tensor] = None,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Custom generation method that handles latent token injection.
+        
+        For inputs containing latent spans, we need to do token-by-token generation
+        calling our forward method to ensure proper latent injection at each step.
+        For inputs without latent spans, we delegate to the base model's generate.
+        """
+        # Check if input contains latent spans
+        has_latent_spans = self._has_latent_spans(input_ids)
+        
+        if not has_latent_spans:
+            # No latent spans, delegate to base model for efficiency
+            return self.base_model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                **kwargs
+            )
+        
+        # Contains latent spans, use custom generation loop
+        return self._generate_with_latent_injection(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            pixel_values=pixel_values,
+            **kwargs
+        )
+
+    def _has_latent_spans(self, input_ids: torch.Tensor) -> bool:
+        """Check if input contains latent token spans."""
+        batch_size = input_ids.shape[0]
+        for b in range(batch_size):
+            ids = input_ids[b].tolist()
+            if self.start_id in ids and self.end_id in ids:
+                return True
+        return False
+
+    def _generate_with_latent_injection(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        pixel_values: Optional[torch.Tensor] = None,
+        max_new_tokens: int = 50,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        top_k: int = 50,
+        pad_token_id: Optional[int] = None,
+        eos_token_id: Optional[int] = None,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Token-by-token generation with latent injection.
+        
+        This implements a simplified generation loop that calls our forward method
+        at each step to ensure latent token injection is properly applied.
+        """
+        device = input_ids.device
+        batch_size, seq_len = input_ids.shape
+        
+        # Set default token IDs
+        if pad_token_id is None:
+            pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
+        if eos_token_id is None:
+            eos_token_id = self.tokenizer.eos_token_id
+        
+        # Initialize generation state
+        generated_ids = input_ids.clone()
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids)
+        
+        # Generation loop
+        for _ in range(max_new_tokens):
+            # Forward pass with latent injection
+            with torch.no_grad():
+                outputs = self.forward(
+                    input_ids=generated_ids,
+                    attention_mask=attention_mask,
+                    pixel_values=pixel_values
+                )
+            
+            # Get next token logits
+            logits = outputs["logits"][:, -1, :]  # (batch_size, vocab_size)
+            
+            # Apply temperature
+            if temperature != 1.0:
+                logits = logits / temperature
+            
+            # Apply top_k filtering
+            if top_k > 0:
+                top_k_logits, top_k_indices = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits = torch.full_like(logits, float('-inf'))
+                logits.scatter_(1, top_k_indices, top_k_logits)
+            
+            # Apply top_p filtering
+            if top_p < 1.0:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                sorted_indices_to_remove = cumulative_probs > top_p
+                sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
+                sorted_indices_to_remove[:, 0] = 0
+                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                logits[indices_to_remove] = float('-inf')
+            
+            # Sample next token
+            if do_sample:
+                probs = torch.softmax(logits, dim=-1)
+                next_token_id = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
+            
+            # Append to generated sequence
+            generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
+            
+            # Update attention mask
+            new_mask_col = torch.ones((batch_size, 1), device=device)
+            if attention_mask is not None:
+                new_mask_col = new_mask_col.to(dtype=attention_mask.dtype)
+            attention_mask = torch.cat([attention_mask, new_mask_col], dim=1)
+            
+            # Check for EOS token (simple check for all sequences)
+            if eos_token_id is not None and (next_token_id == eos_token_id).all():
+                break
+        
+        return generated_ids
+
     def forward(
         self,
         input_ids: torch.Tensor,
