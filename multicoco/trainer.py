@@ -1021,17 +1021,29 @@ class CoCoTrainer(Trainer):
         and uses direct .generate() with manual tokenization to match training format.
         """
         try:
-            # Dynamically replace the <image> placeholder with the correct number of
-            # <img> context tokens so that InternVL can map image patches.
-            from multicoco.constants import IMG_CONTEXT_TOKEN
+            # InternVL expects the placeholder <image> to be expanded into:
+            #   <img> + (<IMG_CONTEXT> * num_image_token * num_patches) + </img>
+            # Where <IMG_CONTEXT> marks the positions that will later be
+            # substituted with visual embeddings inside `InternVLChatModel.generate`.
+
+            IMG_START_TOKEN = '<img>'
+            IMG_END_TOKEN = '</img>'
+            IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'  # Must be upper-case to match tokenizer vocab
 
             if '<image>' in formatted_input:
+                # How many image context tokens to insert?
                 num_image_token = getattr(model, 'num_image_token', 256)
-                num_patches = pixel_values.shape[0]  # assuming 1 image per sample
-                image_tokens = IMG_CONTEXT_TOKEN * (num_image_token * num_patches)
+                num_patches = pixel_values.shape[0]  # Usually 1 patch group per image
+
+                image_tokens = (
+                    IMG_START_TOKEN
+                    + IMG_CONTEXT_TOKEN * (num_image_token * num_patches)
+                    + IMG_END_TOKEN
+                )
+
                 formatted_input = formatted_input.replace('<image>', image_tokens, 1)
 
-            # Ensure the model knows what token id corresponds to IMG_CONTEXT_TOKEN
+            # Ensure the model knows the ID of <IMG_CONTEXT>
             if getattr(model, 'img_context_token_id', None) is None and tokenizer is not None:
                 model.img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
 
@@ -1067,7 +1079,7 @@ class CoCoTrainer(Trainer):
             input_length = input_ids.shape[1]
             generated_tokens = generated_ids[0, input_length:]
             response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            
+
             return response.strip()
             
         except Exception as e:
