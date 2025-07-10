@@ -284,7 +284,6 @@ class CoCoTrainer(Trainer):
                     max_latent_stage=max_latent_stage,
                     uniform_prob=uniform_prob,
                     pad_latent_to_max=pad_latent_to_max,
-                    shuffle=True
                 )
             else:
                 logger.warning("Training dataset does not support progressive curriculum")

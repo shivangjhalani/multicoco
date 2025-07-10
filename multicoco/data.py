@@ -85,8 +85,7 @@ class SupervisedDataset(Dataset):
         max_latent_stage: int,
         uniform_prob: float = 0.0,
         pad_latent_to_max: bool = False,
-        no_cot: bool = False,
-        shuffle: bool = False
+        no_cot: bool = False
     ) -> None:
         """
         Apply progressive curriculum learning to the dataset.
@@ -101,7 +100,6 @@ class SupervisedDataset(Dataset):
             uniform_prob: Probability to randomly sample from other stages
             pad_latent_to_max: Whether to pad latent tokens to max stage
             no_cot: If True, skip all reasoning steps
-            shuffle: Whether to shuffle the processed dataset
         """
         logger.info(f"Applying progressive curriculum for stage {scheduled_stage}")
         
@@ -113,8 +111,7 @@ class SupervisedDataset(Dataset):
             max_latent_stage=max_latent_stage,
             uniform_prob=uniform_prob,
             pad_latent_to_max=pad_latent_to_max,
-            no_cot=no_cot,
-            shuffle=shuffle
+            no_cot=no_cot
         )
         
         # Update the dataset with processed data
@@ -339,11 +336,10 @@ def create_progressive_latent_dataset(
     max_latent_stage: int,
     uniform_prob: float = 0.0,
     pad_latent_to_max: bool = False,
-    no_cot: bool = False,
-    shuffle: bool = False
+    no_cot: bool = False
 ) -> List[Dict]:
     """
-    Create dataset with progressive latent token replacement following original CoCoNut methodology.
+    Create a dataset for a specific stage of progressive latent training.
     
     This function implements the core progressive curriculum learning:
     - Stage 0: Full CoT (question + reasoning_steps + answer)
@@ -352,17 +348,16 @@ def create_progressive_latent_dataset(
     - Stage N: Replace N reasoning steps with N×c_thought latent tokens
     
     Args:
-        scheduled_stage: Current training stage (0=CoT, 1+=progressive latent)
-        base_dataset: Base dataset with question, steps, and answer
+        scheduled_stage: The target stage for curriculum application
+        base_dataset: The original dataset with full reasoning steps
         c_thought: Number of continuous thoughts per reasoning step
-        max_latent_stage: Maximum number of latent stages
-        uniform_prob: Probability to randomly sample from other stages (default: 0.0)
-        pad_latent_to_max: Whether to pad latent tokens to max stage
-        no_cot: If True, skip all reasoning steps (for ablation)
-        shuffle: Whether to shuffle the processed dataset
+        max_latent_stage: The maximum number of latent stages
+        uniform_prob: Probability to sample from other stages for diversity
+        pad_latent_to_max: Whether to pad latent tokens to the max stage
+        no_cot: If True, skip all reasoning steps
         
     Returns:
-        Processed dataset with progressive latent token replacement
+        A new dataset (list of dicts) with curriculum applied
     """
     import random
     import itertools
@@ -434,8 +429,5 @@ def create_progressive_latent_dataset(
         
         processed_samples.append(processed_sample)
     
-    if shuffle:
-        random.shuffle(processed_samples)
-    
-    logger.info(f"Processed {len(processed_samples)} samples for stage {scheduled_stage}")
+    # Shuffling is now handled by the DataLoader, not here
     return processed_samples

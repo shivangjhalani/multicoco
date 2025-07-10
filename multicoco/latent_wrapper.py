@@ -11,7 +11,13 @@ from typing import Optional
 from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
 
 class LatentWrapper(nn.Module):
-    """Wrap a causal-LM-style model to perform CoCoNut hidden-state injection."""
+    """Wrap a causal-LM-style model to perform CoCoNut hidden-state injection.
+    
+    NOTE on Model Structure Dependency: This wrapper directly accesses internal
+    components of the base model, such as `.model.vision_tower` and 
+    `.model.projector`. This is based on the current structure of InternVL and
+    may break if the underlying model architecture changes in future versions.
+    """
 
     def __init__(self, base_model: nn.Module, tokenizer):
         super().__init__()
@@ -96,6 +102,12 @@ class LatentWrapper(nn.Module):
         
         This implements a simplified generation loop that calls our forward method
         at each step to ensure latent token injection is properly applied.
+        It caches vision embeddings to avoid re-computation at each step.
+
+        NOTE on KV Caching: This loop does not currently use past_key_values (KV cache),
+        so it re-evaluates the full sequence at each step. Integrating KV caching is
+        non-trivial due to the two-pass latent injection but would significantly
+        improve performance.
         """
         device = input_ids.device
         batch_size, seq_len = input_ids.shape
@@ -106,19 +118,30 @@ class LatentWrapper(nn.Module):
         if eos_token_id is None:
             eos_token_id = self.tokenizer.eos_token_id
         
+        # Cache vision embeddings once before the loop
+        # NOTE on Dynamic Vision: This assumes vision embeddings are static. If the
+        # model uses dynamic patching based on text, this caching could be invalid.
+        image_embeds = None
+        if pixel_values is not None:
+            with torch.inference_mode():
+                image_embeds = self.base_model.model.vision_tower(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
+                image_embeds = self.base_model.model.projector(image_embeds)
+
         # Initialize generation state
+        unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=device)
         generated_ids = input_ids.clone()
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         
         # Generation loop
         for _ in range(max_new_tokens):
-            # Forward pass with latent injection
+            # Forward pass with latent injection using cached vision embeddings
             with torch.no_grad():
                 outputs = self.forward(
                     input_ids=generated_ids,
                     attention_mask=attention_mask,
-                    pixel_values=pixel_values
+                    pixel_values=None,  # Pass None to avoid re-computation
+                    image_embeds=image_embeds, # Pass cached embeds
                 )
             
             # Get next token logits
@@ -151,17 +174,22 @@ class LatentWrapper(nn.Module):
             else:
                 next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
             
+            # Use pad_token_id for finished sequences
+            next_token_id = next_token_id * unfinished_sequences.unsqueeze(-1) + pad_token_id * (1 - unfinished_sequences.unsqueeze(-1))
+
             # Append to generated sequence
             generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
             
             # Update attention mask
-            new_mask_col = torch.ones((batch_size, 1), device=device)
-            if attention_mask is not None:
-                new_mask_col = new_mask_col.to(dtype=attention_mask.dtype)
-            attention_mask = torch.cat([attention_mask, new_mask_col], dim=1)
+            attention_mask = torch.cat([attention_mask, unfinished_sequences.unsqueeze(-1)], dim=1)
             
-            # Check for EOS token (simple check for all sequences)
-            if eos_token_id is not None and (next_token_id == eos_token_id).all():
+            # Update unfinished sequences
+            if eos_token_id is not None:
+                newly_finished = (next_token_id.squeeze(-1) == eos_token_id) & (unfinished_sequences == 1)
+                unfinished_sequences.mul_((~newly_finished).long())
+
+            # Check for EOS token (stop when all sequences are finished)
+            if unfinished_sequences.max() == 0:
                 break
         
         return generated_ids
@@ -172,14 +200,19 @@ class LatentWrapper(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         pixel_values: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
+        image_embeds: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         """Forward pass with efficient two-pass latent injection.
 
+        It avoids re-computing vision embeddings by caching them.
+
         1. First pass (no grad) gets hidden states for the whole sequence.
+           If pixel_values are provided, it also computes and caches image_embeds.
         2. Replace <|latent|> token embeddings for each span with the hidden
            state of the token *before* the span (same semantics as original).
-        3. Second pass produces logits / loss in the usual way.
+        3. Second pass produces logits / loss in the usual way, reusing the
+           cached image_embeds if available.
         """
 
         batch_size, seq_len = input_ids.shape
@@ -213,13 +246,24 @@ class LatentWrapper(nn.Module):
             )
 
         # ------------------------------------------------------------------
-        # Pass 1: obtain last hidden state for the whole sequence (no grad)
+        # Pass 1: obtain last hidden state and vision embeddings (no grad)
         # ------------------------------------------------------------------
         with torch.inference_mode():
-            first_out = self.base_model.model(
+            # If image_embeds are not provided, compute them from pixel_values
+            if image_embeds is None and pixel_values is not None:
+                vision_embeds = self.base_model.model.vision_tower(pixel_values.to(dtype=self.base_model.model.dtype))
+                image_embeds = self.base_model.model.projector(vision_embeds)
+            
+            # Prepare inputs for the language model part
+            first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
                 input_ids=input_ids,
+                pixel_values=None, # We use pre-computed image_embeds
+                image_embeds=image_embeds
+            )
+            
+            first_out = self.base_model.model.language_model(
+                inputs_embeds=first_pass_embeds,
                 attention_mask=attention_mask,
-                pixel_values=pixel_values,
                 output_hidden_states=True,
             )
         last_hidden = first_out.hidden_states[-1]  # (bs, seq_len, hidden)
@@ -233,16 +277,27 @@ class LatentWrapper(nn.Module):
                 # Need a token before <|start_latent|> to copy from
                 if s == 0:
                     continue
+                
+                # NOTE: This assumes the token at `s-1` is a text token. If the
+                # prompt format changes such that `s-1` could be an image token,
+                # this injection logic may become unstable.
                 # Replace the latent tokens *inside* the span (s … e-1)
                 inputs_embeds[b, s:e] = last_hidden[b, s - 1].unsqueeze(0)
 
         # ------------------------------------------------------------------
-        # Pass 2: real forward with modified embeddings (autograd enabled)
+        # Pass 2: real forward with modified embeddings and cached vision embeds
         # ------------------------------------------------------------------
-        second_out = self.base_model.model(
-            inputs_embeds=inputs_embeds,
+        # Prepare inputs again, this time with the modified text embeddings
+        second_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+            input_ids=input_ids,
+            pixel_values=None, # Reuse cached image_embeds
+            image_embeds=image_embeds,
+            inputs_embeds=inputs_embeds # Provide the modified embeddings
+        )
+
+        second_out = self.base_model.model.language_model(
+            inputs_embeds=second_pass_embeds,
             attention_mask=attention_mask,
-            pixel_values=pixel_values,
             use_cache=False,
         )
         logits = second_out.logits  # (bs, seq_len, vocab)

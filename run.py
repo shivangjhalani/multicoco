@@ -42,7 +42,8 @@ from multicoco.constants import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_LOG_DIR,
     TEST_DATASET_LIMIT,
-    COCONUT_SPECIAL_TOKENS
+    COCONUT_SPECIAL_TOKENS,
+    IMAGE_TOKEN
 )
 from multicoco.exceptions import (
     ConfigurationError,
@@ -242,32 +243,48 @@ class MultiCoCoRunner:
             raise ModelInitializationError(f"Failed to load checkpoint weights: {e}")
 
     def _initialize_latent_token_embeddings(self) -> None:
-        """Initialize embeddings for latent tokens by copying EOS token embedding."""
+        """
+        Initialize embeddings for latent tokens with a multimodal-aware approach.
+        
+        This initializes latent token embeddings by averaging the embeddings of
+        a text token (EOS) and a vision-related token (<image>) to provide a
+        better starting point for multimodal reasoning.
+        """
         if self.model is None:
             raise ModelInitializationError("Model must be initialized before initializing token embeddings")
             
         try:
             embed_layer = self.model.get_input_embeddings()
-            eos_vec = embed_layer.weight.data[self.model.tokenizer.eos_token_id].clone()
-            
-            from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
-            latent_tokens = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
-            
-            initialized_tokens = []
-            for tok in latent_tokens:
-                tid = self.model.tokenizer.convert_tokens_to_ids(tok)
-                if tid != self.model.tokenizer.unk_token_id:  # Token exists
-                    embed_layer.weight.data[tid] = eos_vec.clone()
-                    initialized_tokens.append(tok)
-            
-            if initialized_tokens:
-                logger.info(f"Initialized embeddings for latent tokens: {initialized_tokens}")
+            with torch.no_grad():
+                # Get EOS token embedding (text representation)
+                eos_token_id = self.model.tokenizer.eos_token_id
+                eos_embedding = embed_layer.weight[eos_token_id].clone()
                 
+                # Get image token embedding (vision placeholder representation)
+                image_token_id = self.model.tokenizer.convert_tokens_to_ids(IMAGE_TOKEN)
+                
+                if image_token_id is None or image_token_id >= embed_layer.weight.size(0):
+                    logger.warning(f"'{IMAGE_TOKEN}' not found or invalid in tokenizer. Falling back to EOS-only initialization.")
+                    multimodal_embedding = eos_embedding
+                else:
+                    image_embedding = embed_layer.weight[image_token_id].clone()
+                    multimodal_embedding = (eos_embedding + image_embedding) / 2.0
+                    logger.info(f"Created multimodal-aware initial embedding by averaging EOS and '{IMAGE_TOKEN}' embeddings.")
+
+                # Apply the averaged embedding to all latent special tokens
+                for token in COCONUT_SPECIAL_TOKENS:
+                    token_id = self.model.tokenizer.convert_tokens_to_ids(token)
+                    if token_id is not None and token_id < embed_layer.weight.size(0):
+                        embed_layer.weight[token_id] = multimodal_embedding
+                        logger.info(f"Initialized '{token}' with multimodal-aware embedding.")
+                    else:
+                        logger.warning(f"Could not initialize latent token: {token}")
+
         except Exception as e:
-            logger.warning(f"Failed to initialize latent token embeddings: {e}")
+            raise ModelInitializationError(f"Failed to initialize latent token embeddings: {e}")
 
     def setup_datasets(self) -> None:
-        """Set up training and evaluation datasets."""
+        """Initialize and prepare datasets for training and evaluation."""
         try:
             data_config = self.config.data
             
