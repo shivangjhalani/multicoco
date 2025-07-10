@@ -53,11 +53,12 @@ class GenerationConfig:
 
 @dataclass
 class EvaluationConfig:
-    """Configuration for evaluation settings."""
-    vanilla: bool = True
-    cot: bool = False
-    coconut: bool = False
-    detailed_logging: bool = True
+    """Configuration for evaluation modes."""
+    vanilla: bool = True          # Standard evaluation
+    cot: bool = False            # Chain-of-thought evaluation  
+    coconut: bool = False        # CoCoNut evaluation with latent reasoning
+    eval_latent_tokens: Optional[int] = None  # Number of latent tokens for CoCoNut eval (default: use max_latent_stage)
+    detailed_logging: bool = True # Enable detailed per-sample logging
     
     def get_eval_type(self) -> str:
         """Get the evaluation type as a string."""
@@ -285,6 +286,7 @@ class MultiCoCoConfig:
             vanilla=config_dict.get('vanilla', True),
             coconut=config_dict.get('coconut', False),
             cot=config_dict.get('cot', False),
+            eval_latent_tokens=config_dict.get('eval_latent_tokens'),
             detailed_logging=config_dict.get('detailed_logging', True),
         )
         

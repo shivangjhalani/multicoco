@@ -1,11 +1,13 @@
 # CoCoNut Evaluation Only
-# For evaluating a trained CoCoNut model similar to original CoCoNut gsm_coconut_eval.yaml
+# This configuration runs evaluation with CoCoNut latent reasoning
+# REQUIRES: A trained CoCoNut checkpoint
 
 # Training Configuration
 mode: "eval_only"
 project: "multicoco"
-name: "aokvqa-coconut-eval"
-run_name: "aokvqa-coconut-eval"
+name: "aokvqa-coconut-evaluation"
+run_name: "aokvqa-coconut-evaluation"
+only_eval: true
 limit_for_testing: true
 debug: false
 
@@ -13,15 +15,22 @@ debug: false
 bf16: true
 fp16: false
 
-# Model Configuration - Load trained CoCoNut checkpoint
-load_model_path: "checkpoints/aokvqa_coconut"  # Path to best CoCoNut checkpoint
+# Model Configuration - Load from CoCoNut checkpoint
+load_model_path: "checkpoints/aokvqa_coconut"  # Path to trained CoCoNut checkpoint
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base model for tokenizer/config
 use_flash_attention_2: true
 torch_compile: false
 
+# CoCoNut Configuration (needed for model initialization)
+coconut:
+  enabled: true
+  c_thought: 1          # Must match training configuration
+  max_latent_stage: 6   # Must match training configuration
+
 # Data Configuration  
 data_dir: "data/"
 eval_data_path: "data/aokvqa_validation.json"
+eval_batch_size: 16
 
 # Logging Configuration
 log_dir: "logs/"
@@ -29,7 +38,9 @@ log_level: "INFO"
 console_output: true
 verbose: false
 
-# CoCoNut Evaluation
+# CoCoNut Evaluation Configuration
 eval_config:
   cot: false
-  coconut: true 
+  coconut: true
+  eval_latent_tokens: 6  # Number of latent reasoning steps to use (can be different from max_latent_stage)
+  detailed_logging: true 

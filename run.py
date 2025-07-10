@@ -426,6 +426,7 @@ class MultiCoCoRunner:
             "vanilla": eval_config.vanilla,
             "cot": eval_config.cot,
             "coconut": eval_config.coconut,
+            "eval_latent_tokens": eval_config.eval_latent_tokens,
             "detailed_logging": eval_config.detailed_logging
         }
 

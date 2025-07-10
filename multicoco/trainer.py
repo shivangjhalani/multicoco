@@ -954,16 +954,17 @@ class CoCoTrainer(Trainer):
     ) -> str:
         """Generate prediction for a single question-image pair."""
         try:
-            # Check if this is CoT evaluation to determine the prompt
+            # Check evaluation configuration
             eval_config = getattr(self.args, "eval_config", {})
             is_cot_eval = eval_config.get('cot', False)
+            is_coconut_eval = eval_config.get('coconut', False)
 
             # Prepare the input question with proper formatting
             if '<image>' not in question:
                 question = '<image>\n' + question
             
-            # Add instruction prompt for vanilla evaluation (non-CoT)
-            if not is_cot_eval:
+            # Add instruction prompt for vanilla evaluation (non-CoT, non-CoCoNut)
+            if not is_cot_eval and not is_coconut_eval:
                 if "choices are" in question.lower() or ": " in question:
                     question += "\nSelect the correct choice number (0, 1, 2, or 3)."
                 else:
@@ -994,8 +995,14 @@ class CoCoTrainer(Trainer):
             elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
                 generation_config['pad_token_id'] = tokenizer.eos_token_id
             
-            # Access the correct model - no need for underlying_model with InternVL
-            internvl_model = model.model if hasattr(model, 'model') else model
+            # Access the correct model - handle LatentWrapper case
+            if hasattr(model, 'base_model'):
+                # This is a LatentWrapper, get the underlying model for chat/generation
+                internvl_model = model.base_model
+            elif hasattr(model, 'model'):
+                internvl_model = model.model
+            else:
+                internvl_model = model
             
             # Ensure pixel values are in the correct format and dtype
             if pixel_values.dim() == 3:
@@ -1006,26 +1013,102 @@ class CoCoTrainer(Trainer):
             dtype = next(internvl_model.parameters()).dtype
             pixel_values = pixel_values.to(device=device, dtype=dtype)
             
-            # Use InternVL's .chat() method - this is the correct API
-            # Unlike our previous attempt, we pass pixel_values directly to chat
-            with torch.no_grad():
-                response = internvl_model.chat(
-                    tokenizer=tokenizer,
-                    pixel_values=pixel_values,
-                    question=question,
-                    generation_config=generation_config,
-                    history=None,
-                    return_history=False
+            # Handle CoCoNut evaluation with latent tokens
+            if is_coconut_eval:
+                return self._generate_coconut_prediction(
+                    question, pixel_values, model, tokenizer, generation_config, device
                 )
-            
-            # Clean up response
-            return self._clean_generated_response(response)
+            else:
+                # Standard evaluation using chat interface
+                with torch.no_grad():
+                    response = internvl_model.chat(
+                        tokenizer=tokenizer,
+                        pixel_values=pixel_values,
+                        question=question,
+                        generation_config=generation_config,
+                        history=None,
+                        return_history=False
+                    )
+                
+                # Clean up response
+                return self._clean_generated_response(response)
             
         except Exception as e:
             logger.error(f"Error in _generate_single_prediction: {e}")
             logger.error(f"Question: {question}")
             logger.error(f"Pixel values shape: {pixel_values.shape if pixel_values is not None else 'None'}")
             raise GenerationError(f"Failed to generate prediction: {e}")
+
+    def _generate_coconut_prediction(
+        self,
+        question: str,
+        pixel_values: torch.Tensor,
+        model: nn.Module,
+        tokenizer,
+        generation_config: Dict[str, Any],
+        device: torch.device
+    ) -> str:
+        """Generate prediction using CoCoNut latent reasoning."""
+        # Get CoCoNut configuration
+        eval_config = getattr(self.args, "eval_config", {})
+        max_latent_stage = getattr(self.args, 'max_latent_stage', 6)
+        c_thought = getattr(self.args, 'c_thought', 1)
+        
+        # Determine number of latent tokens to use
+        # Use eval_latent_tokens if specified, otherwise use max_latent_stage
+        eval_latent_tokens = eval_config.get('eval_latent_tokens')
+        if eval_latent_tokens is not None:
+            num_latent_steps = eval_latent_tokens
+        else:
+            num_latent_steps = max_latent_stage
+            
+        total_latent_tokens = num_latent_steps * c_thought
+        
+        logger.info(f"CoCoNut evaluation using {num_latent_steps} latent steps ({total_latent_tokens} total tokens)")
+        
+        # Import latent tokens
+        from multicoco.constants import START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN
+        
+        # Construct prompt with latent tokens
+        if total_latent_tokens > 0:
+            latent_block = " ".join([LATENT_TOKEN] * total_latent_tokens)
+            latent_reasoning = f"{START_LATENT_TOKEN} {latent_block} {END_LATENT_TOKEN}"
+        else:
+            latent_reasoning = ""
+        
+        # Construct the full prompt in chat format with latent tokens
+        if latent_reasoning:
+            prompt = f"<|im_start|>user\n{question}\n{latent_reasoning}<|im_end|><|im_start|>assistant\n"
+        else:
+            prompt = f"<|im_start|>user\n{question}<|im_end|><|im_start|>assistant\n"
+        
+        # Tokenize the prompt
+        inputs = tokenizer(
+            prompt,
+            return_tensors='pt',
+            padding=False,
+            truncation=True,
+            max_length=getattr(self.args, 'max_input_length', DEFAULT_INPUT_MAX_LENGTH)
+        )
+        
+        input_ids = inputs['input_ids'].to(device)
+        attention_mask = inputs['attention_mask'].to(device)
+        
+        # Use model.generate() to ensure LatentWrapper is activated
+        with torch.no_grad():
+            generated_ids = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                **generation_config
+            )
+        
+        # Decode only the generated part (exclude input prompt)
+        generated_ids = generated_ids[:, input_ids.shape[1]:]
+        response = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+        
+        # Clean up response
+        return self._clean_generated_response(response)
 
     def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
         """Ensure pixel values have correct dtype for model."""
