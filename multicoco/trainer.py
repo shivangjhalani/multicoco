@@ -587,9 +587,17 @@ class CoCoTrainer(Trainer):
             if key not in gen_kwargs:
                 gen_kwargs[key] = value
         
+        # Get the tokenizer - handle deprecation warning consistently
+        if hasattr(self, 'processing_class') and self.processing_class is not None:
+            tokenizer = self.processing_class
+        else:
+            tokenizer = self.tokenizer
+        
         # Add pad token ID to suppress warnings
-        if self.tokenizer.pad_token_id is not None:
-            gen_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
+        if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
+            gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
+        elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
+            gen_kwargs["pad_token_id"] = tokenizer.eos_token_id
         
         return gen_kwargs
 
@@ -964,6 +972,12 @@ class CoCoTrainer(Trainer):
             # Get generation kwargs from args, with fallbacks
             gen_kwargs = getattr(self.args, "generation_kwargs", {}) or {}
             
+            # Get the tokenizer - handle deprecation warning consistently
+            if hasattr(self, 'processing_class') and self.processing_class is not None:
+                tokenizer = self.processing_class
+            else:
+                tokenizer = self.tokenizer
+            
             # Create generation config in the format expected by InternVL
             generation_config = {
                 'max_new_tokens': gen_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
@@ -974,14 +988,14 @@ class CoCoTrainer(Trainer):
                 'repetition_penalty': 1.0,
             }
             
+            # Explicitly set pad_token_id to suppress warnings
+            if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
+                generation_config['pad_token_id'] = tokenizer.pad_token_id
+            elif hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
+                generation_config['pad_token_id'] = tokenizer.eos_token_id
+            
             # Access the correct model - no need for underlying_model with InternVL
             internvl_model = model.model if hasattr(model, 'model') else model
-            
-            # Get the tokenizer - handle deprecation warning
-            if hasattr(self, 'processing_class'):
-                tokenizer = self.processing_class
-            else:
-                tokenizer = self.tokenizer
             
             # Ensure pixel values are in the correct format and dtype
             if pixel_values.dim() == 3:
@@ -1059,7 +1073,9 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
             log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
-            log_file.write(f"  Tokens Generated: {len(self.tokenizer.tokenize(prediction))}\n")
+            # Get tokenizer with proper handling of deprecation warning
+            tokenizer = self.processing_class if hasattr(self, 'processing_class') and self.processing_class is not None else self.tokenizer
+            log_file.write(f"  Tokens Generated: {len(tokenizer.tokenize(prediction))}\n")
             log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
