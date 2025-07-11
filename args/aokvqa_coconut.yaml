@@ -29,6 +29,11 @@ load_model_path: "checkpoints/aokvqa_cot"
 # Logging Configuration
 use_wandb: true
 
+# WandB Configuration
+wandb_project: "multicoco-research"
+wandb_tags: ["coconut", "multimodal", "aokvqa", "progressive-training"]
+wandb_group: "aokvqa-coconut-progressive"
+
 # CoCoNut Configuration
 coconut:
   c_thought: 1

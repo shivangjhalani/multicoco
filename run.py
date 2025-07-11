@@ -32,6 +32,14 @@ if not getattr(_checkpoint_module.checkpoint, "_patched_use_reentrant", False):
 # -------------------------------------------------------------------------------
 from transformers import AutoModelForCausalLM, TrainingArguments
 
+# WandB import (optional to avoid hard dependency)
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    wandb = None
+
 from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import (
     COCONUT_SPECIAL_TOKENS,
@@ -99,6 +107,9 @@ class MultiCoCoRunner:
         else:
             logger.warning("CUDA not available, using CPU")
 
+        # Initialize WandB if available and enabled
+        self._init_wandb()
+
     def _set_random_seeds(self, seed: int) -> None:
         """Set random seeds for reproducibility."""
         random.seed(seed)
@@ -140,6 +151,43 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
+
+    def _init_wandb(self) -> None:
+        """Initialize WandB if available and enabled."""
+        if not WANDB_AVAILABLE or not self.config.logging.use_wandb:
+            if not WANDB_AVAILABLE and self.config.logging.use_wandb:
+                logger.warning("WandB not available but use_wandb=True. Install wandb: pip install wandb")
+            return
+        
+        # Only initialize WandB on main process
+        local_rank = int(os.environ.get("LOCAL_RANK", -1))
+        if local_rank not in [-1, 0]:
+            return
+            
+        if wandb is None:
+            return
+            
+        try:
+            # Initialize WandB run
+            wandb.init(
+                project=self.config.logging.wandb_project,
+                entity=self.config.logging.wandb_entity,
+                name=self.config.training.name,
+                group=self.config.logging.wandb_group,
+                tags=self.config.logging.wandb_tags,
+                config=self.config.to_dict(),
+                reinit=True
+            )
+            
+            # Define custom metrics for better tracking
+            wandb.define_metric("train/loss", summary="min")
+            wandb.define_metric("eval/accuracy", summary="max")
+            wandb.define_metric("coconut/stage", summary="max")
+            
+            logger.info("WandB initialized for experiment tracking")
+            
+        except Exception as e:
+            logger.warning(f"Failed to initialize WandB: {e}")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""

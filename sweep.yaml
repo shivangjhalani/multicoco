@@ -1,0 +1,80 @@
+# WandB Sweep Configuration for MultiCoCo CoCoNut Hyperparameter Tuning
+# Run with: wandb sweep sweep.yaml
+# Then: wandb agent <sweep_id>
+
+program: run.py
+method: bayes  # Bayesian optimization for efficient search
+project: multicoco-research
+
+# Define the optimization goal
+metric:
+  name: eval/accuracy
+  goal: maximize
+
+# Early termination to save compute resources
+early_terminate:
+  type: hyperband
+  min_iter: 3
+
+# Hyperparameter search space
+parameters:
+  
+  # CoCoNut-specific parameters
+  coconut.epochs_per_stage:
+    values: [2, 3, 5]
+  
+  coconut.max_latent_stage:
+    values: [4, 6, 8]
+    
+  coconut.uniform_prob:
+    min: 0.0
+    max: 0.3
+    
+  coconut.c_thought:
+    values: [1, 2]
+
+  # Generation parameters
+  generation.temperature:
+    min: 0.6
+    max: 1.0
+    
+  generation.top_p:
+    min: 0.8
+    max: 0.95
+    
+  generation.top_k:
+    values: [20, 50, 80]
+
+  # Training parameters
+  learning_rate:
+    min: 5e-6
+    max: 2e-5
+    
+  batch_size:
+    values: [4, 8, 16]
+    
+  gradient_accumulation_steps:
+    values: [1, 2, 4]
+    
+  warmup_steps:
+    values: [250, 500, 750]
+    
+  weight_decay:
+    min: 0.005
+    max: 0.02
+
+  # Model parameters
+  bf16:
+    value: true  # Fixed for stability
+
+# Fixed parameters (not tuned)
+# These will be set automatically for all sweep runs
+command:
+  - ${program}
+  - --config
+  - args/aokvqa_coconut.yaml
+  - ${args}
+
+# Resource constraints
+name: multicoco-coconut-hyperparam-sweep
+description: "Hyperparameter tuning for MultiCoCo CoCoNut progressive training on A-OKVQA dataset" 

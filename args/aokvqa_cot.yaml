@@ -23,6 +23,14 @@ generation:
   top_p: 0.9
   top_k: 50  # Limits sampling to top 50 tokens
 
+# Logging Configuration
+use_wandb: true
+
+# WandB Configuration
+wandb_project: "multicoco-research"
+wandb_tags: ["cot", "chain-of-thought", "aokvqa", "stage0", "baseline"]
+wandb_group: "aokvqa-cot-baseline"
+
 # Evaluation Configuration
 eval_config:
   coconut: false
