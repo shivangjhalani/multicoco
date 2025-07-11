@@ -32,4 +32,9 @@ eval_config:
   coconut: true
   cot: false
   detailed_logging: true
-  eval_latent_tokens: 4  # Optimized: test mid-range compression 
+  eval_latent_tokens: 4  # Optimized: test mid-range compression
+
+# WandB Configuration
+wandb_tags: ["coconut", "aokvqa", "evaluation", "latent-reasoning"]
+wandb_group: "aokvqa-coconut-evaluation"
+wandb_notes: "CoCoNut model evaluation on AOK-VQA test set with latent reasoning" 

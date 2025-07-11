@@ -24,3 +24,8 @@ eval_config:
   coconut: false
   cot: false
   vanilla: true
+
+# WandB Configuration
+wandb_tags: ["vanilla", "aokvqa", "evaluation", "baseline"]
+wandb_group: "aokvqa-vanilla-evaluation"
+wandb_notes: "Vanilla model evaluation on AOK-VQA test set without reasoning"

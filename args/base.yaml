@@ -51,6 +51,13 @@ verbose: false
 use_wandb: true
 run_name: null  # Will be set by specific configs
 
+# WandB Configuration
+wandb_project: "multicoco-research"
+wandb_entity: null  # Set to your wandb team/entity if applicable
+wandb_tags: []  # Tags for organizing runs
+wandb_group: null  # Group related runs together
+wandb_notes: null  # Optional notes for this run
+
 # Checkpoint Management
 keep_best_checkpoints: true
 max_checkpoints_to_keep: 10

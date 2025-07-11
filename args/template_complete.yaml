@@ -71,6 +71,13 @@ verbose: false
 use_wandb: true
 run_name: "my-experiment-run"
 
+# WandB Configuration
+wandb_project: "multicoco-research"
+wandb_entity: null  # Set to your wandb team/entity if applicable
+wandb_tags: ["experiment", "template"]  # Tags for organizing runs
+wandb_group: "template-experiments"  # Group related runs together
+wandb_notes: "Template configuration showing all available options"
+
 # CoCoNut Configuration
 coconut:
   enabled: false

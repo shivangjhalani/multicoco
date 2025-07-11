@@ -10,12 +10,14 @@ import logging
 import os
 import random
 import time
+from copy import copy
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 import torch.distributed as dist
+import wandb
 from PIL import Image
 from torch import nn
 from torch.utils.data import DataLoader
@@ -193,6 +195,15 @@ class CoCoTrainer(Trainer):
             logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
             logger.info(f"{'='*60}")
             
+            # Log coconut stage info to wandb
+            if wandb.run is not None and self.is_world_process_zero():
+                wandb.log({
+                    "coconut/stage": stage,
+                    "coconut/latent_tokens": stage * c_thought,
+                    "coconut/max_latent_stage": max_latent_stage,
+                    "coconut/c_thought": c_thought
+                })
+            
             # Apply curriculum to dataset
             if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
                 self.train_dataset.apply_progressive_curriculum(
@@ -202,6 +213,15 @@ class CoCoTrainer(Trainer):
                     uniform_prob=getattr(self.args, 'uniform_prob', 0.0),
                     pad_latent_to_max=getattr(self.args, 'pad_latent_to_max', False)
                 )
+                
+                # Log dataset curriculum info to wandb
+                if wandb.run is not None and self.is_world_process_zero():
+                    dataset_size = len(self.train_dataset) if hasattr(self.train_dataset, '__len__') else 0
+                    wandb.log({
+                        "coconut/dataset_stage": stage,
+                        "coconut/dataset_size": dataset_size,
+                        "coconut/uniform_prob": getattr(self.args, 'uniform_prob', 0.0)
+                    })
             
             # Reset optimizer if requested
             if reset_optimizer and stage > 0:
@@ -338,6 +358,14 @@ class CoCoTrainer(Trainer):
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
+            
+            # Log to wandb
+            if wandb.run is not None and self.is_world_process_zero():
+                wandb.log({
+                    "train/epoch_loss": avg_loss,
+                    "train/epoch": epoch + 1,
+                    "train/total_steps": self.total_train_steps
+                })
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -350,6 +378,17 @@ class CoCoTrainer(Trainer):
         if self.is_world_process_zero():
             state_path = os.path.join(checkpoint_dir, 'trainer_state.json')
             self.state.save_to_json(state_path)
+            
+            # Log checkpoint as wandb artifact like coconut does
+            if wandb.run is not None:
+                try:
+                    artifact_name = f"checkpoint-epoch-{epoch}"
+                    artifact = wandb.Artifact(artifact_name, type="model")
+                    artifact.add_dir(checkpoint_dir)
+                    wandb.log_artifact(artifact)
+                    logger.info(f"Checkpoint logged to wandb as artifact: {artifact_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to log checkpoint artifact: {e}")
         
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
         return checkpoint_dir
@@ -417,6 +456,22 @@ class CoCoTrainer(Trainer):
             for key, value in eval_metrics.items():
                 if isinstance(value, (int, float)):
                     logger.info(f"    {key}: {value:.4f}")
+        
+        # Log coconut stage progress to wandb like coconut does
+        if wandb.run is not None and self.is_world_process_zero():
+            wandb_log_dict = {
+                "coconut/stage_epoch": stage_epoch + 1,
+                "coconut/current_stage": current_stage,
+                "coconut/epoch_time": epoch_time
+            }
+            
+            # Add evaluation metrics
+            if eval_metrics:
+                for key, value in eval_metrics.items():
+                    if isinstance(value, (int, float)):
+                        wandb_log_dict[f"coconut/{key}"] = value
+            
+            wandb.log(wandb_log_dict)
 
     def _create_generation_config(self) -> Dict[str, Any]:
         """Create generation configuration from training arguments."""
@@ -441,9 +496,21 @@ class CoCoTrainer(Trainer):
         return config
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
-        """Override log method to update progress bar with metrics."""
+        """Override log method with custom wandb logging like coconut."""
         super().log(logs, **kwargs)
         self._update_progress_bar_with_metrics(logs)
+        
+        # Manual wandb logging like coconut does
+        if wandb.run is not None and self.is_world_process_zero():
+            # Add step information for proper wandb tracking
+            step = kwargs.get('step', self.state.global_step)
+            log_dict = {**logs, 'step': step}
+            
+            # Add epoch information if available
+            if hasattr(self.state, 'epoch') and self.state.epoch is not None:
+                log_dict['epoch'] = self.state.epoch
+                
+            wandb.log(log_dict, step=step)
 
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """Update progress bar with training metrics."""
@@ -523,6 +590,11 @@ class CoCoTrainer(Trainer):
                 metrics = {}
                 if is_main_process:
                     metrics = self._compute_final_metrics(all_predictions, all_labels, metric_key_prefix)
+                    
+                    # Log to wandb like coconut does
+                    self._log_wandb_evaluation_results(
+                        metrics, all_predictions, all_labels, all_questions
+                    )
                     
                     if log_file:
                         self._write_evaluation_summary(log_file, metrics, len(all_labels))
@@ -642,6 +714,50 @@ class CoCoTrainer(Trainer):
             return metrics_list[0]
         
         return metrics
+    
+    def _log_wandb_evaluation_results(
+        self, 
+        metrics: Dict[str, float], 
+        predictions: List[str], 
+        labels: List[str], 
+        questions: List[str],
+        max_samples: int = 50
+    ) -> None:
+        """Log evaluation results to wandb following coconut pattern."""
+        if wandb.run is None:
+            return
+            
+        # Log main metrics
+        wandb.log(metrics)
+        
+        # Create sample table for detailed analysis like coconut does
+        sample_table = wandb.Table(columns=["Question", "Ground Truth", "Prediction", "Correct"])
+        
+        # Limit samples to avoid memory issues
+        num_samples = min(max_samples, len(predictions))
+        
+        for i in range(num_samples):
+            if i < len(questions) and i < len(labels) and i < len(predictions):
+                correct = predictions[i].strip() == labels[i].strip()
+                sample_table.add_data(
+                    questions[i][:200] + "..." if len(questions[i]) > 200 else questions[i],  # Truncate long questions
+                    labels[i], 
+                    predictions[i], 
+                    correct
+                )
+        
+        # Copy table to avoid wandb bug (like coconut does)
+        wandb.log({"eval/samples": copy(sample_table)})
+        
+        # Log accuracy breakdown
+        correct_count = sum(1 for p, l in zip(predictions, labels) if p.strip() == l.strip())
+        wandb.log({
+            "eval/accuracy_breakdown": {
+                "correct": correct_count,
+                "total": len(predictions),
+                "accuracy": correct_count / len(predictions) if predictions else 0.0
+            }
+        })
 
     def get_eval_dataloader(self, eval_dataset=None) -> DataLoader:
         """Get evaluation dataloader with proper distributed setup."""

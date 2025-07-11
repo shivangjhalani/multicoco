@@ -24,4 +24,9 @@ load_model_path: "checkpoints/aokvqa_cot"
 # Evaluation Configuration
 eval_config:
   coconut: false
-  cot: true 
+  cot: true
+
+# WandB Configuration
+wandb_tags: ["cot", "aokvqa", "evaluation", "baseline"]
+wandb_group: "aokvqa-cot-evaluation"
+wandb_notes: "Chain-of-thought model evaluation on AOK-VQA test set" 

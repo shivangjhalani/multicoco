@@ -195,6 +195,11 @@ class LoggingConfig:
     console_output: bool = True
     verbose: bool = False
     run_name: Optional[str] = None
+    wandb_project: str = "multicoco-research"
+    wandb_entity: Optional[str] = None
+    wandb_tags: List[str] = field(default_factory=list)
+    wandb_group: Optional[str] = None
+    wandb_notes: Optional[str] = None
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -443,15 +448,85 @@ class MultiCoCoConfig:
     def _create_logging_config(config_dict: Dict[str, Any], 
                               training_config: TrainingConfig) -> LoggingConfig:
         """Create logging configuration."""
+        # Get logging-specific config if it exists
+        logging_dict = config_dict.get('logging', {})
+        
         return LoggingConfig(
-            log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
-            log_level=config_dict.get('log_level', 'INFO'),
-            use_wandb=config_dict.get('use_wandb', True),
-            console_output=config_dict.get('console_output', True),
-            verbose=config_dict.get('verbose', False),
-            run_name=training_config.name
+            log_dir=config_dict.get('log_dir', logging_dict.get('log_dir', DEFAULT_LOG_DIR)),
+            log_level=config_dict.get('log_level', logging_dict.get('log_level', 'INFO')),
+            use_wandb=config_dict.get('use_wandb', logging_dict.get('use_wandb', True)),
+            console_output=config_dict.get('console_output', logging_dict.get('console_output', True)),
+            verbose=config_dict.get('verbose', logging_dict.get('verbose', False)),
+            run_name=training_config.name,
+            wandb_project=config_dict.get('wandb_project', logging_dict.get('wandb_project', 'multicoco-research')),
+            wandb_entity=config_dict.get('wandb_entity', logging_dict.get('wandb_entity')),
+            wandb_tags=config_dict.get('wandb_tags', logging_dict.get('wandb_tags', [])),
+            wandb_group=config_dict.get('wandb_group', logging_dict.get('wandb_group')),
+            wandb_notes=config_dict.get('wandb_notes', logging_dict.get('wandb_notes'))
         )
     
     def get_wandb_report_to(self) -> List[str]:
         """Get the report_to list for training arguments."""
-        return ["wandb"] if self.logging.use_wandb else [] 
+        # Always return empty list to disable HuggingFace wandb integration
+        # We use manual wandb initialization like coconut instead
+        return []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert configuration to dictionary for wandb logging."""
+        return {
+            'model': {
+                'model_name': self.model.model_name,
+                'torch_dtype': self.model.torch_dtype,
+                'trust_remote_code': self.model.trust_remote_code,
+                'load_model_path': self.model.load_model_path
+            },
+            'training': {
+                'mode': self.training.mode.value,
+                'num_epochs': self.training.num_epochs,
+                'batch_size': self.training.batch_size,
+                'eval_batch_size': self.training.eval_batch_size,
+                'learning_rate': self.training.learning_rate,
+                'gradient_accumulation_steps': self.training.gradient_accumulation_steps,
+                'weight_decay': self.training.weight_decay,
+                'bf16': self.training.bf16,
+                'fp16': self.training.fp16,
+                'seed': self.training.seed,
+                'name': self.training.name
+            },
+            'data': {
+                'train_data_path': self.data.train_data_path,
+                'eval_data_path': self.data.eval_data_path,
+                'limit_for_testing': self.data.limit_for_testing
+            },
+            'evaluation': {
+                'vanilla': self.evaluation.vanilla,
+                'cot': self.evaluation.cot,
+                'coconut': self.evaluation.coconut,
+                'eval_latent_tokens': self.evaluation.eval_latent_tokens
+            },
+            'coconut': {
+                'enabled': self.coconut.enabled,
+                'c_thought': self.coconut.c_thought,
+                'max_latent_stage': self.coconut.max_latent_stage,
+                'epochs_per_stage': self.coconut.epochs_per_stage,
+                'uniform_prob': self.coconut.uniform_prob,
+                'pad_latent_to_max': self.coconut.pad_latent_to_max,
+                'reset_optimizer': self.coconut.reset_optimizer
+            },
+            'generation': {
+                'max_new_tokens': self.generation.max_new_tokens,
+                'do_sample': self.generation.do_sample,
+                'temperature': self.generation.temperature,
+                'top_p': self.generation.top_p,
+                'top_k': self.generation.top_k,
+                'num_beams': self.generation.num_beams
+            },
+            'logging': {
+                'use_wandb': self.logging.use_wandb,
+                'wandb_project': self.logging.wandb_project,
+                'wandb_entity': self.logging.wandb_entity,
+                'wandb_tags': self.logging.wandb_tags,
+                'wandb_group': self.logging.wandb_group,
+                'log_level': self.logging.log_level
+            }
+        } 

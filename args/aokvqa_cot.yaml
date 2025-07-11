@@ -26,4 +26,9 @@ generation:
 # Evaluation Configuration
 eval_config:
   coconut: false
-  cot: true 
+  cot: true
+
+# WandB Configuration
+wandb_tags: ["cot", "aokvqa", "baseline"]
+wandb_group: "aokvqa-cot-training"
+wandb_notes: "Chain-of-thought training baseline for AOK-VQA dataset" 
