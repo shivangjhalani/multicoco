@@ -195,11 +195,6 @@ class LoggingConfig:
     console_output: bool = True
     verbose: bool = False
     run_name: Optional[str] = None
-    # NEW FIELDS FOR MANUAL WANDB CONTROL
-    wandb_project: str = "multicoco-research"
-    wandb_entity: Optional[str] = None
-    wandb_tags: List[str] = field(default_factory=list)
-    wandb_log_frequency: int = 10  # Log every N steps
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -454,13 +449,9 @@ class MultiCoCoConfig:
             use_wandb=config_dict.get('use_wandb', True),
             console_output=config_dict.get('console_output', True),
             verbose=config_dict.get('verbose', False),
-            run_name=training_config.name,
-            wandb_project=config_dict.get('wandb_project', 'multicoco-research'),
-            wandb_entity=config_dict.get('wandb_entity'),
-            wandb_tags=config_dict.get('wandb_tags', []),
-            wandb_log_frequency=config_dict.get('wandb_log_frequency', 10)
+            run_name=training_config.name
         )
     
     def get_wandb_report_to(self) -> List[str]:
-        """Get the report_to list for training arguments. Manual logging handles WandB, so return empty."""
-        return [] 
+        """Get the report_to list for training arguments."""
+        return ["wandb"] if self.logging.use_wandb else [] 

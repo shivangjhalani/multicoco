@@ -15,8 +15,6 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
-import time
-import wandb
 # --- Patch: ensure torch.utils.checkpoint is called with explicit use_reentrant ---
 import torch.utils.checkpoint as _checkpoint_module  # type: ignore  # noqa: E402
 
@@ -84,10 +82,6 @@ class MultiCoCoRunner:
                     else 'evaluation')
         logger.info(f"MultiCoCoRunner initialized for {mode_type}")
 
-        # Initialize WandB for manual logging (rank 0 only)
-        if self.config.logging.use_wandb and int(os.environ.get("LOCAL_RANK", -1)) in [-1, 0]:
-            self._init_wandb()
-
     def _initialize(self) -> None:
         """Set up environment, logging, and random seeds."""
         # Set random seeds for reproducibility
@@ -146,40 +140,6 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
-
-    # ------------------------------------------------------------------
-    # WandB helpers
-    # ------------------------------------------------------------------
-    def _init_wandb(self) -> None:
-        """Initialize a manual Weights & Biases run."""
-        cfg = self.config  # shortcut
-
-        wandb_config: Dict[str, Any] = {
-            "learning_rate": cfg.training.learning_rate,
-            "batch_size": cfg.training.batch_size,
-            "num_epochs": cfg.training.num_epochs,
-            "mode": cfg.training.mode.value,
-            "model_name": cfg.model.model_name,
-            "c_thought": cfg.coconut.c_thought,
-            "max_latent_stage": cfg.coconut.max_latent_stage,
-            "epochs_per_stage": cfg.coconut.epochs_per_stage,
-            "temperature": cfg.generation.temperature,
-            "num_beams": cfg.generation.num_beams,
-        }
-
-        self._wandb_run = wandb.init(
-            project=cfg.logging.wandb_project,
-            entity=cfg.logging.wandb_entity,
-            name=cfg.logging.run_name or f"{cfg.training.mode.value}-{time.strftime('%Y%m%d-%H%M%S')}",
-            config=wandb_config,
-            tags=cfg.logging.wandb_tags,
-            notes="MultiCoCo run with manual WandB logging",
-            reinit=True,
-        )
-
-        # Optionally save code for reproducibility
-        wandb.save("*.py")
-        logger.info("Weights & Biases initialized.")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -396,13 +356,6 @@ class MultiCoCoRunner:
                 processing_class=self.model.tokenizer,
                 data_collator=data_collator
             )
-
-            # Propagate manual WandB settings to trainer's args for convenience
-            self.trainer.args.wandb_log_frequency = self.config.logging.wandb_log_frequency
-            self.trainer.args.use_wandb = self.config.logging.use_wandb
-            # Ensure trainer-level flags reflect these settings for runtime logging
-            setattr(self.trainer, 'use_wandb', self.config.logging.use_wandb)
-            setattr(self.trainer, 'wandb_log_frequency', self.config.logging.wandb_log_frequency)
             
             # Set configurations
             self.trainer.args.eval_config = self._create_eval_config()
@@ -463,8 +416,7 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=True,
             do_eval=True,
-            # Disable built-in WandB integration; we log manually instead.
-            report_to=[],
+            report_to=self.config.get_wandb_report_to(),
             run_name=getattr(training_config, 'name', None)
         )
 
@@ -600,15 +552,7 @@ class MultiCoCoRunner:
             if mode not in mode_handlers:
                 raise ConfigurationError(f"Invalid training mode: {mode}")
             
-            results = mode_handlers[mode]()
-
-            # Finish WandB run if active
-            if self.config.logging.use_wandb and int(os.environ.get("LOCAL_RANK", -1)) in [-1, 0]:
-                try:
-                    wandb.finish()
-                except wandb.Error:
-                    pass
-            return results
+            return mode_handlers[mode]()
 
         except (ConfigurationError, ModelInitializationError, 
                 DataLoadingError, EvaluationError) as e:

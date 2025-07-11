@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-import wandb
 import torch.distributed as dist
 from PIL import Image
 from torch import nn
@@ -75,9 +74,6 @@ class CoCoTrainer(Trainer):
         # Initialize trainer state
         self.best_val_acc = 0.0
         self.total_train_steps = 0
-        # Convenience flags from TrainingArguments
-        self.use_wandb = getattr(self.args, 'use_wandb', False)
-        self.wandb_log_frequency = getattr(self.args, 'wandb_log_frequency', 10)
         
         logger.info("CoCoTrainer initialized.")
 
@@ -335,19 +331,6 @@ class CoCoTrainer(Trainer):
             # Update global step counter
             if step % self.args.gradient_accumulation_steps == 0:
                 self.total_train_steps += 1
-
-            # Manual WandB logging
-            if (self.use_wandb and self.is_world_process_zero() and 
-                (step + 1) % self.wandb_log_frequency == 0):
-                log_dict = {
-                    "train/step": self.total_train_steps,
-                    "train/loss": avg_loss if step_count > 0 else loss.item() if loss is not None else 0.0,
-                    "train/learning_rate": (self.lr_scheduler.get_last_lr()[0] if hasattr(self, 'lr_scheduler') and self.lr_scheduler else 0)
-                }
-                # Attach gradient norm sparsely (every 5*log_freq steps)
-                if (step + 1) % (self.wandb_log_frequency * 5) == 0:
-                    log_dict["train/grad_norm"] = self._compute_grad_norm(model)
-                wandb.log(log_dict)
         
         pbar.close()
         
@@ -355,12 +338,6 @@ class CoCoTrainer(Trainer):
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
-            # Epoch-level WandB logging
-            if self.use_wandb and self.is_world_process_zero():
-                wandb.log({
-                    "train/epoch": epoch + 1,
-                    "train/avg_loss": avg_loss,
-                })
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -960,14 +937,3 @@ class CoCoTrainer(Trainer):
             labels = inputs.get('labels')
             
         return (loss, logits, labels)
-
-    # Helper to compute gradient norm
-    def _compute_grad_norm(self, model: nn.Module) -> float:
-        total_norm = 0.0
-        parameters = [p for p in model.parameters() if p.grad is not None]
-        if not parameters:
-            return 0.0
-        device = parameters[0].device
-        norm_list = torch.stack([p.grad.detach().data.norm(2).to(device) for p in parameters])
-        total_norm = torch.norm(norm_list, 2).item()
-        return total_norm

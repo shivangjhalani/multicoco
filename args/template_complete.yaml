@@ -69,10 +69,6 @@ log_dir: "logs/"
 log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
 verbose: false
 use_wandb: true
-wandb_project: "multicoco-experiments"
-wandb_entity: null  # Optional team/org name
-wandb_tags: ["example", "experiment"]
-wandb_log_frequency: 10  # Log every N steps
 run_name: "my-experiment-run"
 
 # CoCoNut Configuration

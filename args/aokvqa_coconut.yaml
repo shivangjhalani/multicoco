@@ -28,9 +28,6 @@ load_model_path: "checkpoints/aokvqa_cot"
 
 # Logging Configuration
 use_wandb: true
-wandb_project: "multicoco-experiments"
-wandb_tags: ["multimodal", "coconut"]
-wandb_log_frequency: 10
 
 # CoCoNut Configuration
 coconut:

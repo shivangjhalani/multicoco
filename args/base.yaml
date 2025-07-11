@@ -49,9 +49,6 @@ log_dir: "logs/"
 log_level: "INFO"
 verbose: false
 use_wandb: true
-wandb_project: "multicoco-experiments"
-wandb_tags: []
-wandb_log_frequency: 10
 run_name: null  # Will be set by specific configs
 
 # Checkpoint Management
