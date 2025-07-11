@@ -43,17 +43,9 @@ from .constants import (
     SAMPLE_LOG_SEPARATOR,
     VALID_CHOICE_NUMBERS,
 )
-from .exceptions import AnswerExtractionError, EvaluationError, GenerationError
+from .exceptions import AnswerExtractionError, EvaluationError
 
 logger = logging.getLogger(__name__)
-
-
-class EvaluationResult:
-    """Container for evaluation results."""
-    
-    def __init__(self, metrics: Dict[str, float], num_samples: int):
-        self.metrics = metrics
-        self.num_samples = num_samples
 
 
 class CoCoTrainer(Trainer):

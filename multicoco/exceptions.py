@@ -63,15 +63,6 @@ class ImageProcessingError(DatasetError):
     """
 
 
-class GenerationError(MultiCoCoError):
-    """
-    Raised when text generation fails.
-    
-    This exception is used for errors during model inference,
-    text generation, or response processing.
-    """
-
-
 class EvaluationError(MultiCoCoError):
     """
     Raised when evaluation fails.

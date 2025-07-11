@@ -41,7 +41,6 @@ from .exceptions import (
     ModelInitializationError,
     DatasetError,
     EvaluationError,
-    GenerationError,
     AnswerExtractionError
 )
 
@@ -75,6 +74,5 @@ __all__ = [
     "ModelInitializationError",
     "DatasetError", 
     "EvaluationError",
-    "GenerationError",
     "AnswerExtractionError",
 ]
