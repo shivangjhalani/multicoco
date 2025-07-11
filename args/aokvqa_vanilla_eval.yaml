@@ -8,7 +8,7 @@ name: "aokvqa-vanilla-eval"
 run_name: "aokvqa-vanilla-eval"
 only_eval: true
 limit_for_testing: true
-eval_batch_size: 64
+eval_batch_size: 16
 
 # Generation Configuration for Vanilla Evaluation
 # Conservative but flexible settings for direct question answering
