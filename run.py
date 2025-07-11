@@ -677,12 +677,15 @@ def main() -> None:
         parser = create_parser()
         args = parser.parse_args()
         
-        # Load configuration
-        # Load config using from_dict to support flat YAML format
-        import yaml
-        with open(args.config_path, 'r') as f:
-            yaml_config = yaml.safe_load(f)
-        config = MultiCoCoConfig.from_dict(yaml_config)
+        # Load configuration, inheriting defaults from base.yaml to avoid redundancy
+        # The helper automatically merges the base configuration with the specific one
+        # (specific values override defaults).
+        import os
+        base_cfg_path = os.path.join(os.path.dirname(args.config_path), "base.yaml")
+        config = MultiCoCoConfig.load_with_base(
+            config_path=args.config_path,
+            base_config_path=base_cfg_path
+        )
         
         # Apply command line overrides
         config = apply_cli_overrides(config, args)
