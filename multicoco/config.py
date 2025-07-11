@@ -154,6 +154,7 @@ class TrainingConfig:
     batch_size: int = DEFAULT_BATCH_SIZE
     eval_batch_size: int = DEFAULT_EVAL_BATCH_SIZE
     gradient_accumulation_steps: int = 1
+    eval_accumulation_steps: int = 1  # Number of evaluation batches to accumulate before computing metrics
     gradient_checkpointing: bool = True
     gradient_checkpointing_kwargs: Dict[str, Any] = field(default_factory=lambda: {'use_reentrant': False})
     learning_rate: float = DEFAULT_LEARNING_RATE
@@ -308,6 +309,7 @@ class MultiCoCoConfig:
             eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE),
             learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)),
             gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1),
+            eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1),
             resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False),
             mode=TrainingMode(config_dict.get('mode', 'cot_train')),
             bf16=bf16_setting,  # Use consistent bf16 setting

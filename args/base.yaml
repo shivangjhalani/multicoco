@@ -31,6 +31,7 @@ batch_size: 8
 eval_batch_size: 16
 learning_rate: 1.0e-5
 gradient_accumulation_steps: 2
+eval_accumulation_steps: 1
 resume_from_checkpoint: true
 limit_for_testing: false
 

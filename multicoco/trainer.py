@@ -781,7 +781,7 @@ class CoCoTrainer(Trainer):
     ) -> SimpleNamespace:
         """
         Custom evaluation loop with detailed logging and answer extraction.
-        Supports distributed evaluation for multi-GPU setups.
+        Supports distributed evaluation for multi-GPU setups and evaluation accumulation.
         
         Args:
             dataloader: DataLoader for evaluation
@@ -815,15 +815,28 @@ class CoCoTrainer(Trainer):
                 self._write_evaluation_header(log_file)
 
             try:
-                # Run evaluation loop
+                # Get eval_accumulation_steps from args, default to 1
+                eval_accumulation_steps = getattr(self.args, 'eval_accumulation_steps', 1)
+                accumulated_batches = []
+                
+                # Run evaluation loop with accumulation
                 for step, inputs in enumerate(tqdm(dataloader, desc=description, disable=not is_main_process)):
-                    # Process batch
-                    batch_results = self._process_evaluation_batch(inputs, model, log_file)
+                    # Accumulate batches
+                    accumulated_batches.append(inputs)
                     
-                    # Accumulate results
-                    all_predictions.extend(batch_results['predictions'])
-                    all_labels.extend(batch_results['labels'])
-                    all_questions.extend(batch_results['questions'])
+                    # Process accumulated batches when accumulation is complete or at end
+                    if len(accumulated_batches) == eval_accumulation_steps or step == len(dataloader) - 1:
+                        # Process all accumulated batches
+                        for batch_inputs in accumulated_batches:
+                            batch_results = self._process_evaluation_batch(batch_inputs, model, log_file)
+                            
+                            # Accumulate results
+                            all_predictions.extend(batch_results['predictions'])
+                            all_labels.extend(batch_results['labels'])
+                            all_questions.extend(batch_results['questions'])
+                        
+                        # Clear accumulated batches for next accumulation cycle
+                        accumulated_batches = []
 
                 # Gather results from all processes if using distributed training
                 if torch.distributed.is_initialized():

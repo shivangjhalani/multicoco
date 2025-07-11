@@ -23,4 +23,4 @@ generation:
 eval_config:
   cot: false
   coconut: false
-  vanilla: true 
+  vanilla: true

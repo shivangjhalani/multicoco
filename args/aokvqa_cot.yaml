@@ -10,6 +10,7 @@ output_dir: "checkpoints/aokvqa_cot"
 num_epochs: 10
 batch_size: 16
 eval_batch_size: 64
+eval_accumulation_steps: 2  # Accumulate 2 evaluation batches for efficient memory usage
 
 # Generation Configuration for CoT Evaluation
 # Enable sampling with creativity to encourage reasoning

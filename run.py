@@ -378,6 +378,7 @@ class MultiCoCoRunner:
             per_device_train_batch_size=training_config.batch_size,
             per_device_eval_batch_size=training_config.eval_batch_size,
             gradient_accumulation_steps=training_config.gradient_accumulation_steps,
+            eval_accumulation_steps=training_config.eval_accumulation_steps,
             gradient_checkpointing=training_config.gradient_checkpointing,
             gradient_checkpointing_kwargs=training_config.gradient_checkpointing_kwargs,
             learning_rate=training_config.learning_rate,
@@ -406,6 +407,7 @@ class MultiCoCoRunner:
         return TrainingArguments(
             output_dir=training_config.output_dir,
             per_device_eval_batch_size=training_config.eval_batch_size,
+            eval_accumulation_steps=training_config.eval_accumulation_steps,
             bf16=training_config.bf16,
             fp16=training_config.fp16,
             remove_unused_columns=training_config.remove_unused_columns,
