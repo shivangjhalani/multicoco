@@ -563,7 +563,7 @@ class CoCoTrainer(Trainer):
         all_questions: List[str],
         is_main_process: bool
     ) -> Tuple[List[str], List[str], List[str]]:
-        """Gather results from all processes in distributed evaluation."""
+        """Gather results from all processes in distributed evaluation with robustness checks."""
         if is_main_process:
             logger.info(f"Process 0: Processed {len(all_labels)} samples")
         
@@ -583,13 +583,47 @@ class CoCoTrainer(Trainer):
         if is_main_process:
             final_predictions, final_labels, final_questions = [], [], []
             
+            # Add robustness checks for length consistency
+            rank_lengths = []
             for rank in range(world_size):
-                if gathered_predictions[rank] is not None:
+                pred_len = len(gathered_predictions[rank]) if gathered_predictions[rank] is not None else 0
+                label_len = len(gathered_labels[rank]) if gathered_labels[rank] is not None else 0
+                question_len = len(gathered_questions[rank]) if gathered_questions[rank] is not None else 0
+                
+                # Check length consistency within rank
+                if not (pred_len == label_len == question_len):
+                    logger.error(f"Rank {rank} has mismatched lengths: "
+                               f"predictions={pred_len}, labels={label_len}, questions={question_len}")
+                    raise EvaluationError(f"Mismatched data lengths on rank {rank}")
+                
+                rank_lengths.append(pred_len)
+                logger.info(f"Rank {rank}: {pred_len} samples")
+            
+            # Check for potential OOM issues (extreme length differences)
+            if len(set(rank_lengths)) > 1:
+                min_len, max_len = min(rank_lengths), max(rank_lengths)
+                if min_len == 0:
+                    logger.warning(f"Rank with 0 samples detected (possible OOM): {rank_lengths}")
+                elif max_len / min_len > 10:  # More than 10x difference suggests issues
+                    logger.warning(f"Large length discrepancy across ranks: {rank_lengths}")
+            
+            # Combine results from all ranks
+            for rank in range(world_size):
+                if (gathered_predictions[rank] is not None and 
+                    gathered_labels[rank] is not None and 
+                    gathered_questions[rank] is not None):
                     final_predictions.extend(gathered_predictions[rank])
-                if gathered_labels[rank] is not None:
                     final_labels.extend(gathered_labels[rank])
-                if gathered_questions[rank] is not None:
                     final_questions.extend(gathered_questions[rank])
+                else:
+                    logger.warning(f"Rank {rank} returned None results (possible failure)")
+            
+            # Final sanity check
+            total_samples = len(final_predictions)
+            assert len(final_labels) == total_samples, f"Final label count mismatch: {len(final_labels)} vs {total_samples}"
+            assert len(final_questions) == total_samples, f"Final question count mismatch: {len(final_questions)} vs {total_samples}"
+            
+            logger.info(f"Successfully gathered {total_samples} total samples from {world_size} ranks")
             
             return final_predictions, final_labels, final_questions
         

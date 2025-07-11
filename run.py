@@ -15,6 +15,21 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
+# --- Patch: ensure torch.utils.checkpoint is called with explicit use_reentrant ---
+import torch.utils.checkpoint as _checkpoint_module  # type: ignore  # noqa: E402
+
+if not getattr(_checkpoint_module.checkpoint, "_patched_use_reentrant", False):
+    _orig_checkpoint_fn = _checkpoint_module.checkpoint
+
+    def _checkpoint_with_explicit_use_reentrant(function, *args, **kwargs):  # type: ignore
+        """Wrapper that sets use_reentrant=False if caller did not specify it."""
+        if "use_reentrant" not in kwargs:
+            kwargs["use_reentrant"] = False  # recommended by PyTorch >=2.1
+        return _orig_checkpoint_fn(function, *args, **kwargs)
+
+    _checkpoint_with_explicit_use_reentrant._patched_use_reentrant = True  # type: ignore
+    _checkpoint_module.checkpoint = _checkpoint_with_explicit_use_reentrant
+# -------------------------------------------------------------------------------
 from transformers import AutoModelForCausalLM, TrainingArguments
 
 from multicoco.config import MultiCoCoConfig, TrainingMode

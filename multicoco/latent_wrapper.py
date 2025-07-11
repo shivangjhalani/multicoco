@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import logging
 from typing import Optional
 
 from .constants import END_LATENT_TOKEN, LATENT_TOKEN, START_LATENT_TOKEN
+
+logger = logging.getLogger(__name__)
 
 
 class LatentWrapper(nn.Module):
@@ -314,8 +317,11 @@ class LatentWrapper(nn.Module):
         attention_mask: Optional[torch.Tensor], 
         image_embeds: Optional[torch.Tensor]
     ) -> torch.Tensor:
-        """First pass to obtain hidden states."""
+        """First pass to obtain hidden states with vision-text monitoring."""
         with torch.inference_mode():
+            # Track image context token positions before multimodal preparation
+            img_token_positions = self._get_image_token_positions(input_ids) if hasattr(self.base_model.model, 'img_context_token_id') else None
+            
             first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
                 input_ids=input_ids,
                 pixel_values=None,
@@ -327,8 +333,13 @@ class LatentWrapper(nn.Module):
                 attention_mask=attention_mask,
                 output_hidden_states=True,
             )
+            
+            # Monitor hidden state norms for vision vs text tokens
+            hidden_states = first_out.hidden_states[-1]
+            if img_token_positions is not None and image_embeds is not None:
+                self._log_vision_text_norms(hidden_states, img_token_positions)
         
-        return first_out.hidden_states[-1]
+        return hidden_states
     
     def _build_modified_embeddings(
         self, 
@@ -355,6 +366,54 @@ class LatentWrapper(nn.Module):
         
         return inputs_embeds
     
+    def _get_image_token_positions(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Get positions of image context tokens in input sequence."""
+        img_context_token_id = getattr(self.base_model.model, 'img_context_token_id', None)
+        if img_context_token_id is None:
+            return torch.empty(0, dtype=torch.bool, device=input_ids.device)
+        return input_ids == img_context_token_id
+    
+    def _log_vision_text_norms(self, hidden_states: torch.Tensor, img_token_positions: torch.Tensor) -> None:
+        """Log hidden state norms for vision vs text tokens."""
+        try:
+            batch_size, seq_len, hidden_size = hidden_states.shape
+            
+            # Calculate L2 norms for all tokens
+            token_norms = torch.norm(hidden_states, p=2, dim=-1)  # [batch_size, seq_len]
+            
+            for batch_idx in range(batch_size):
+                batch_img_positions = img_token_positions[batch_idx]
+                batch_norms = token_norms[batch_idx]
+                
+                # Separate vision and text token norms
+                if batch_img_positions.any():
+                    vision_norms = batch_norms[batch_img_positions]
+                    text_norms = batch_norms[~batch_img_positions]
+                    
+                    # Calculate statistics
+                    vision_mean = vision_norms.mean().item()
+                    vision_std = vision_norms.std().item() if len(vision_norms) > 1 else 0.0
+                    text_mean = text_norms.mean().item()
+                    text_std = text_norms.std().item() if len(text_norms) > 1 else 0.0
+                    
+                    # Log statistics
+                    logger.info(f"Hidden state norms - Batch {batch_idx}: "
+                              f"Vision tokens: {len(vision_norms)} tokens, "
+                              f"mean={vision_mean:.4f}, std={vision_std:.4f} | "
+                              f"Text tokens: {len(text_norms)} tokens, "
+                              f"mean={text_mean:.4f}, std={text_std:.4f} | "
+                              f"Ratio (vision/text): {vision_mean/text_mean:.4f}")
+                else:
+                    # No vision tokens in this batch
+                    text_mean = batch_norms.mean().item()
+                    text_std = batch_norms.std().item() if len(batch_norms) > 1 else 0.0
+                    logger.info(f"Hidden state norms - Batch {batch_idx}: "
+                              f"No vision tokens, Text only: {len(batch_norms)} tokens, "
+                              f"mean={text_mean:.4f}, std={text_std:.4f}")
+                              
+        except Exception as e:
+            logger.warning(f"Failed to log vision-text norms: {e}")
+    
     def _second_pass_forward(
         self, 
         input_ids: torch.Tensor, 
@@ -374,7 +433,7 @@ class LatentWrapper(nn.Module):
         second_out = self.base_model.model.language_model(
             inputs_embeds=second_pass_embeds,
             attention_mask=attention_mask,
-            use_cache=False,
+            use_cache=True,
         )
         
         logits = second_out.logits
