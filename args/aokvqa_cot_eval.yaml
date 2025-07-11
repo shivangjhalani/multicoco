@@ -7,6 +7,9 @@ run_name: "aokvqa-cot-eval"
 eval_batch_size: 32  # Increased for speed
 eval_accumulation_steps: 2
 limit_for_testing: true
+wandb_project: "multicoco-experiments"
+wandb_tags: ["cot", "eval", "multimodal"]
+wandb_log_frequency: 10
 
 # Generation Configuration
 generation:

@@ -7,6 +7,9 @@ run_name: "aokvqa-coconut-evaluation"
 eval_accumulation_steps: 2  # Reduced from 4 for faster eval
 eval_batch_size: 16  # Increased from 8
 limit_for_testing: true
+wandb_project: "multicoco-experiments"
+wandb_tags: ["multimodal", "coconut", "eval"]
+wandb_log_frequency: 10
 
 # Generation Configuration
 generation:

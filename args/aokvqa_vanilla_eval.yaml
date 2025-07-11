@@ -8,6 +8,9 @@ dataloader_num_workers: 0
 eval_accumulation_steps: 1
 eval_batch_size: 16
 limit_for_testing: true
+wandb_project: "multicoco-experiments"
+wandb_tags: ["vanilla", "eval", "multimodal"]
+wandb_log_frequency: 10
 
 # Generation Configuration
 generation:
