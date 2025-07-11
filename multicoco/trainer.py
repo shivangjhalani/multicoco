@@ -331,6 +331,22 @@ class CoCoTrainer(Trainer):
             # Update global step counter
             if step % self.args.gradient_accumulation_steps == 0:
                 self.total_train_steps += 1
+
+                # Batch-level logging to Weights & Biases
+                if (
+                    getattr(self.args, "report_to", None)
+                    and "wandb" in self.args.report_to
+                    and step % self.args.gradient_accumulation_steps == 0
+                ):
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "train/batch_loss": loss.item(),
+                                "train/step": self.total_train_steps,
+                            })
+                    except ImportError:
+                        pass
         
         pbar.close()
         
@@ -338,6 +354,18 @@ class CoCoTrainer(Trainer):
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
+
+            # Epoch-level WandB logging
+            if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+                try:
+                    import wandb  # type: ignore
+                    if wandb.run is not None:
+                        wandb.log({
+                            "train/epoch_loss": avg_loss,
+                            "epoch": epoch + 1,
+                        })
+                except ImportError:
+                    pass
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -352,6 +380,22 @@ class CoCoTrainer(Trainer):
             self.state.save_to_json(state_path)
         
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
+
+        # Upload checkpoint as a WandB artifact
+        if self.is_world_process_zero() and getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None:
+                    artifact = wandb.Artifact(
+                        name=f"model_epoch_{epoch}",
+                        type="model",
+                        metadata={"epoch": epoch},
+                    )
+                    artifact.add_dir(checkpoint_dir)
+                    wandb.log_artifact(artifact)
+            except ImportError:
+                pass
+
         return checkpoint_dir
 
     def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
@@ -398,6 +442,15 @@ class CoCoTrainer(Trainer):
                 if isinstance(value, (int, float)):
                     logger.info(f"    {key}: {value:.4f}")
 
+        # Log aggregated metrics to Weights & Biases
+        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None and eval_metrics:
+                    wandb.log({**eval_metrics, "epoch": epoch + 1, "epoch_time": epoch_time})
+            except ImportError:
+                pass
+
     def _log_coconut_epoch_summary(
         self, 
         epoch: int, 
@@ -417,6 +470,21 @@ class CoCoTrainer(Trainer):
             for key, value in eval_metrics.items():
                 if isinstance(value, (int, float)):
                     logger.info(f"    {key}: {value:.4f}")
+
+        # Log per-stage aggregated metrics to Weights & Biases
+        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None and eval_metrics:
+                    wandb.log({
+                        **eval_metrics,
+                        "epoch": epoch + 1,
+                        "stage": current_stage,
+                        "stage_epoch": stage_epoch + 1,
+                        "epoch_time": epoch_time,
+                    })
+            except ImportError:
+                pass
 
     def _create_generation_config(self) -> Dict[str, Any]:
         """Create generation configuration from training arguments."""
@@ -534,7 +602,47 @@ class CoCoTrainer(Trainer):
                 metrics = {}
                 if is_main_process:
                     metrics = self._compute_final_metrics(all_predictions, all_labels, metric_key_prefix)
-                    
+
+                    # WandB visual logging
+                    if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+                        try:
+                            import wandb  # type: ignore
+                            if wandb.run is not None:
+                                # Confusion matrix (if labels are small integers)
+                                try:
+                                    from sklearn.metrics import confusion_matrix
+                                    import numpy as np
+
+                                    classes = sorted(list(set(all_labels)))
+                                    cm = confusion_matrix(all_labels, all_predictions, labels=classes)
+                                    wandb.log({
+                                        "eval/confusion_matrix": wandb.plot.confusion_matrix(
+                                            probs=None,
+                                            y_true=all_labels,
+                                            preds=all_predictions,
+                                            class_names=[str(c) for c in classes],
+                                        )
+                                    })
+                                except Exception as cm_err:
+                                    logger.warning(f"Failed to compute confusion matrix: {cm_err}")
+
+                                # Evaluation samples table (first 100)
+                                table = wandb.Table(columns=["question", "ground_truth", "prediction", "correct"])
+                                preview_limit = min(100, len(all_predictions))
+                                for i in range(preview_limit):
+                                    table.add_data(
+                                        all_questions[i],
+                                        str(all_labels[i]),
+                                        str(all_predictions[i]),
+                                        bool(all_predictions[i] == all_labels[i]),
+                                    )
+                                wandb.log({"eval/samples": table})
+
+                                # Aggregate metrics
+                                wandb.log(metrics)
+                        except ImportError:
+                            pass
+
                     if log_file:
                         self._write_evaluation_summary(log_file, metrics, len(all_labels))
 

@@ -397,12 +397,27 @@ class LatentWrapper(nn.Module):
                     text_std = text_norms.std().item() if len(text_norms) > 1 else 0.0
                     
                     # Log statistics
-                    logger.info(f"Hidden state norms - Batch {batch_idx}: "
-                              f"Vision tokens: {len(vision_norms)} tokens, "
-                              f"mean={vision_mean:.4f}, std={vision_std:.4f} | "
-                              f"Text tokens: {len(text_norms)} tokens, "
-                              f"mean={text_mean:.4f}, std={text_std:.4f} | "
-                              f"Ratio (vision/text): {vision_mean/text_mean:.4f}")
+                    ratio = vision_mean / text_mean if text_mean != 0 else 0.0
+                    logger.info(
+                        f"Hidden state norms - Batch {batch_idx}: "
+                        f"Vision tokens: {len(vision_norms)} tokens, "
+                        f"mean={vision_mean:.4f}, std={vision_std:.4f} | "
+                        f"Text tokens: {len(text_norms)} tokens, "
+                        f"mean={text_mean:.4f}, std={text_std:.4f} | "
+                        f"Ratio (vision/text): {ratio:.4f}"
+                    )
+
+                    # Push to Weights & Biases (one log per batch to avoid spam)
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "model/vision_norm_mean": vision_mean,
+                                "model/text_norm_mean": text_mean,
+                                "model/vision_text_ratio": ratio,
+                            })
+                    except ImportError:
+                        pass
                 else:
                     # No vision tokens in this batch
                     text_mean = batch_norms.mean().item()
@@ -410,6 +425,15 @@ class LatentWrapper(nn.Module):
                     logger.info(f"Hidden state norms - Batch {batch_idx}: "
                               f"No vision tokens, Text only: {len(batch_norms)} tokens, "
                               f"mean={text_mean:.4f}, std={text_std:.4f}")
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "model/text_only_norm_mean": text_mean,
+                                "model/text_only_norm_std": text_std,
+                            })
+                    except ImportError:
+                        pass
                               
         except Exception as e:
             logger.warning(f"Failed to log vision-text norms: {e}")

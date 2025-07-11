@@ -8,6 +8,7 @@ MultiCoCo framework, supporting vanilla, CoT, and CoCoNut methodologies.
 
 import argparse
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import random
 import sys
@@ -58,6 +59,10 @@ from multicoco.trainer import CoCoTrainer
 from multicoco.utils import TqdmLoggingHandler
 
 logger = logging.getLogger(__name__)
+
+# Third-party formatters required for the logging system.
+from pythonjsonlogger import jsonlogger  # type: ignore
+import colorlog  # type: ignore
 
 
 class MultiCoCoRunner:
@@ -114,36 +119,86 @@ class MultiCoCoRunner:
         logger.info(f"Set random seed to {seed}")
 
     def _setup_logging(self) -> None:
-        """Configure logging based on configuration."""
+        """Configure structured logging (console + rotating JSON files).
+
+        This logging setup relies on:
+            • colorlog – coloured console output
+            • python-json-logger – JSON-formatted log files
+            • RotatingFileHandler – size-based file rotation
+        """
+
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
+        # Only enable full logging on the main process to avoid log spam.
         if local_rank not in [-1, 0]:
             logging.getLogger().setLevel(logging.CRITICAL)
             return
-            
-        log_config = self.config.logging
-        os.makedirs(log_config.log_dir, exist_ok=True)
-        log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        
+
+        log_cfg = self.config.logging
+        os.makedirs(log_cfg.log_dir, exist_ok=True)
+
+        # ------------------------------------------------------------------
+        # Root logger configuration
+        # ------------------------------------------------------------------
         root_logger = logging.getLogger()
-        root_logger.setLevel(getattr(logging, log_config.log_level))
-        
+        root_logger.setLevel(getattr(logging, log_cfg.log_level))
+
+        # Remove previously-attached handlers when re-initialising (e.g. in Jupyter).
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
 
-        # File handler
-        file_path = os.path.join(log_config.log_dir, 'multicoco.log')
-        file_handler = logging.FileHandler(file_path, mode='w')
-        file_handler.setFormatter(logging.Formatter(log_format))
-        root_logger.addHandler(file_handler)
-
-        # Console handler
-        if log_config.console_output:
+        # ------------------------------------------------------------------
+        # Console handler (colour if colourlog is available)
+        # ------------------------------------------------------------------
+        console_handler = None
+        if log_cfg.console_output:
             console_handler = TqdmLoggingHandler()
-            console_handler.setFormatter(logging.Formatter(log_format))
+
+            fmt_str = "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # noqa: E501 – long format string
+            console_formatter = colorlog.ColoredFormatter(
+                fmt_str,
+                log_colors={
+                    "DEBUG": "cyan",
+                    "INFO": "green",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "bold_red",
+                },
+            )
+
+            console_handler.setFormatter(console_formatter)
             root_logger.addHandler(console_handler)
-        
-        # Suppress verbose logging if needed
-        if not log_config.verbose:
+
+        # ------------------------------------------------------------------
+        # Rotating file handler (JSON if python-json-logger is available)
+        # ------------------------------------------------------------------
+        file_path = os.path.join(
+            log_cfg.log_dir,
+            f"multicoco_{log_cfg.run_name or 'run'}_{random.randint(0, 1_000_000)}.log",
+        )
+        rotating_handler = RotatingFileHandler(
+            file_path,
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+        )
+
+        file_formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s %(module)s %(funcName)s %(lineno)d",
+        )
+
+        rotating_handler.setFormatter(file_formatter)
+        root_logger.addHandler(rotating_handler)
+
+        # ------------------------------------------------------------------
+        # Summary handler (INFO+ only, plain text)
+        # ------------------------------------------------------------------
+        summary_path = os.path.join(log_cfg.log_dir, "summary.log")
+        summary_handler = logging.FileHandler(summary_path, mode="a")
+        summary_handler.setLevel(logging.INFO)
+        summary_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        root_logger.addHandler(summary_handler)
+
+        # Suppress overly-verbose library loggers unless explicitly requested.
+        if not log_cfg.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
 
@@ -173,6 +228,14 @@ class MultiCoCoRunner:
             # Record full config for reproducibility
             cfg_dict = asdict(self.config) if is_dataclass(self.config) else {}
             self.wandb_run.config.update(cfg_dict, allow_val_change=True)
+
+            # Define commonly tracked metrics for cleaner dashboards
+            wandb.define_metric("train/step")
+            wandb.define_metric("train/batch_loss", step_metric="train/step", summary="min")
+            wandb.define_metric("train/epoch_loss", summary="min")
+            wandb.define_metric("eval/accuracy", step_metric="epoch", summary="max")
+            wandb.define_metric("epoch")
+            wandb.define_metric("stage")
 
             logger.info(f"Initialized wandb run: project={project}, name={run_name}")
 

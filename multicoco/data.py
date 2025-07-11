@@ -308,6 +308,7 @@ def create_progressive_latent_dataset(
     logger.info(f"Parameters: c_thought={c_thought}, max_latent_stage={max_latent_stage}")
     
     processed_samples = []
+    stage_counts = {s: 0 for s in range(max_latent_stage + 1)}
     
     for sample in base_dataset:
         # Parse reasoning steps
@@ -341,7 +342,25 @@ def create_progressive_latent_dataset(
         }
         
         processed_samples.append(processed_sample)
+        if stage_to_train in stage_counts:
+            stage_counts[stage_to_train] += 1
     
+    # Log overall stage distribution to Weights & Biases
+    try:
+        import wandb  # type: ignore
+        if wandb.run is not None:
+            table = wandb.Table(
+                data=[[int(k), int(v)] for k, v in stage_counts.items()],
+                columns=["stage", "count"],
+            )
+            wandb.log({
+                "data/stage_distribution": wandb.plot.bar(
+                    table, "stage", "count", title="Curriculum Stage Distribution"
+                )
+            })
+    except ImportError:
+        pass
+
     return processed_samples
 
 
