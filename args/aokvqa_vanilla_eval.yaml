@@ -1,30 +1,23 @@
 # Vanilla Evaluation Only
-# For evaluating the base InternVL3-1B model without CoT or CoCoNut training
-# Inherits from base.yaml with overrides
 
 # Training Configuration
 mode: "eval_only"
 name: "aokvqa-vanilla-eval"
-run_name: "aokvqa-vanilla-eval"
-only_eval: true
-limit_for_testing: true
+dataloader_num_workers: 0
+eval_accumulation_steps: 1
 eval_batch_size: 16
+limit_for_testing: true
 
-# Distributed Evaluation Configuration
-eval_accumulation_steps: 1  # Process each batch immediately for better debugging
-dataloader_num_workers: 0   # Reduce workers to avoid data loading issues in distributed mode
-
-# Generation Configuration for Vanilla Evaluation
-# DETERMINISTIC beam search for better results while maintaining reproducibility
+# Generation Configuration
 generation:
+  do_sample: false
   max_new_tokens: 128
-  do_sample: false     # Use deterministic decoding
-  temperature: 0.0     # No randomness
-  top_p: 1.0          # No nucleus sampling  
-  num_beams: 3        # Use beam search for better quality results
+  num_beams: 3
+  temperature: 0.0
+  top_p: 1.0
 
-# Vanilla Evaluation
+# Evaluation Configuration
 eval_config:
-  cot: false
   coconut: false
+  cot: false
   vanilla: true

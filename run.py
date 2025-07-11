@@ -2,56 +2,45 @@
 """
 Main entry point for MultiCoCo training and evaluation.
 
-This script provides a unified interface for running training and evaluation
-with the MultiCoCo framework, supporting vanilla, CoT, and CoCoNut methodologies.
+Provides a unified interface for running training and evaluation with the
+MultiCoCo framework, supporting vanilla, CoT, and CoCoNut methodologies.
 """
 
 import argparse
 import logging
 import os
-import sys
-from typing import Dict, Any, Optional
 import random
+import sys
+from typing import Any, Dict, Optional
 
-# ** Core libraries
-import torch
-import torch.utils.checkpoint as cp  # type: ignore
-from functools import partial
 import numpy as np
-from transformers import TrainingArguments, AutoModelForCausalLM
+import torch
+from transformers import AutoModelForCausalLM, TrainingArguments
 
-if not getattr(cp.checkpoint, "__patched_use_reentrant", False):
-    cp.checkpoint = partial(cp.checkpoint, use_reentrant=False)  # type: ignore[arg-type]
-    cp.checkpoint.__patched_use_reentrant = True  # type: ignore[attr-defined]
-# ** Local imports
-from multicoco.config import (
-    MultiCoCoConfig,
-    MultiCoCoConfig as _MC,
-    TrainingMode
-)
-from multicoco.model import MultiCoCo
-from multicoco.trainer import CoCoTrainer
-from multicoco.data import SupervisedDataset, collate_fn
-from multicoco.utils import TqdmLoggingHandler
+from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import (
-    DEFAULT_MODEL_NAME,
+    COCONUT_SPECIAL_TOKENS,
     DEFAULT_BATCH_SIZE,
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LEARNING_RATE,
+    DEFAULT_LOG_DIR,
+    DEFAULT_MODEL_NAME,
     DEFAULT_NUM_EPOCHS,
     DEFAULT_OUTPUT_DIR,
-    DEFAULT_LOG_DIR,
+    IMAGE_TOKEN,
     TEST_DATASET_LIMIT,
-    COCONUT_SPECIAL_TOKENS,
-    IMAGE_TOKEN
 )
+from multicoco.data import SupervisedDataset, collate_fn
 from multicoco.exceptions import (
     ConfigurationError,
-    ModelInitializationError,
     DataLoadingError,
-    EvaluationError
+    EvaluationError,
+    ModelInitializationError,
 )
 from multicoco.latent_wrapper import LatentWrapper
+from multicoco.model import MultiCoCo
+from multicoco.trainer import CoCoTrainer
+from multicoco.utils import TqdmLoggingHandler
 
 logger = logging.getLogger(__name__)
 
@@ -60,39 +49,38 @@ class MultiCoCoRunner:
     """
     Main runner class for MultiCoCo training and evaluation.
     
-    This class orchestrates the entire training and evaluation pipeline,
-    handling configuration, model initialization, data loading, and execution.
+    Orchestrates the complete training and evaluation pipeline, handling
+    configuration, model initialization, data loading, and execution.
     """
 
     def __init__(self, config: MultiCoCoConfig):
-        """
-        Initialize the runner with configuration.
-        
-        Args:
-            config: Complete configuration for the run
-        """
+        """Initialize the runner with configuration."""
         self.config = config
         self.model: Optional[MultiCoCo] = None
         self.trainer: Optional[CoCoTrainer] = None
         self.train_dataset: Optional[SupervisedDataset] = None
         self.eval_dataset: Optional[SupervisedDataset] = None
         
-        # Setup environment
-        self._setup_environment()
-        self._setup_logging()
+        self._initialize()
         
-        logger.info(f"MultiCoCoRunner initialized for {'training' if self.config.training.mode != TrainingMode.EVAL_ONLY else 'evaluation'}")
+        mode_type = ('training' if config.training.mode != TrainingMode.EVAL_ONLY 
+                    else 'evaluation')
+        logger.info(f"MultiCoCoRunner initialized for {mode_type}")
 
-    def _setup_environment(self) -> None:
-        """Set up the execution environment."""
+    def _initialize(self) -> None:
+        """Set up environment, logging, and random seeds."""
         # Set random seeds for reproducibility
         if self.config.training.seed is not None:
             self._set_random_seeds(self.config.training.seed)
         
-        # Set up device and distributed training
+        # Configure logging
+        self._setup_logging()
+        
+        # Set up CUDA environment
         if torch.cuda.is_available():
             torch.backends.cudnn.benchmark = True
-            logger.info(f"CUDA available with {torch.cuda.device_count()} devices")
+            device_count = torch.cuda.device_count()
+            logger.info(f"CUDA available with {device_count} devices")
         else:
             logger.warning("CUDA not available, using CPU")
 
@@ -106,7 +94,6 @@ class MultiCoCoRunner:
 
     def _setup_logging(self) -> None:
         """Configure logging based on configuration."""
-        # Only configure logging on the main process (rank 0)
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
         if local_rank not in [-1, 0]:
             logging.getLogger().setLevel(logging.CRITICAL)
@@ -116,27 +103,25 @@ class MultiCoCoRunner:
         os.makedirs(log_config.log_dir, exist_ok=True)
         log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         
-        # Get the root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_config.log_level))
         
-        # Clear any existing handlers to prevent duplicates
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
 
-        # Create file handler
-        file_handler = logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'), mode='w')
+        # File handler
+        file_path = os.path.join(log_config.log_dir, 'multicoco.log')
+        file_handler = logging.FileHandler(file_path, mode='w')
         file_handler.setFormatter(logging.Formatter(log_format))
         root_logger.addHandler(file_handler)
 
-        # Create console handler if enabled
+        # Console handler
         if log_config.console_output:
-            # Use TqdmLoggingHandler for clean console output with progress bars
             console_handler = TqdmLoggingHandler()
             console_handler.setFormatter(logging.Formatter(log_format))
             root_logger.addHandler(console_handler)
         
-        # Suppress transformers warnings if needed
+        # Suppress verbose logging if needed
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
@@ -148,31 +133,16 @@ class MultiCoCoRunner:
             coconut_config = self.config.coconut
             training_mode = self.config.training.mode
             
-            # Phase-aware token handling: only add latent tokens when actually needed
-            special_tokens = []
-            if coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN:
-                # Only add latent tokens for CoCoNut training or evaluation
-                from multicoco.constants import COCONUT_SPECIAL_TOKENS
-                special_tokens = list(set(model_config.get_special_tokens(coconut_config)) | set(COCONUT_SPECIAL_TOKENS))
-                logger.info(f"Adding latent special tokens for CoCoNut phase: {special_tokens}")
-            else:
-                # CoT training - use only base special tokens
-                special_tokens = model_config.get_special_tokens(coconut_config)
-                logger.info("CoT training phase - no latent tokens added")
+            # Determine special tokens based on training phase
+            special_tokens = self._get_special_tokens(
+                coconut_config, training_mode
+            )
             
-            # Initialize base model first
-            if model_config.load_model_path:
-                logger.info(f"Loading model from checkpoint: {model_config.load_model_path}")
-                base_model_source = model_config.model_name  # Use base model for architecture
-                checkpoint_path = model_config.load_model_path
-            else:
-                logger.info(f"Loading base model: {model_config.model_name}")
-                base_model_source = model_config.model_name
-                checkpoint_path = None
+            # Initialize base model
+            base_model_source, checkpoint_path = self._get_model_source()
             
-            # Initialize model with consistent architecture
             self.model = MultiCoCo(
-                model_id=base_model_source,  # Always use base model for architecture
+                model_id=base_model_source,
                 config_id=model_config.config_id,
                 tokenizer_id=model_config.tokenizer_id,
                 image_processor_id=model_config.image_processor_id,
@@ -182,43 +152,78 @@ class MultiCoCoRunner:
                 low_cpu_mem_usage=model_config.low_cpu_mem_usage
             )
             
-            # Load checkpoint state if provided (after base model initialization)
+            # Load checkpoint weights if provided
             if checkpoint_path:
                 self._load_checkpoint_weights(checkpoint_path)
-                logger.info(f"Loaded checkpoint weights from: {checkpoint_path}")
             
-            # Initialize embeddings for latent tokens if they were added
-            if special_tokens and any(tok in special_tokens for tok in ['<|latent|>', '<|start_latent|>', '<|end_latent|>']):
+            # Initialize latent token embeddings if needed
+            if self._has_latent_tokens(special_tokens):
                 self._initialize_latent_token_embeddings()
             
-            # Wrap with LatentWrapper only for CoCoNut training/evaluation
-            if coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN:
-                logger.info("Wrapping model with LatentWrapper for CoCoNut training")
+            # Wrap with LatentWrapper for CoCoNut training/evaluation
+            if self._needs_latent_wrapper(coconut_config, training_mode):
                 self.model = LatentWrapper(self.model, self.model.tokenizer)
             
-            # Log final model state
-            if checkpoint_path:
-                logger.info(f"Model initialized from checkpoint: {checkpoint_path}")
-            else:
-                logger.info(f"Base model '{model_config.model_name}' initialized successfully")
-            logger.info(f"Model dtype: {model_config.torch_dtype}")
-            logger.info(f"Model precision - BF16: {self.config.training.bf16}, FP16: {self.config.training.fp16}")
-            logger.info(f"Training mode: {training_mode}")
-            logger.info(f"CoCoNut enabled: {coconut_config.enabled}")
+            self._log_model_info(checkpoint_path, training_mode, coconut_config)
             
         except Exception as e:
             raise ModelInitializationError(f"Model initialization failed: {e}")
 
+    def _get_special_tokens(self, coconut_config, training_mode):
+        """Get special tokens based on configuration and training phase."""
+        special_tokens = []
+        if (coconut_config.enabled or 
+            training_mode == TrainingMode.COCONUT_TRAIN):
+            base_tokens = set(self.config.model.get_special_tokens(coconut_config))
+            coconut_tokens = set(COCONUT_SPECIAL_TOKENS)
+            special_tokens = list(base_tokens | coconut_tokens)
+            logger.info(f"Adding latent special tokens: {special_tokens}")
+        else:
+            special_tokens = self.config.model.get_special_tokens(coconut_config)
+            logger.info("CoT training phase - no latent tokens added")
+        return special_tokens
+
+    def _get_model_source(self):
+        """Get model source and checkpoint path."""
+        model_config = self.config.model
+        if model_config.load_model_path:
+            logger.info(f"Loading from checkpoint: {model_config.load_model_path}")
+            return model_config.model_name, model_config.load_model_path
+        else:
+            logger.info(f"Loading base model: {model_config.model_name}")
+            return model_config.model_name, None
+
+    def _has_latent_tokens(self, special_tokens):
+        """Check if latent tokens were added."""
+        latent_tokens = ['<|latent|>', '<|start_latent|>', '<|end_latent|>']
+        return any(tok in special_tokens for tok in latent_tokens)
+
+    def _needs_latent_wrapper(self, coconut_config, training_mode):
+        """Check if LatentWrapper is needed."""
+        return (coconut_config.enabled or 
+                training_mode == TrainingMode.COCONUT_TRAIN)
+
+    def _log_model_info(self, checkpoint_path, training_mode, coconut_config):
+        """Log model initialization information."""
+        source_info = (f"checkpoint: {checkpoint_path}" if checkpoint_path 
+                      else f"base model: {self.config.model.model_name}")
+        logger.info(f"Model initialized from {source_info}")
+        logger.info(f"Dtype: {self.config.model.torch_dtype}, "
+                   f"BF16: {self.config.training.bf16}, "
+                   f"FP16: {self.config.training.fp16}")
+        logger.info(f"Mode: {training_mode}, CoCoNut: {coconut_config.enabled}")
+
     def _load_checkpoint_weights(self, checkpoint_path: str) -> None:
         """Load checkpoint weights into the base model."""
         if self.model is None:
-            raise ModelInitializationError("Model must be initialized before loading checkpoint weights")
+            raise ModelInitializationError("Model must be initialized first")
             
         if not os.path.exists(checkpoint_path):
-            raise ModelInitializationError(f"Checkpoint path does not exist: {checkpoint_path}")
+            raise ModelInitializationError(
+                f"Checkpoint path does not exist: {checkpoint_path}"
+            )
         
         try:
-            # Load the checkpoint model to get its state dict
             checkpoint_model = AutoModelForCausalLM.from_pretrained(
                 checkpoint_path,
                 torch_dtype=self.model.model.dtype,
@@ -226,79 +231,80 @@ class MultiCoCoRunner:
                 low_cpu_mem_usage=True
             )
             
-            # Transfer weights to our model
             missing_keys, unexpected_keys = self.model.model.load_state_dict(
                 checkpoint_model.state_dict(), strict=False
             )
             
             if missing_keys:
-                logger.warning(f"Missing keys when loading checkpoint: {missing_keys}")
+                logger.warning(f"Missing keys: {missing_keys}")
             if unexpected_keys:
-                logger.warning(f"Unexpected keys when loading checkpoint: {unexpected_keys}")
+                logger.warning(f"Unexpected keys: {unexpected_keys}")
                 
-            # Clean up checkpoint model
             del checkpoint_model
             
         except Exception as e:
-            raise ModelInitializationError(f"Failed to load checkpoint weights: {e}")
+            raise ModelInitializationError(
+                f"Failed to load checkpoint weights: {e}"
+            )
 
     def _initialize_latent_token_embeddings(self) -> None:
-        """
-        Initialize embeddings for latent tokens with a multimodal-aware approach.
-        
-        This initializes latent token embeddings by averaging the embeddings of
-        a text token (EOS) and a vision-related token (<image>) to provide a
-        better starting point for multimodal reasoning.
-        """
+        """Initialize latent token embeddings with multimodal-aware approach."""
         if self.model is None:
-            raise ModelInitializationError("Model must be initialized before initializing token embeddings")
+            raise ModelInitializationError("Model must be initialized first")
             
         try:
             embed_layer = self.model.get_input_embeddings()
             with torch.no_grad():
-                # Get EOS token embedding (text representation)
                 eos_token_id = self.model.tokenizer.eos_token_id
                 eos_embedding = embed_layer.weight[eos_token_id].clone()
                 
-                # Get image token embedding (vision placeholder representation)
-                image_token_id = self.model.tokenizer.convert_tokens_to_ids(IMAGE_TOKEN)
+                image_token_id = self.model.tokenizer.convert_tokens_to_ids(
+                    IMAGE_TOKEN
+                )
                 
-                if image_token_id is None or image_token_id >= embed_layer.weight.size(0):
-                    logger.warning(f"'{IMAGE_TOKEN}' not found or invalid in tokenizer. Falling back to EOS-only initialization.")
+                if (image_token_id is None or 
+                    image_token_id >= embed_layer.weight.size(0)):
+                    logger.warning(
+                        f"'{IMAGE_TOKEN}' not found. Using EOS-only init."
+                    )
                     multimodal_embedding = eos_embedding
                 else:
                     image_embedding = embed_layer.weight[image_token_id].clone()
                     multimodal_embedding = (eos_embedding + image_embedding) / 2.0
-                    logger.info(f"Created multimodal-aware initial embedding by averaging EOS and '{IMAGE_TOKEN}' embeddings.")
+                    logger.info("Created multimodal-aware embedding from "
+                              f"EOS and '{IMAGE_TOKEN}'.")
 
-                # Apply the averaged embedding to all latent special tokens
+                # Apply to all latent tokens
                 for token in COCONUT_SPECIAL_TOKENS:
                     token_id = self.model.tokenizer.convert_tokens_to_ids(token)
-                    if token_id is not None and token_id < embed_layer.weight.size(0):
+                    if (token_id is not None and 
+                        token_id < embed_layer.weight.size(0)):
                         embed_layer.weight[token_id] = multimodal_embedding
-                        logger.info(f"Initialized '{token}' with multimodal-aware embedding.")
+                        logger.info(f"Initialized '{token}' with multimodal embedding.")
                     else:
-                        logger.warning(f"Could not initialize latent token: {token}")
+                        logger.warning(f"Could not initialize token: {token}")
 
         except Exception as e:
-            raise ModelInitializationError(f"Failed to initialize latent token embeddings: {e}")
+            raise ModelInitializationError(
+                f"Failed to initialize latent token embeddings: {e}"
+            )
 
     def setup_datasets(self) -> None:
         """Initialize and prepare datasets for training and evaluation."""
         try:
             data_config = self.config.data
-            
-            # Determine test limit for development
-            test_limit = TEST_DATASET_LIMIT if data_config.limit_for_testing else None
+            test_limit = (TEST_DATASET_LIMIT if data_config.limit_for_testing 
+                         else None)
             
             # Load training dataset if not eval-only
-            if self.config.training.mode != TrainingMode.EVAL_ONLY and data_config.train_data_path:
+            if (self.config.training.mode != TrainingMode.EVAL_ONLY and 
+                data_config.train_data_path):
                 self.train_dataset = SupervisedDataset(
                     data_path=data_config.train_data_path,
                     data_dir=data_config.data_dir,
                     test_limit=test_limit
                 )
-                logger.info(f"Training dataset loaded with {len(self.train_dataset)} samples")
+                logger.info(f"Training dataset: {len(self.train_dataset)} samples")
             
             # Load evaluation dataset
             if data_config.eval_data_path:
@@ -307,7 +313,7 @@ class MultiCoCoRunner:
                     data_dir=data_config.data_dir,
                     test_limit=test_limit
                 )
-                logger.info(f"Evaluation dataset loaded with {len(self.eval_dataset)} samples")
+                logger.info(f"Evaluation dataset: {len(self.eval_dataset)} samples")
             else:
                 raise DataLoadingError("Evaluation data path is required")
                 
@@ -317,58 +323,55 @@ class MultiCoCoRunner:
     def create_trainer(self) -> None:
         """Create and configure the trainer."""
         if self.model is None:
-            raise ModelInitializationError("Model must be initialized before creating trainer")
+            raise ModelInitializationError(
+                "Model must be initialized before creating trainer"
+            )
         
         try:
-            # Create training arguments
             training_args = self._create_training_arguments()
-            
-            # Create data collator
             data_collator = lambda batch: collate_fn(
                 batch, self.model.tokenizer, self.model.image_processor
             )
             
-            # Initialize trainer
             self.trainer = CoCoTrainer(
                 model=self.model,
                 args=training_args,
                 train_dataset=self.train_dataset,
                 eval_dataset=self.eval_dataset,
-                processing_class=self.model.tokenizer,  # For compatibility with new transformers
+                processing_class=self.model.tokenizer,
                 data_collator=data_collator
             )
             
-            # Set evaluation configuration
+            # Set configurations
             self.trainer.args.eval_config = self._create_eval_config()
-            
-            # Set generation kwargs
             self.trainer.args.generation_kwargs = self._create_generation_kwargs()
             
             # Set CoCoNut parameters
             if self.config.coconut.enabled:
-                self.trainer.args.c_thought = self.config.coconut.c_thought
-                self.trainer.args.max_latent_stage = self.config.coconut.max_latent_stage
-                self.trainer.args.epochs_per_stage = self.config.coconut.epochs_per_stage
-                self.trainer.args.uniform_prob = self.config.coconut.uniform_prob
-                self.trainer.args.pad_latent_to_max = self.config.coconut.pad_latent_to_max
-                self.trainer.args.reset_optimizer = self.config.coconut.reset_optimizer
+                self._set_coconut_trainer_params()
             
             logger.info("Trainer created successfully")
             
         except Exception as e:
             raise ConfigurationError(f"Failed to create trainer: {e}")
 
+    def _set_coconut_trainer_params(self):
+        """Set CoCoNut parameters on the trainer."""
+        coconut_config = self.config.coconut
+        self.trainer.args.c_thought = coconut_config.c_thought
+        self.trainer.args.max_latent_stage = coconut_config.max_latent_stage
+        self.trainer.args.epochs_per_stage = coconut_config.epochs_per_stage
+        self.trainer.args.uniform_prob = coconut_config.uniform_prob
+        self.trainer.args.pad_latent_to_max = coconut_config.pad_latent_to_max
+        self.trainer.args.reset_optimizer = coconut_config.reset_optimizer
+
     def _create_training_arguments(self) -> TrainingArguments:
-        """Create HuggingFace TrainingArguments from the configuration."""
+        """Create HuggingFace TrainingArguments from configuration."""
         training_config = self.config.training
         is_training = training_config.mode != TrainingMode.EVAL_ONLY
 
-        if is_training:
-            # Training mode configuration
-            return self._create_training_args(training_config)
-        else:
-            # Evaluation-only mode configuration
-            return self._create_evaluation_args(training_config)
+        return (self._create_training_args(training_config) if is_training 
+                else self._create_evaluation_args(training_config))
 
     def _create_training_args(self, training_config) -> TrainingArguments:
         """Create training arguments for training modes."""
@@ -384,8 +387,8 @@ class MultiCoCoRunner:
             learning_rate=training_config.learning_rate,
             warmup_steps=training_config.warmup_steps,
             logging_steps=training_config.logging_steps,
-            eval_strategy="epoch",  # Evaluate after each epoch
-            save_strategy="epoch",       # Save after each epoch  
+            eval_strategy="epoch",
+            save_strategy="epoch",
             save_total_limit=training_config.save_total_limit,
             load_best_model_at_end=training_config.load_best_model_at_end,
             metric_for_best_model=training_config.metric_for_best_model,
@@ -398,8 +401,8 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=True,
             do_eval=True,
-            report_to=["wandb"] if self.config.logging.use_wandb else [],
-            run_name=training_config.name if hasattr(training_config, 'name') else None
+            report_to=self.config.get_wandb_report_to(),
+            run_name=getattr(training_config, 'name', None)
         )
 
     def _create_evaluation_args(self, training_config) -> TrainingArguments:
@@ -415,7 +418,7 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=False,
             do_eval=True,
-            report_to=[],  # Disable wandb for eval-only
+            report_to=[],
         )
 
     def _create_generation_kwargs(self) -> Dict[str, Any]:
@@ -431,8 +434,8 @@ class MultiCoCoRunner:
             "top_k": gen_config.top_k,
         }
         
-        # Add pad token ID if available
-        if hasattr(self.model, 'tokenizer') and self.model.tokenizer.pad_token_id is not None:
+        if (hasattr(self.model, 'tokenizer') and 
+            self.model.tokenizer.pad_token_id is not None):
             kwargs["pad_token_id"] = self.model.tokenizer.pad_token_id
         
         return kwargs
@@ -449,70 +452,42 @@ class MultiCoCoRunner:
             "detailed_logging": eval_config.detailed_logging
         }
 
-    def _get_eval_type_name(self) -> str:
-        """Get the evaluation type name for logging."""
-        eval_config = self.config.evaluation
-        
-        if eval_config.coconut:
-            return "coconut"
-        elif eval_config.cot:
-            return "cot"
-        else:
-            return "vanilla"
-
     def run_training(self) -> None:
         """Run the training loop."""
         if self.trainer is None:
             raise ConfigurationError("Trainer not initialized")
         
         logger.info("Starting training...")
-        self.trainer.train(resume_from_checkpoint=self.config.training.resume_from_checkpoint)
+        self.trainer.train(
+            resume_from_checkpoint=self.config.training.resume_from_checkpoint
+        )
 
     def run_coconut_training(self) -> None:
-        """
-        Runs the second phase of training using progressive curriculum learning.
-        
-        This method implements the original CoCoNut methodology:
-        - Progressive replacement of reasoning steps with latent tokens
-        - Stage-by-stage training with epochs_per_stage epochs per stage
-        - Optional optimizer reset between stages
-        - Requires a CoT-trained model as initialization
-        """
+        """Run CoCoNut progressive curriculum learning training."""
         if self.trainer is None:
             raise ConfigurationError("Trainer not initialized")
         
-        logger.info("Starting CoCoNut progressive curriculum learning training...")
-        
-        # Latent tokens should already be properly initialized during model initialization
-        # No need for redundant validation here
-        
-        # Use the new progressive curriculum learning training method
+        logger.info("Starting CoCoNut progressive curriculum learning...")
         self.trainer.train_coconut_progressive(
             resume_from_checkpoint=self.config.training.resume_from_checkpoint
         )
 
     def run_evaluation(self) -> Dict[str, float]:
-        """Run a standalone evaluation."""
+        """Run standalone evaluation."""
         if self.trainer is None:
-            raise ConfigurationError("Trainer must be created before running evaluation")
+            raise ConfigurationError("Trainer must be created before evaluation")
         
         if self.eval_dataset is None:
-            raise DataLoadingError("Evaluation dataset must be loaded before evaluation")
+            raise DataLoadingError("Evaluation dataset must be loaded")
         
         try:
             logger.info("Starting evaluation...")
-            
-            # Run evaluation
             eval_results = self.trainer.evaluate()
             
-            # Extract metrics - handle both dict and object with .metrics attribute
-            if hasattr(eval_results, 'metrics'):
-                metrics = eval_results.metrics
-            else:
-                # eval_results is already a dict of metrics
-                metrics = eval_results
+            # Extract metrics
+            metrics = (eval_results.metrics if hasattr(eval_results, 'metrics') 
+                      else eval_results)
             
-            # Log results
             self._log_evaluation_results(metrics)
             
             if self.trainer.is_world_process_zero():
@@ -523,12 +498,12 @@ class MultiCoCoRunner:
             raise EvaluationError(f"Evaluation failed: {e}")
 
     def _log_evaluation_results(self, metrics: Dict[str, float]) -> None:
-        """Log evaluation results in a structured format."""
-        # Only log from the main process
+        """Log evaluation results in structured format."""
         if self.trainer and self.trainer.is_world_process_zero():
-            logger.info("\n==================================================")
+            logger.info("\n" + "="*50)
             logger.info("FINAL RESULTS")
-            logger.info("==================================================")
+            logger.info("="*50)
+            
             accuracy = metrics.get('eval_accuracy', 0.0)
             loss = metrics.get('eval_loss', 0.0)
             
@@ -542,80 +517,74 @@ class MultiCoCoRunner:
                 max_stage = metrics['eval_max_latent_stage']
                 logger.info(f"  CoCoNut Stage: {stage}/{max_stage}")
                 
-            logger.info("==================================================")
+            logger.info("="*50)
 
     def run(self) -> Dict[str, float]:
-        """
-        Orchestrates the full pipeline based on the training mode in the config.
-
-        This method acts as a dispatcher:
-        - `eval_only`: Runs only the evaluation loop.
-        - `cot_train`: Runs a standard supervised fine-tuning pass. This is
-                       the first phase of the full CoCoNuT process.
-        - `coconut_train`: Runs the second phase, loading a CoT-tuned model
-                           and training it with the CoCoNutModel for latent
-                           space reasoning.
-        """
+        """Orchestrate the full pipeline based on training mode."""
         try:
             # Initialize model and datasets
             self.initialize_model()
             self.setup_datasets()
             
-            # Execute based on training mode
+            # Execute based on mode using dispatch dict
+            mode_handlers = {
+                TrainingMode.EVAL_ONLY: self._run_eval_only,
+                TrainingMode.COT_TRAIN: self._run_cot_training,
+                TrainingMode.COCONUT_TRAIN: self._run_coconut_training,
+            }
+            
             mode = self.config.training.mode
-
-            if mode == TrainingMode.EVAL_ONLY:
-                logger.info("Starting evaluation only...")
-                self.create_trainer()
-                results = self.run_evaluation()
-                self._log_evaluation_results(results)
-                return results
-
-            elif mode == TrainingMode.COT_TRAIN:
-                logger.info("Starting CoT training...")
-                self.create_trainer()
-                self.run_training()
-
-            elif mode == TrainingMode.COCONUT_TRAIN:
-                logger.info("Starting CoCoNuT training...")
-                self.create_trainer()
-                self.run_coconut_training()
-                
-            else:
+            if mode not in mode_handlers:
                 raise ConfigurationError(f"Invalid training mode: {mode}")
+            
+            return mode_handlers[mode]()
 
-            # Run final evaluation
-            logger.info("Running final evaluation...")
-            results = self.run_evaluation()
-            self._log_evaluation_results(results)
-            return results
-
-        except (ConfigurationError, ModelInitializationError, DataLoadingError, EvaluationError) as e:
+        except (ConfigurationError, ModelInitializationError, 
+                DataLoadingError, EvaluationError) as e:
             logger.error(f"Pipeline failed: {e}")
             raise
 
+    def _run_eval_only(self) -> Dict[str, float]:
+        """Handle evaluation-only mode."""
+        logger.info("Starting evaluation only...")
+        self.create_trainer()
+        results = self.run_evaluation()
+        self._log_evaluation_results(results)
+        return results
+
+    def _run_cot_training(self) -> Dict[str, float]:
+        """Handle CoT training mode."""
+        logger.info("Starting CoT training...")
+        self.create_trainer()
+        self.run_training()
+        return self._run_final_evaluation()
+
+    def _run_coconut_training(self) -> Dict[str, float]:
+        """Handle CoCoNut training mode."""
+        logger.info("Starting CoCoNut training...")
+        self.create_trainer()
+        self.run_coconut_training()
+        return self._run_final_evaluation()
+
+    def _run_final_evaluation(self) -> Dict[str, float]:
+        """Run final evaluation and return results."""
+        logger.info("Running final evaluation...")
+        results = self.run_evaluation()
+        self._log_evaluation_results(results)
+        return results
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create the command-line argument parser."""
+    """Create command-line argument parser."""
     parser = argparse.ArgumentParser(
-        description="MultiCoCo Runner: A two-phase training pipeline for multimodal models.",
+        description="MultiCoCo: Two-phase training for multimodal models.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
     parser.add_argument(
         "config_path",
         type=str,
-        help="""Path to the YAML configuration file.
-            
-To run the full pipeline, execute two runs:
-1. First, run with a 'cot_train' config to fine-tune the model.
-   Example: torchrun --nproc_per_node 1 run.py args/aokvqa_cot_train.yaml
-   
-2. Second, run with a 'coconut_train' config to perform latent reasoning training.
-   Make sure the `model_name` in this config points to the checkpoint from step 1.
-   Example: torchrun --nproc_per_node 1 run.py args/aokvqa_coconut_train.yaml
-"""
+        help="Path to YAML configuration file"
     )
     
     parser.add_argument(
@@ -645,17 +614,9 @@ To run the full pipeline, execute two runs:
     return parser
 
 
-def apply_cli_overrides(config: MultiCoCoConfig, args: argparse.Namespace) -> MultiCoCoConfig:
-    """
-    Apply command line overrides to configuration.
-    
-    Args:
-        config: Base configuration
-        args: Command line arguments
-        
-    Returns:
-        Updated configuration
-    """
+def apply_cli_overrides(config: MultiCoCoConfig, 
+                       args: argparse.Namespace) -> MultiCoCoConfig:
+    """Apply command line overrides to configuration."""
     if args.eval_only:
         config.training.eval_only = True
     
@@ -672,33 +633,30 @@ def apply_cli_overrides(config: MultiCoCoConfig, args: argparse.Namespace) -> Mu
     return config
 
 
+def _load_config(config_path: str) -> MultiCoCoConfig:
+    """Load configuration with base inheritance."""
+    base_cfg_path = os.path.join(os.path.dirname(config_path), "base.yaml")
+    return MultiCoCoConfig.load_with_base(
+        config_path=config_path,
+        base_config_path=base_cfg_path
+    )
+
+
 def main() -> None:
     """Main entry point."""
     try:
-        # Parse command line arguments
         parser = create_parser()
         args = parser.parse_args()
         
-        # Load configuration, inheriting defaults from base.yaml to avoid redundancy
-        # The helper automatically merges the base configuration with the specific one
-        # (specific values override defaults).
-        import os
-        base_cfg_path = os.path.join(os.path.dirname(args.config_path), "base.yaml")
-        config = MultiCoCoConfig.load_with_base(
-            config_path=args.config_path,
-            base_config_path=base_cfg_path
-        )
-        
-        # Apply command line overrides
+        config = _load_config(args.config_path)
         config = apply_cli_overrides(config, args)
         
-        # Automatically set evaluation mode based on training mode
+        # Auto-configure evaluation mode for CoT training
         if config.training.mode == TrainingMode.COT_TRAIN:
-            logger.info("CoT training mode detected, setting evaluation to CoT mode automatically.")
+            logger.info("CoT training mode: setting CoT evaluation")
             config.evaluation.cot = True
             config.evaluation.vanilla = False
         
-        # Create and run pipeline
         runner = MultiCoCoRunner(config)
         metrics = runner.run()
         

@@ -1,41 +1,34 @@
 """
 Model wrapper for MultiCoCo multimodal AI.
 
-This module provides a wrapper around InternVL models to enable CoCoNut
-(Chain of Continuous Thought) training and evaluation with proper dtype
-handling and special token management.
+Provides a wrapper around InternVL models to enable CoCoNut (Chain of
+Continuous Thought) training and evaluation with proper dtype handling
+and special token management.
 """
 
-import logging
 import contextlib
-from collections import namedtuple
-from typing import Dict, List, Optional, Any, Union
+import logging
+from typing import Any, Dict, List, Optional
 
 import torch
 from torch import nn
-
 from transformers import (
-    AutoTokenizer, 
-    AutoModelForCausalLM, 
-    AutoImageProcessor, 
-    AutoConfig
+    AutoConfig,
+    AutoImageProcessor,
+    AutoModelForCausalLM,
+    AutoTokenizer,
 )
+
 from .constants import (
-    DEFAULT_MODEL_NAME,
+    COCONUT_SPECIAL_TOKENS,
     DEFAULT_DTYPE,
+    DEFAULT_MODEL_NAME,
     IMAGE_TOKEN,
     IMG_CONTEXT_TOKEN,
-    COCONUT_SPECIAL_TOKENS
 )
-from .exceptions import (
-    ModelInitializationError,
-    DtypeMismatchError
-)
+from .exceptions import DtypeMismatchError, ModelInitializationError
 
 logger = logging.getLogger(__name__)
-
-# Named tuple for model outputs
-ModelOutputs = namedtuple("ModelOutputs", ["loss", "inputs_embeds", "logits"])
 
 
 @contextlib.contextmanager
@@ -43,9 +36,7 @@ def suppress_internvl_messages():
     """
     Context manager to suppress specific InternVL verbose messages during training.
     
-    This suppresses:
-    - "dynamic ViT batch size: ..." messages
-    - "warning: The size of tensor a ..." messages
+    Suppresses dynamic ViT batch size and tensor warning messages.
     """
     import builtins
     original_print = builtins.print
@@ -54,15 +45,16 @@ def suppress_internvl_messages():
         message = ' '.join(str(arg) for arg in args)
         
         # Filter out specific InternVL messages
-        if any(phrase in message for phrase in [
+        suppress_phrases = [
             'dynamic ViT batch size:',
             'warning: The size of tensor a',
             'input_embeds[selected].shape=',
             'vit_embeds.shape='
-        ]):
-            return  # Suppress this message
+        ]
         
-        # Print everything else normally
+        if any(phrase in message for phrase in suppress_phrases):
+            return
+        
         original_print(*args, **kwargs)
     
     builtins.print = filtered_print
@@ -76,8 +68,8 @@ class MultiCoCo(nn.Module):
     """
     MultiCoCo model wrapper for InternVL with CoCoNut support.
     
-    This class wraps an InternVL model and provides additional functionality
-    for CoCoNut training, including special token handling and dtype consistency.
+    Wraps an InternVL model and provides additional functionality for CoCoNut
+    training, including special token handling and dtype consistency.
     
     Args:
         model_id: HuggingFace model identifier
@@ -88,7 +80,6 @@ class MultiCoCo(nn.Module):
         torch_dtype: PyTorch dtype for model weights
         trust_remote_code: Whether to trust remote code
         low_cpu_mem_usage: Whether to use low CPU memory loading
-        **kwargs: Additional arguments
     """
 
     def __init__(
@@ -108,46 +99,48 @@ class MultiCoCo(nn.Module):
         special_tokens = special_tokens or []
         
         try:
-            self._initialize_model(
-                model_id, config_id, torch_dtype, 
-                trust_remote_code, low_cpu_mem_usage
+            # Initialize all components
+            self.model = self._create_model(
+                model_id, config_id, torch_dtype, trust_remote_code, low_cpu_mem_usage
             )
-            self._initialize_tokenizer(tokenizer_id or model_id, special_tokens)
-            self._initialize_image_processor(image_processor_id or model_id)
+            self.tokenizer = self._create_tokenizer(
+                tokenizer_id or model_id, special_tokens
+            )
+            self.image_processor = self._create_image_processor(
+                image_processor_id or model_id
+            )
             self._setup_special_tokens()
             
         except Exception as e:
-            raise ModelInitializationError(f"Failed to initialize MultiCoCo model: {e}")
+            raise ModelInitializationError(
+                f"Failed to initialize MultiCoCo model: {e}"
+            )
         
-        logger.info(f"MultiCoCo model initialized with {self._count_parameters()} parameters")
+        param_count = self._count_parameters()
+        logger.info(f"MultiCoCo model initialized with {param_count} parameters")
 
-    def _initialize_model(
+    def _create_model(
         self, 
         model_id: str, 
         config_id: Optional[str], 
         torch_dtype: str,
         trust_remote_code: bool, 
         low_cpu_mem_usage: bool
-    ) -> None:
-        """Initialize the base model with configuration."""
-        conf_id = config_id if config_id else model_id
+    ) -> nn.Module:
+        """Create and configure the base model."""
+        conf_id = config_id or model_id
         
         # Load and configure model config
-        config = AutoConfig.from_pretrained(conf_id, trust_remote_code=trust_remote_code)
-        config.attn_implementation = "sdpa"  # Use PyTorch's optimized scaled dot product attention
+        config = AutoConfig.from_pretrained(
+            conf_id, trust_remote_code=trust_remote_code
+        )
+        config.attn_implementation = "sdpa"  # Use optimized attention
 
         # Convert string dtype to torch dtype
-        if torch_dtype == "bfloat16":
-            dtype = torch.bfloat16
-        elif torch_dtype == "float16":
-            dtype = torch.float16
-        elif torch_dtype == "float32":
-            dtype = torch.float32
-        else:
-            raise ModelInitializationError(f"Unsupported dtype: {torch_dtype}")
+        dtype = self._get_torch_dtype(torch_dtype)
 
         # Load the model
-        self.model = AutoModelForCausalLM.from_pretrained(
+        return AutoModelForCausalLM.from_pretrained(
             model_id,
             config=config,
             torch_dtype=dtype,
@@ -155,30 +148,44 @@ class MultiCoCo(nn.Module):
             trust_remote_code=trust_remote_code,
         )
 
-    def _initialize_tokenizer(self, tokenizer_id: str, special_tokens: List[str]) -> None:
-        """Initialize tokenizer with special tokens."""
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_id, 
-            trust_remote_code=True
+    def _get_torch_dtype(self, torch_dtype: str) -> torch.dtype:
+        """Convert string dtype to torch dtype."""
+        dtype_map = {
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+            "float32": torch.float32,
+        }
+        
+        if torch_dtype not in dtype_map:
+            raise ModelInitializationError(f"Unsupported dtype: {torch_dtype}")
+        
+        return dtype_map[torch_dtype]
+
+    def _create_tokenizer(
+        self, tokenizer_id: str, special_tokens: List[str]
+    ) -> AutoTokenizer:
+        """Create and configure tokenizer with special tokens."""
+        tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_id, trust_remote_code=True
         )
         
         # Set pad token if not present
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
             logger.info("Set pad_token to eos_token")
         
         # Add special tokens if provided
         if special_tokens:
-            self.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-            self._resize_token_embeddings()
+            tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
+            self._resize_token_embeddings_for_tokenizer(tokenizer)
             logger.info(f"Added {len(special_tokens)} special tokens: {special_tokens}")
+        
+        return tokenizer
 
-    def _initialize_image_processor(self, processor_id: str) -> None:
-        """Initialize image processor."""
-        self.image_processor = AutoImageProcessor.from_pretrained(
-            processor_id, 
-            trust_remote_code=True,
-            use_fast=True
+    def _create_image_processor(self, processor_id: str) -> AutoImageProcessor:
+        """Create image processor."""
+        return AutoImageProcessor.from_pretrained(
+            processor_id, trust_remote_code=True, use_fast=True
         )
 
     def _setup_special_tokens(self) -> None:
@@ -188,18 +195,20 @@ class MultiCoCo(nn.Module):
         if img_token_id is not None:
             self.model.img_context_token_id = img_token_id
         else:
-            logger.warning(f"Image context token '{IMG_CONTEXT_TOKEN}' not found in tokenizer")
+            logger.warning(
+                f"Image context token '{IMG_CONTEXT_TOKEN}' not found in tokenizer"
+            )
 
         # Keep reference to eos id for convenience
         self.eos_token_id = self.tokenizer.eos_token_id
 
-    def _resize_token_embeddings(self) -> None:
+    def _resize_token_embeddings_for_tokenizer(self, tokenizer: AutoTokenizer) -> None:
         """Resize token embeddings after adding special tokens."""
         # Handle different model architectures
         if hasattr(self.model, 'language_model'):
-            self.model.language_model.resize_token_embeddings(len(self.tokenizer))
+            self.model.language_model.resize_token_embeddings(len(tokenizer))
         else:
-            self.model.resize_token_embeddings(len(self.tokenizer))
+            self.model.resize_token_embeddings(len(tokenizer))
 
     def _count_parameters(self) -> int:
         """Count the number of model parameters."""
@@ -210,28 +219,17 @@ class MultiCoCo(nn.Module):
         return self.model.get_input_embeddings()
 
     def _ensure_dtype_consistency(self, **kwargs) -> Dict[str, Any]:
-        """
-        Ensure all input tensors match the model's dtype.
-        
-        Args:
-            **kwargs: Input arguments that may contain tensors
-            
-        Returns:
-            Updated kwargs with consistent dtypes
-            
-        Raises:
-            DtypeMismatchError: If dtype conversion fails
-        """
+        """Ensure all input tensors match the model's dtype."""
         try:
-            # Get the model's dtype
             model_dtype = next(self.model.parameters()).dtype
             
             # Convert pixel_values to model dtype if present
-            if 'pixel_values' in kwargs and kwargs['pixel_values'] is not None:
-                pixel_values = kwargs['pixel_values']
+            if (pixel_values := kwargs.get('pixel_values')) is not None:
                 if pixel_values.dtype != model_dtype:
                     kwargs['pixel_values'] = pixel_values.to(dtype=model_dtype)
-                    logger.debug(f"Converted pixel_values from {pixel_values.dtype} to {model_dtype}")
+                    logger.debug(
+                        f"Converted pixel_values from {pixel_values.dtype} to {model_dtype}"
+                    )
                     
             return kwargs
             
@@ -239,48 +237,32 @@ class MultiCoCo(nn.Module):
             raise DtypeMismatchError("unknown", "unknown") from e
 
     def _clean_forward_kwargs(self, **kwargs) -> Dict[str, Any]:
-        """
-        Remove custom arguments that shouldn't be passed to the base model.
-        
-        Args:
-            **kwargs: Input arguments
-            
-        Returns:
-            Cleaned kwargs for model forward pass
-        """
-        # These are custom arguments from our data collator that should not
-        # be passed to the underlying model's forward method
+        """Remove custom arguments that shouldn't be passed to the base model."""
+        # Custom arguments from data collator that should not be passed
         # Note: image_flags is needed by InternVL models, so we keep it
         custom_args = {
             'question_ids', 'questions', 'original_questions', 
             'answers', 'num_items_in_batch'
         }
         
-        cleaned_kwargs = {k: v for k, v in kwargs.items() if k not in custom_args}
-        return cleaned_kwargs
+        return {k: v for k, v in kwargs.items() if k not in custom_args}
+
+    def _generate_image_flags(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        """Generate image flags for InternVL models."""
+        batch_size = pixel_values.shape[0]
+        device = pixel_values.device
+        return torch.ones(batch_size, dtype=torch.bool, device=device).unsqueeze(-1)
 
     def forward(self, **kwargs) -> Any:
-        """
-        Forward pass through the model.
-        
-        Args:
-            **kwargs: Input arguments including pixel_values, input_ids, etc.
-            
-        Returns:
-            Model outputs
-        """
+        """Forward pass through the model."""
         # Clean arguments and ensure dtype consistency
         kwargs = self._clean_forward_kwargs(**kwargs)
         kwargs = self._ensure_dtype_consistency(**kwargs)
         
         # Generate image_flags if not provided (InternVL models require this)
-        if 'image_flags' not in kwargs and 'pixel_values' in kwargs:
-            pixel_values = kwargs['pixel_values']
-            if pixel_values is not None:
-                batch_size = pixel_values.shape[0]
-                device = pixel_values.device
-                # Create image_flags indicating all samples have images
-                kwargs['image_flags'] = torch.ones(batch_size, dtype=torch.bool, device=device).unsqueeze(-1)
+        if ('image_flags' not in kwargs and 
+            (pixel_values := kwargs.get('pixel_values')) is not None):
+            kwargs['image_flags'] = self._generate_image_flags(pixel_values)
         
         # Forward pass through the underlying model with message suppression
         with suppress_internvl_messages():
@@ -310,9 +292,6 @@ class MultiCoCo(nn.Module):
             
         Returns:
             Generated token sequences
-            
-        Raises:
-            DtypeMismatchError: If dtype conversion fails
         """
         # Ensure dtype consistency for inputs
         if pixel_values is not None:

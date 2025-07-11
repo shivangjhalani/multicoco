@@ -1,40 +1,35 @@
 # CoCoNut Multi-Stage Training
-# This is the second phase - progressive curriculum learning similar to original CoCoNut gsm_coconut.yaml
-# REQUIRES: A CoT checkpoint from Stage 0 training
-# Inherits from base.yaml with overrides
 
 # Training Configuration
 mode: "coconut_train"
 name: "aokvqa-coconut-multistage"
-run_name: "aokvqa-coconut-multistage"
 output_dir: "checkpoints/aokvqa_coconut"
-num_epochs: 50  # Total epochs across all stages
-resume_from_checkpoint: false
 limit_for_testing: true
-reset_optimizer: true  # Reset optimizer between stages
+num_epochs: 50
+reset_optimizer: true
+resume_from_checkpoint: false
 
-# Generation Configuration for CoCoNut Training/Evaluation
-# Balanced settings for latent reasoning evaluation
+# Generation Configuration
 generation:
-  max_new_tokens: 256
   do_sample: true
+  max_new_tokens: 256
+  num_beams: 1
   temperature: 0.8
   top_p: 0.9
-  num_beams: 1
 
-# CoCoNut Progressive Curriculum Learning Configuration
+# Model Configuration
+load_model_path: "checkpoints/aokvqa_cot"
+
+# CoCoNut Configuration
 coconut:
+  c_thought: 1
   enabled: true
-  c_thought: 1          # Number of continuous thoughts per reasoning step
-  epochs_per_stage: 5   # Train each stage for 5 epochs
-  max_latent_stage: 6   # Maximum stages (0=CoT, 1-6=progressive latent)
+  epochs_per_stage: 5
+  max_latent_stage: 6
   pad_latent_to_max: false
-  uniform_prob: 0.0     # Probability to mix data from other stages (0 for standard)
+  uniform_prob: 0.0
 
-# Model Configuration - Load from CoT checkpoint
-load_model_path: "checkpoints/aokvqa_cot"  # Path to CoT checkpoint
-
-# CoCoNut Evaluation
+# Evaluation Configuration
 eval_config:
-  cot: false
-  coconut: true 
+  coconut: true
+  cot: false 

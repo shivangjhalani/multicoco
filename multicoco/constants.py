@@ -1,48 +1,22 @@
 """
 Constants used throughout the MultiCoCo package.
 
-This module centralizes all magic numbers, default values, and configuration
-constants to improve maintainability and avoid magic numbers scattered
-throughout the codebase.
+Centralizes all magic numbers, default values, and configuration constants
+to improve maintainability and avoid scattered magic numbers.
 """
 
 # ============================================================================
-# MODEL CONFIGURATION
+# ANSWER CHOICE VALIDATION
 # ============================================================================
 
-DEFAULT_MODEL_NAME = "OpenGVLab/InternVL3-1B-Pretrained"
-DEFAULT_DTYPE = "bfloat16"
+CHOICE_MAPPINGS = {
+    'a': '0', 'first': '0', 'zero': '0',
+    'b': '1', 'one': '1', 'second': '1', 
+    'c': '2', 'third': '2', 'two': '2',
+    'd': '3', 'fourth': '3', 'three': '3'
+}
 
-# ============================================================================
-# GENERATION PARAMETERS
-# ============================================================================
-
-DEFAULT_MAX_NEW_TOKENS = 256
-DEFAULT_MAX_LENGTH = 768
-DEFAULT_INPUT_MAX_LENGTH = 512
-DEFAULT_TARGET_MAX_LENGTH = 256
-DEFAULT_NUM_BEAMS = 1
-
-# ============================================================================
-# IMAGE PROCESSING
-# ============================================================================
-
-DEFAULT_IMAGE_SIZE = 448
-
-# ============================================================================
-# SPECIAL TOKENS
-# ============================================================================
-
-# Latent reasoning tokens used in CoCoNut curriculum
-LATENT_TOKEN = '<|latent|>'
-START_LATENT_TOKEN = '<|start_latent|>'
-END_LATENT_TOKEN = '<|end_latent|>'
-
-# Collection for easy tokenizer addition
-COCONUT_SPECIAL_TOKENS = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
-
-IMAGE_TOKEN = '<image>'
-IMG_CONTEXT_TOKEN = '<img>'
+VALID_CHOICE_NUMBERS = ['0', '1', '2', '3']
 
 # ============================================================================
 # COCONUT TRAINING PARAMETERS
@@ -53,31 +27,30 @@ DEFAULT_MAX_LATENT_STAGE = 0
 LOSS_IGNORE_INDEX = -100
 
 # ============================================================================
-# ANSWER CHOICE VALIDATION
-# ============================================================================
-
-VALID_CHOICE_NUMBERS = ['0', '1', '2', '3']
-CHOICE_MAPPINGS = {
-    'first': '0', 'zero': '0', 'a': '0',
-    'second': '1', 'one': '1', 'b': '1', 
-    'third': '2', 'two': '2', 'c': '2',
-    'fourth': '3', 'three': '3', 'd': '3'
-}
-
-# ============================================================================
 # DATASET CONFIGURATION
 # ============================================================================
 
-TEST_DATASET_LIMIT = 20  # For development/testing
+TEST_DATASET_LIMIT = 20
 
 # ============================================================================
-# TRAINING DEFAULTS
+# EVALUATION TYPES
 # ============================================================================
 
-DEFAULT_LEARNING_RATE = 1e-5
-DEFAULT_BATCH_SIZE = 2
-DEFAULT_EVAL_BATCH_SIZE = 2
-DEFAULT_NUM_EPOCHS = 3
+EVAL_TYPES = {
+    'COCONUT': 'coconut',
+    'COT': 'cot', 
+    'VANILLA': 'vanilla'
+}
+
+# ============================================================================
+# GENERATION PARAMETERS
+# ============================================================================
+
+DEFAULT_INPUT_MAX_LENGTH = 512
+DEFAULT_MAX_LENGTH = 768
+DEFAULT_MAX_NEW_TOKENS = 256
+DEFAULT_NUM_BEAMS = 1
+DEFAULT_TARGET_MAX_LENGTH = 256
 
 # ============================================================================
 # LOGGING AND OUTPUT
@@ -89,11 +62,36 @@ EVAL_LOG_SEPARATOR = "=" * 50
 SAMPLE_LOG_SEPARATOR = "-" * 40
 
 # ============================================================================
-# EVALUATION TYPES
+# MODEL CONFIGURATION
 # ============================================================================
 
-EVAL_TYPES = {
-    'VANILLA': 'vanilla',
-    'COT': 'cot', 
-    'COCONUT': 'coconut'
-} 
+DEFAULT_DTYPE = "bfloat16"
+DEFAULT_IMAGE_SIZE = 448
+DEFAULT_MODEL_NAME = "OpenGVLab/InternVL3-1B-Pretrained"
+
+# ============================================================================
+# SPECIAL TOKENS
+# ============================================================================
+
+# Collection for easy tokenizer addition
+COCONUT_SPECIAL_TOKENS = [
+    '<|start_latent|>',
+    '<|latent|>',
+    '<|end_latent|>'
+]
+
+# Individual token definitions
+END_LATENT_TOKEN = '<|end_latent|>'
+IMAGE_TOKEN = '<image>'
+IMG_CONTEXT_TOKEN = '<img>'
+LATENT_TOKEN = '<|latent|>'
+START_LATENT_TOKEN = '<|start_latent|>'
+
+# ============================================================================
+# TRAINING DEFAULTS
+# ============================================================================
+
+DEFAULT_BATCH_SIZE = 2
+DEFAULT_EVAL_BATCH_SIZE = 2
+DEFAULT_LEARNING_RATE = 1e-5
+DEFAULT_NUM_EPOCHS = 3 

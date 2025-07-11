@@ -1,32 +1,23 @@
 # Stage 0: Chain-of-Thought Training
-# This is the first phase - pure CoT training similar to original CoCoNut gsm_cot.yaml
-# Inherits from base.yaml with overrides
 
 # Training Configuration
 mode: "cot_train"
 name: "aokvqa-cot-stage0"
-run_name: "aokvqa-cot-stage0"
 output_dir: "checkpoints/aokvqa_cot"
-num_epochs: 10
 batch_size: 16
 eval_batch_size: 64
-eval_accumulation_steps: 2  # Accumulate 2 evaluation batches for efficient memory usage
+eval_accumulation_steps: 2
+num_epochs: 10
 
-# Generation Configuration for CoT Evaluation
-# Enable sampling with creativity to encourage reasoning
+# Generation Configuration
 generation:
-  max_new_tokens: 256
   do_sample: true
+  max_new_tokens: 256
+  num_beams: 1
   temperature: 1.0
   top_p: 0.9
-  num_beams: 1
 
-# Checkpoint Management Example (optional overrides)
-# max_checkpoints_to_keep: 5     # Keep more checkpoints for this experiment
-# keep_best_checkpoints: true    # Ensure we keep the best performing models
-# use_run_name_in_output_dir: true  # Will create: checkpoints/aokvqa_cot_aokvqa-cot-stage0/
-
-# Stage 0 Evaluation - CoT only
+# Evaluation Configuration
 eval_config:
-  cot: true
-  coconut: false 
+  coconut: false
+  cot: true 

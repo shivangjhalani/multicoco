@@ -1,25 +1,33 @@
 """
 Answer extraction utilities for multiple choice question evaluation.
 
-This module provides utility functions for extracting answer choices from
-generated text using various patterns and heuristics.
+Provides utility functions for extracting answer choices from generated text
+using various patterns and heuristics.
 """
 
 import re
 import logging
-from typing import List
+from typing import List, Tuple
 
-from .constants import VALID_CHOICE_NUMBERS, CHOICE_MAPPINGS
+from .constants import CHOICE_MAPPINGS, VALID_CHOICE_NUMBERS
 from .exceptions import AnswerExtractionError
 
 logger = logging.getLogger(__name__)
+
+# Compiled regex patterns for performance
+EXTRACTION_PATTERNS = [
+    (re.compile(r'(\d+)\s*:\s*[a-zA-Z]'), "number_colon"),
+    (re.compile(r'^(\d+)(?:\s|$)'), "leading_number"),
+    (re.compile(r'(?:answer is|choice is|option is)\s*(\d+)', re.IGNORECASE), "answer_format"),
+    (re.compile(r'(\d+)'), "any_digit"),
+]
 
 
 def extract_answer_choice(generated_text: str, is_cot: bool = False) -> str:
     """
     Extract answer choice from generated text using multiple strategies.
     
-    This function employs a hierarchical approach to answer extraction:
+    Employs a hierarchical approach to answer extraction:
     1. Number-colon format (e.g., "1 : explanation")
     2. Leading number format
     3. "Answer is X" format
@@ -28,7 +36,7 @@ def extract_answer_choice(generated_text: str, is_cot: bool = False) -> str:
     
     Args:
         generated_text: Raw generated text from model
-        is_cot: Whether this is chain-of-thought evaluation
+        is_cot: Whether this is chain-of-thought evaluation (unused but kept for compatibility)
         
     Returns:
         Extracted answer choice as string (0-3)
@@ -41,53 +49,41 @@ def extract_answer_choice(generated_text: str, is_cot: bool = False) -> str:
         if not text:
             return ""
         
-        # Try different extraction patterns in order of specificity
-        extractors = [
-            _extract_number_colon_format,
-            _extract_leading_number,
-            _extract_answer_is_format,
-            _extract_any_digit,
-            _extract_word_mappings
-        ]
-        
-        for extractor in extractors:
-            result = extractor(text)
+        # Try regex patterns in order of specificity
+        for pattern, pattern_name in EXTRACTION_PATTERNS:
+            result = _extract_with_pattern(pattern, text, pattern_name)
             if result in VALID_CHOICE_NUMBERS:
                 return result
+        
+        # Try word mappings as last resort
+        result = _extract_word_mappings(text)
+        if result in VALID_CHOICE_NUMBERS:
+            return result
         
         # If no valid choice found, return original for debugging
         logger.warning(f"Could not extract valid choice from: {text[:100]}")
         return text.strip()
         
     except Exception as e:
-        raise AnswerExtractionError(f"Failed to extract answer from '{generated_text}': {e}")
+        raise AnswerExtractionError(
+            f"Failed to extract answer from '{generated_text}': {e}"
+        )
 
 
-def _extract_number_colon_format(text: str) -> str:
-    """Extract from "X : description" format."""
-    match = re.search(r'(\d+)\s*:\s*[a-zA-Z]', text)
-    return match.group(1) if match else ""
-
-
-def _extract_leading_number(text: str) -> str:
-    """Extract number at the start of text."""
-    match = re.search(r'^(\d+)(?:\s|$)', text.strip())
-    return match.group(1) if match else ""
-
-
-def _extract_answer_is_format(text: str) -> str:
-    """Extract from "The answer is X" format."""
-    match = re.search(r'(?:answer is|choice is|option is)\s*(\d+)', text.lower())
-    return match.group(1) if match else ""
-
-
-def _extract_any_digit(text: str) -> str:
-    """Extract any valid digit from text."""
-    matches = re.findall(r'(\d+)', text)
-    for match in matches:
-        if match in VALID_CHOICE_NUMBERS:
-            return match
-    return ""
+def _extract_with_pattern(pattern: re.Pattern, text: str, 
+                         pattern_name: str) -> str:
+    """Extract answer using a compiled regex pattern."""
+    if pattern_name == "any_digit":
+        # For any_digit, find all matches and return first valid one
+        matches = pattern.findall(text)
+        for match in matches:
+            if match in VALID_CHOICE_NUMBERS:
+                return match
+        return ""
+    else:
+        # For other patterns, get first match
+        match = pattern.search(text)
+        return match.group(1) if match else ""
 
 
 def _extract_word_mappings(text: str) -> str:

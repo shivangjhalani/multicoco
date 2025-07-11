@@ -1,6 +1,8 @@
-"""LatentWrapper: inject hidden states for <|start_latent|> xxx <|end_latent|> spans.
+"""
+LatentWrapper: inject hidden states for <|start_latent|> xxx <|end_latent|> spans.
 
-It expects the underlying model to expose `.model` attribute identical to `AutoModelForCausalLM` behaviour (as `MultiCoCo` does).
+Expects the underlying model to expose `.model` attribute identical to
+`AutoModelForCausalLM` behavior (as `MultiCoCo` does).
 """
 from __future__ import annotations
 
@@ -8,18 +10,20 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
+from .constants import END_LATENT_TOKEN, LATENT_TOKEN, START_LATENT_TOKEN
+
 
 class LatentWrapper(nn.Module):
-    """Wrap a causal-LM-style model to perform CoCoNut hidden-state injection.
+    """
+    Wrap a causal-LM-style model to perform CoCoNut hidden-state injection.
     
-    NOTE on Model Structure Dependency: This wrapper directly accesses internal
-    components of the base model, such as `.model.vision_tower` and 
-    `.model.projector`. This is based on the current structure of InternVL and
-    may break if the underlying model architecture changes in future versions.
+    NOTE: This wrapper directly accesses internal model components such as
+    `.model.vision_tower` and `.model.projector`. This is based on the current
+    InternVL structure and may break if the architecture changes.
     """
 
     def __init__(self, base_model: nn.Module, tokenizer):
+        """Initialize the LatentWrapper with base model and tokenizer."""
         super().__init__()
         self.base_model = base_model
         self.tokenizer = tokenizer
@@ -30,15 +34,15 @@ class LatentWrapper(nn.Module):
 
     def __getattr__(self, name):
         """Delegate unknown attributes to base_model for compatibility."""
-        # Only delegate if base_model is properly initialized
         if hasattr(self, '__dict__') and 'base_model' in self.__dict__:
             try:
                 return getattr(self.base_model, name)
             except AttributeError:
                 pass
         
-        # If we get here, the attribute doesn't exist
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{name}'"
+        )
 
     def generate(
         self,
@@ -50,15 +54,11 @@ class LatentWrapper(nn.Module):
         """
         Custom generation method that handles latent token injection.
         
-        For inputs containing latent spans, we need to do token-by-token generation
-        calling our forward method to ensure proper latent injection at each step.
-        For inputs without latent spans, we delegate to the base model's generate.
+        For inputs containing latent spans, uses token-by-token generation.
+        For inputs without latent spans, delegates to base model for efficiency.
         """
-        # Check if input contains latent spans
-        has_latent_spans = self._has_latent_spans(input_ids)
-        
-        if not has_latent_spans:
-            # No latent spans, delegate to base model for efficiency
+        # Early return for inputs without latent spans
+        if not self._has_latent_spans(input_ids):
             return self.base_model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -66,7 +66,7 @@ class LatentWrapper(nn.Module):
                 **kwargs
             )
         
-        # Contains latent spans, use custom generation loop
+        # Use custom generation loop for latent injection
         return self._generate_with_latent_injection(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -76,9 +76,7 @@ class LatentWrapper(nn.Module):
 
     def _has_latent_spans(self, input_ids: torch.Tensor) -> bool:
         """Check if input contains latent token spans."""
-        batch_size = input_ids.shape[0]
-        for b in range(batch_size):
-            ids = input_ids[b].tolist()
+        for ids in input_ids.tolist():
             if self.start_id in ids and self.end_id in ids:
                 return True
         return False
@@ -100,99 +98,133 @@ class LatentWrapper(nn.Module):
         """
         Token-by-token generation with latent injection.
         
-        This implements a simplified generation loop that calls our forward method
-        at each step to ensure latent token injection is properly applied.
-        It caches vision embeddings to avoid re-computation at each step.
-
-        NOTE on KV Caching: This loop does not currently use past_key_values (KV cache),
-        so it re-evaluates the full sequence at each step. Integrating KV caching is
-        non-trivial due to the two-pass latent injection but would significantly
-        improve performance.
+        NOTE: This does not use KV caching, so it re-evaluates the full
+        sequence at each step. KV caching integration would improve performance.
         """
         device = input_ids.device
-        batch_size, seq_len = input_ids.shape
+        batch_size = input_ids.shape[0]
         
         # Set default token IDs
-        if pad_token_id is None:
-            pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-        if eos_token_id is None:
-            eos_token_id = self.tokenizer.eos_token_id
+        pad_token_id = (pad_token_id or self.tokenizer.pad_token_id or 
+                       self.tokenizer.eos_token_id)
+        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
         
-        # Cache vision embeddings once before the loop
-        # NOTE on Dynamic Vision: This assumes vision embeddings are static. If the
-        # model uses dynamic patching based on text, this caching could be invalid.
-        image_embeds = None
-        if pixel_values is not None:
-            with torch.inference_mode():
-                image_embeds = self.base_model.model.vision_tower(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
-                image_embeds = self.base_model.model.projector(image_embeds)
-
+        # Cache vision embeddings
+        image_embeds = self._get_cached_vision_embeddings(pixel_values, device)
+        
         # Initialize generation state
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=device)
         generated_ids = input_ids.clone()
-        if attention_mask is None:
-            attention_mask = torch.ones_like(input_ids)
+        attention_mask = (attention_mask if attention_mask is not None 
+                         else torch.ones_like(input_ids))
         
         # Generation loop
         for _ in range(max_new_tokens):
-            # Forward pass with latent injection using cached vision embeddings
+            # Forward pass with latent injection
             with torch.no_grad():
                 outputs = self.forward(
                     input_ids=generated_ids,
                     attention_mask=attention_mask,
-                    pixel_values=None,  # Pass None to avoid re-computation
-                    image_embeds=image_embeds, # Pass cached embeds
+                    pixel_values=None,
+                    image_embeds=image_embeds,
                 )
             
-            # Get next token logits
-            logits = outputs["logits"][:, -1, :]  # (batch_size, vocab_size)
-            
-            # Apply temperature
-            if temperature != 1.0:
-                logits = logits / temperature
-            
-            # Apply top_k filtering
-            if top_k > 0:
-                top_k_logits, top_k_indices = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits = torch.full_like(logits, float('-inf'))
-                logits.scatter_(1, top_k_indices, top_k_logits)
-            
-            # Apply top_p filtering
-            if top_p < 1.0:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
-                sorted_indices_to_remove[:, 0] = 0
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                logits[indices_to_remove] = float('-inf')
+            # Get and process logits
+            logits = outputs["logits"][:, -1, :]
+            logits = self._apply_generation_filters(
+                logits, temperature, top_k, top_p
+            )
             
             # Sample next token
-            if do_sample:
-                probs = torch.softmax(logits, dim=-1)
-                next_token_id = torch.multinomial(probs, num_samples=1)
-            else:
-                next_token_id = torch.argmax(logits, dim=-1, keepdim=True)
+            next_token_id = self._sample_next_token(logits, do_sample)
             
-            # Use pad_token_id for finished sequences
-            next_token_id = next_token_id * unfinished_sequences.unsqueeze(-1) + pad_token_id * (1 - unfinished_sequences.unsqueeze(-1))
-
-            # Append to generated sequence
+            # Handle finished sequences
+            next_token_id = self._handle_finished_sequences(
+                next_token_id, unfinished_sequences, pad_token_id
+            )
+            
+            # Update generation state
             generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
-            
-            # Update attention mask
-            attention_mask = torch.cat([attention_mask, unfinished_sequences.unsqueeze(-1)], dim=1)
+            attention_mask = torch.cat(
+                [attention_mask, unfinished_sequences.unsqueeze(-1)], dim=1
+            )
             
             # Update unfinished sequences
             if eos_token_id is not None:
-                newly_finished = (next_token_id.squeeze(-1) == eos_token_id) & (unfinished_sequences == 1)
+                newly_finished = ((next_token_id.squeeze(-1) == eos_token_id) & 
+                                (unfinished_sequences == 1))
                 unfinished_sequences.mul_((~newly_finished).long())
-
-            # Check for EOS token (stop when all sequences are finished)
+            
+            # Early termination if all sequences finished
             if unfinished_sequences.max() == 0:
                 break
         
         return generated_ids
+    
+    def _get_cached_vision_embeddings(
+        self, pixel_values: Optional[torch.Tensor], device: torch.device
+    ) -> Optional[torch.Tensor]:
+        """Get cached vision embeddings if pixel_values provided."""
+        if pixel_values is None:
+            return None
+            
+        with torch.inference_mode():
+            vision_embeds = self.base_model.model.vision_tower(
+                pixel_values.to(device=device, dtype=self.base_model.model.dtype)
+            )
+            return self.base_model.model.projector(vision_embeds)
+    
+    def _apply_generation_filters(
+        self, logits: torch.Tensor, temperature: float, top_k: int, top_p: float
+    ) -> torch.Tensor:
+        """Apply temperature, top_k, and top_p filtering to logits."""
+        # Apply temperature
+        if temperature != 1.0:
+            logits = logits / temperature
+        
+        # Apply top_k filtering
+        if top_k > 0:
+            top_k_logits, top_k_indices = torch.topk(
+                logits, min(top_k, logits.size(-1))
+            )
+            logits = torch.full_like(logits, float('-inf'))
+            logits.scatter_(1, top_k_indices, top_k_logits)
+        
+        # Apply top_p filtering
+        if top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            cumulative_probs = torch.cumsum(
+                torch.softmax(sorted_logits, dim=-1), dim=-1
+            )
+            sorted_indices_to_remove = cumulative_probs > top_p
+            sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
+            sorted_indices_to_remove[:, 0] = 0
+            indices_to_remove = sorted_indices_to_remove.scatter(
+                1, sorted_indices, sorted_indices_to_remove
+            )
+            logits[indices_to_remove] = float('-inf')
+        
+        return logits
+    
+    def _sample_next_token(
+        self, logits: torch.Tensor, do_sample: bool
+    ) -> torch.Tensor:
+        """Sample next token from logits."""
+        if do_sample:
+            probs = torch.softmax(logits, dim=-1)
+            return torch.multinomial(probs, num_samples=1)
+        else:
+            return torch.argmax(logits, dim=-1, keepdim=True)
+    
+    def _handle_finished_sequences(
+        self, 
+        next_token_id: torch.Tensor, 
+        unfinished_sequences: torch.Tensor, 
+        pad_token_id: int
+    ) -> torch.Tensor:
+        """Handle finished sequences by using pad_token_id."""
+        return (next_token_id * unfinished_sequences.unsqueeze(-1) + 
+                pad_token_id * (1 - unfinished_sequences.unsqueeze(-1)))
 
     def forward(
         self,
@@ -203,40 +235,20 @@ class LatentWrapper(nn.Module):
         image_embeds: Optional[torch.Tensor] = None,
         **kwargs,
     ):
-        """Forward pass with efficient two-pass latent injection.
-
-        It avoids re-computing vision embeddings by caching them.
-
-        1. First pass (no grad) gets hidden states for the whole sequence.
-           If pixel_values are provided, it also computes and caches image_embeds.
-        2. Replace <|latent|> token embeddings for each span with the hidden
-           state of the token *before* the span (same semantics as original).
-        3. Second pass produces logits / loss in the usual way, reusing the
-           cached image_embeds if available.
         """
-
+        Forward pass with efficient two-pass latent injection.
+        
+        1. First pass (no grad) gets hidden states for the whole sequence
+        2. Replace <|latent|> token embeddings with hidden state from previous token
+        3. Second pass produces logits/loss reusing cached image embeddings
+        """
         batch_size, seq_len = input_ids.shape
-
-        # ------------------------------------------------------------------
-        # Locate <|start_latent|> … <|end_latent|> spans per sample
-        # ------------------------------------------------------------------
-        spans: list[list[tuple[int, int]]] = []  # (start_idx, end_idx)
-        for b in range(batch_size):
-            ids = input_ids[b].tolist()
-            cur = 0
-            sample_spans = []
-            while True:
-                try:
-                    s = ids.index(self.start_id, cur)
-                    e = ids.index(self.end_id, s + 1)
-                    sample_spans.append((s, e))
-                    cur = e + 1
-                except ValueError:
-                    break
-            spans.append(sample_spans)
-
-        # Fast path – no latent spans → delegate directly
-        if all(len(pairs) == 0 for pairs in spans):
+        
+        # Extract latent spans
+        spans = self._extract_latent_spans(input_ids)
+        
+        # Fast path for inputs without latent spans
+        if not any(spans):
             return self.base_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -244,20 +256,69 @@ class LatentWrapper(nn.Module):
                 labels=labels,
                 **kwargs,
             )
-
-        # ------------------------------------------------------------------
-        # Pass 1: obtain last hidden state and vision embeddings (no grad)
-        # ------------------------------------------------------------------
-        with torch.inference_mode():
-            # If image_embeds are not provided, compute them from pixel_values
-            if image_embeds is None and pixel_values is not None:
-                vision_embeds = self.base_model.model.vision_tower(pixel_values.to(dtype=self.base_model.model.dtype))
-                image_embeds = self.base_model.model.projector(vision_embeds)
+        
+        # Two-pass latent injection
+        image_embeds = self._compute_vision_embeddings(pixel_values, image_embeds)
+        last_hidden = self._first_pass_hidden_states(
+            input_ids, attention_mask, image_embeds
+        )
+        inputs_embeds = self._build_modified_embeddings(
+            input_ids, spans, last_hidden
+        )
+        
+        return self._second_pass_forward(
+            input_ids, attention_mask, inputs_embeds, image_embeds, labels
+        )
+    
+    def _extract_latent_spans(self, input_ids: torch.Tensor) -> list[list[tuple[int, int]]]:
+        """Extract latent spans for each batch item."""
+        spans = []
+        for b in range(input_ids.shape[0]):
+            ids = input_ids[b].tolist()
+            sample_spans = []
+            cur = 0
             
-            # Prepare inputs for the language model part
+            while True:
+                try:
+                    start = ids.index(self.start_id, cur)
+                    end = ids.index(self.end_id, start + 1)
+                    sample_spans.append((start, end))
+                    cur = end + 1
+                except ValueError:
+                    break
+            
+            spans.append(sample_spans)
+        
+        return spans
+    
+    def _compute_vision_embeddings(
+        self, 
+        pixel_values: Optional[torch.Tensor], 
+        image_embeds: Optional[torch.Tensor]
+    ) -> Optional[torch.Tensor]:
+        """Compute vision embeddings if not provided."""
+        if image_embeds is not None:
+            return image_embeds
+        
+        if pixel_values is not None:
+            vision_embeds = self.base_model.model.vision_tower(
+                pixel_values.to(dtype=self.base_model.model.dtype)
+            )
+            return self.base_model.model.projector(vision_embeds)
+        
+        return None
+    
+    def _first_pass_hidden_states(
+        self, 
+        input_ids: torch.Tensor, 
+        attention_mask: Optional[torch.Tensor], 
+        image_embeds: Optional[torch.Tensor]
+    ) -> torch.Tensor:
+        """First pass to obtain hidden states."""
+        with torch.inference_mode():
             first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
                 input_ids=input_ids,
-                pixel_values=None, # We use pre-computed image_embeds
+                pixel_values=None,
                 image_embeds=image_embeds
             )
             
@@ -266,51 +327,66 @@ class LatentWrapper(nn.Module):
                 attention_mask=attention_mask,
                 output_hidden_states=True,
             )
-        last_hidden = first_out.hidden_states[-1]  # (bs, seq_len, hidden)
-
-        # ------------------------------------------------------------------
-        # Build modified input embeddings with latent-token replacement
-        # ------------------------------------------------------------------
+        
+        return first_out.hidden_states[-1]
+    
+    def _build_modified_embeddings(
+        self, 
+        input_ids: torch.Tensor, 
+        spans: list[list[tuple[int, int]]], 
+        last_hidden: torch.Tensor
+    ) -> torch.Tensor:
+        """Build modified input embeddings with latent token replacement."""
         inputs_embeds = self.embedding(input_ids).clone()
+        
         for b, pairs in enumerate(spans):
-            for s, e in pairs:
-                # Need a token before <|start_latent|> to copy from
-                if s == 0:
+            for start, end in pairs:
+                # Skip if no token before start (need previous token for injection)
+                if start == 0:
                     continue
                 
-                # NOTE: This assumes the token at `s-1` is a text token. If the
-                # prompt format changes such that `s-1` could be an image token,
-                # this injection logic may become unstable.
-                # Replace the latent tokens *inside* the span (s … e-1)
-                span_length = e - s
-                inputs_embeds[b, s:e] = last_hidden[b, s - 1].unsqueeze(0).repeat(span_length, 1)
-
-        # ------------------------------------------------------------------
-        # Pass 2: real forward with modified embeddings and cached vision embeds
-        # ------------------------------------------------------------------
-        # Prepare inputs again, this time with the modified text embeddings
+                # Replace latent tokens with hidden state from previous token
+                span_length = end - start
+                inputs_embeds[b, start:end] = (
+                    last_hidden[b, start - 1]
+                    .unsqueeze(0)
+                    .repeat(span_length, 1)
+                )
+        
+        return inputs_embeds
+    
+    def _second_pass_forward(
+        self, 
+        input_ids: torch.Tensor, 
+        attention_mask: Optional[torch.Tensor], 
+        inputs_embeds: torch.Tensor, 
+        image_embeds: Optional[torch.Tensor], 
+        labels: Optional[torch.Tensor]
+    ) -> dict:
+        """Second pass forward with modified embeddings."""
         second_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
             input_ids=input_ids,
-            pixel_values=None, # Reuse cached image_embeds
+            pixel_values=None,
             image_embeds=image_embeds,
-            inputs_embeds=inputs_embeds # Provide the modified embeddings
+            inputs_embeds=inputs_embeds
         )
-
+        
         second_out = self.base_model.model.language_model(
             inputs_embeds=second_pass_embeds,
             attention_mask=attention_mask,
             use_cache=False,
         )
-        logits = second_out.logits  # (bs, seq_len, vocab)
-
+        
+        logits = second_out.logits
         loss = None
+        
         if labels is not None:
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-
-        return {
-            "loss": loss,
-            "logits": logits,
-        } 
+            loss = loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)), 
+                shift_labels.view(-1)
+            )
+        
+        return {"loss": loss, "logits": logits} 

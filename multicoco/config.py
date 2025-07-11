@@ -1,26 +1,33 @@
 """
 Configuration classes for the MultiCoCo package.
 
-This module provides configuration classes with validation and type safety
-to replace direct dictionary access throughout the codebase.
+Provides configuration classes with validation and type safety to replace
+direct dictionary access throughout the codebase.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
 import os
-from enum import Enum
-import logging
 import random
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 from .constants import (
-    DEFAULT_MODEL_NAME, DEFAULT_LEARNING_RATE, DEFAULT_BATCH_SIZE,
-    DEFAULT_EVAL_BATCH_SIZE, DEFAULT_NUM_EPOCHS, DEFAULT_LOG_DIR,
-    DEFAULT_OUTPUT_DIR, DEFAULT_MAX_NEW_TOKENS, DEFAULT_C_THOUGHT,
-    DEFAULT_MAX_LATENT_STAGE, COCONUT_SPECIAL_TOKENS
+    COCONUT_SPECIAL_TOKENS,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_C_THOUGHT,
+    DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_LEARNING_RATE,
+    DEFAULT_LOG_DIR,
+    DEFAULT_MAX_LATENT_STAGE,
+    DEFAULT_MAX_NEW_TOKENS,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_NUM_EPOCHS,
+    DEFAULT_OUTPUT_DIR,
 )
 
 
 class TrainingMode(str, Enum):
+    """Training mode enumeration."""
     EVAL_ONLY = "eval_only"
     COT_TRAIN = "cot_train"
     COCONUT_TRAIN = "coconut_train"
@@ -55,11 +62,11 @@ class GenerationConfig:
 @dataclass
 class EvaluationConfig:
     """Configuration for evaluation modes."""
-    vanilla: bool = True          # Standard evaluation
-    cot: bool = False            # Chain-of-thought evaluation  
-    coconut: bool = False        # CoCoNut evaluation with latent reasoning
-    eval_latent_tokens: Optional[int] = None  # Number of latent tokens for CoCoNut eval (default: use max_latent_stage)
-    detailed_logging: bool = True # Enable detailed per-sample logging
+    vanilla: bool = True
+    cot: bool = False
+    coconut: bool = False
+    eval_latent_tokens: Optional[int] = None
+    detailed_logging: bool = True
     
     def get_eval_type(self) -> str:
         """Get the evaluation type as a string."""
@@ -73,28 +80,17 @@ class EvaluationConfig:
 
 @dataclass
 class CoCoNutConfig:
-    """Configuration for CoCoNut training parameters following original methodology."""
+    """Configuration for CoCoNut training parameters."""
     enabled: bool = False
     c_thought: int = DEFAULT_C_THOUGHT
     max_latent_stage: int = DEFAULT_MAX_LATENT_STAGE
     epochs_per_stage: int = 1
-    special_tokens: List[str] = field(default_factory=lambda: COCONUT_SPECIAL_TOKENS.copy())
-    
-    # Progressive curriculum learning parameters
-    uniform_prob: float = 0.0          # Probability to mix data from other stages
-    pad_latent_to_max: bool = False    # Whether to pad latent tokens to max stage
-    reset_optimizer: bool = True       # Whether to reset optimizer between stages
-    
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if self.c_thought < 0:
-            raise ValueError("c_thought must be non-negative")
-        if self.max_latent_stage < 0:
-            raise ValueError("max_latent_stage must be non-negative")
-        if self.epochs_per_stage < 0:
-            raise ValueError("epochs_per_stage must be non-negative")
-        if not 0.0 <= self.uniform_prob <= 1.0:
-            raise ValueError("uniform_prob must be between 0.0 and 1.0")
+    special_tokens: List[str] = field(
+        default_factory=lambda: COCONUT_SPECIAL_TOKENS.copy()
+    )
+    uniform_prob: float = 0.0
+    pad_latent_to_max: bool = False
+    reset_optimizer: bool = True
 
 
 @dataclass
@@ -106,20 +102,15 @@ class DataConfig:
     limit_for_testing: bool = False
     
     def __post_init__(self):
-        """Validate data configuration."""
-        # Convert relative paths to absolute paths
+        """Convert relative paths to absolute paths."""
         if self.data_dir:
             self.data_dir = os.path.abspath(self.data_dir)
         
         if self.train_data_path:
             self.train_data_path = os.path.abspath(self.train_data_path)
-            if not os.path.exists(self.train_data_path):
-                raise FileNotFoundError(f"Training data file not found: {self.train_data_path}")
         
         if self.eval_data_path:
             self.eval_data_path = os.path.abspath(self.eval_data_path)
-            if not os.path.exists(self.eval_data_path):
-                raise FileNotFoundError(f"Evaluation data file not found: {self.eval_data_path}")
 
 
 @dataclass
@@ -132,17 +123,11 @@ class ModelConfig:
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     low_cpu_mem_usage: bool = True
-    load_model_path: Optional[str] = None  # Path to load pretrained model from
+    load_model_path: Optional[str] = None
     
     def get_special_tokens(self, coconut_config: CoCoNutConfig) -> List[str]:
-        """Get special tokens based on configuration.
-        
-        Note: This method returns only the base special tokens.
-        Latent tokens are handled separately during model initialization
-        based on training phase.
-        """
-        # Return empty list for now - latent tokens are handled during model init
-        # This prevents unnecessary token addition during CoT training
+        """Get special tokens based on configuration."""
+        # Return empty list - latent tokens are handled during model init
         return []
 
 
@@ -154,9 +139,11 @@ class TrainingConfig:
     batch_size: int = DEFAULT_BATCH_SIZE
     eval_batch_size: int = DEFAULT_EVAL_BATCH_SIZE
     gradient_accumulation_steps: int = 1
-    eval_accumulation_steps: int = 1  # Number of evaluation batches to accumulate before computing metrics
+    eval_accumulation_steps: int = 1
     gradient_checkpointing: bool = True
-    gradient_checkpointing_kwargs: Dict[str, Any] = field(default_factory=lambda: {'use_reentrant': False})
+    gradient_checkpointing_kwargs: Dict[str, Any] = field(
+        default_factory=lambda: {'use_reentrant': False}
+    )
     learning_rate: float = DEFAULT_LEARNING_RATE
     warmup_steps: int = 500
     logging_steps: int = 10
@@ -176,36 +163,26 @@ class TrainingConfig:
     seed: Optional[int] = None
     data_seed: Optional[int] = None
     mode: TrainingMode = TrainingMode.COT_TRAIN
-    name: Optional[str] = None  # Run name for wandb and logging
-    
-    # Checkpoint management options
-    max_checkpoints_to_keep: int = 3  # Maximum number of checkpoints to keep
-    keep_best_checkpoints: bool = True  # Keep best checkpoints based on eval accuracy
-    use_run_name_in_output_dir: bool = True  # Include run name in output directory
+    name: Optional[str] = None
+    max_checkpoints_to_keep: int = 3
+    keep_best_checkpoints: bool = True
+    use_run_name_in_output_dir: bool = True
     
     def __post_init__(self):
-        """Validate training configuration."""
+        """Initialize and validate training configuration."""
+        # Set random seeds
         if self.seed is None:
             self.seed = random.randint(0, 2**32 - 1)
-
         if self.data_seed is None:
             self.data_seed = self.seed
         
-        if self.learning_rate <= 0:
-            raise ValueError("learning_rate must be positive")
-        if self.batch_size <= 0:
-            raise ValueError("batch_size must be positive")
-        if self.num_epochs <= 0:
-            raise ValueError("num_epochs must be positive")
-        
         # Modify output directory to include run name if requested
         if self.use_run_name_in_output_dir and self.name:
-            # Extract base directory and add run name
-            base_dir = os.path.dirname(self.output_dir) if os.path.dirname(self.output_dir) else "checkpoints"
+            base_dir = (os.path.dirname(self.output_dir) or "checkpoints")
             dir_name = os.path.basename(self.output_dir)
             self.output_dir = os.path.join(base_dir, f"{dir_name}_{self.name}")
         
-        # Create output directory if it doesn't exist
+        # Create output directory
         os.makedirs(self.output_dir, exist_ok=True)
 
 
@@ -235,22 +212,60 @@ class MultiCoCoConfig:
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     
+    def __post_init__(self):
+        """Validate the entire configuration after initialization."""
+        self.validate()
+    
+    def validate(self) -> None:
+        """Validate the entire configuration."""
+        # Validate training configuration
+        if self.training.learning_rate <= 0:
+            raise ValueError("learning_rate must be positive")
+        if self.training.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        if self.training.num_epochs <= 0:
+            raise ValueError("num_epochs must be positive")
+        if self.training.bf16 and self.training.fp16:
+            raise ValueError("Cannot enable both bf16 and fp16 simultaneously")
+        
+        # Validate CoCoNut configuration
+        if self.coconut.c_thought < 0:
+            raise ValueError("c_thought must be non-negative")
+        if self.coconut.max_latent_stage < 0:
+            raise ValueError("max_latent_stage must be non-negative")
+        if self.coconut.epochs_per_stage < 0:
+            raise ValueError("epochs_per_stage must be non-negative")
+        if not 0.0 <= self.coconut.uniform_prob <= 1.0:
+            raise ValueError("uniform_prob must be between 0.0 and 1.0")
+        
+        # Validate data requirements
+        is_training = self.training.mode != TrainingMode.EVAL_ONLY
+        if is_training and not self.data.train_data_path:
+            raise ValueError("Training data path required for training modes")
+        if self.training.mode == TrainingMode.EVAL_ONLY and not self.data.eval_data_path:
+            raise ValueError("Evaluation data path required for eval_only mode")
+        
+        # Validate CoCoNut evaluation configuration
+        if self.coconut.enabled and not any([
+            self.evaluation.coconut, self.evaluation.cot
+        ]):
+            raise ValueError(
+                "CoCoNut enabled but no compatible evaluation configured"
+            )
+        
+        # Validate file existence (only if paths exist)
+        if self.data.train_data_path and not os.path.exists(self.data.train_data_path):
+            raise FileNotFoundError(f"Training data not found: {self.data.train_data_path}")
+        if self.data.eval_data_path and not os.path.exists(self.data.eval_data_path):
+            raise FileNotFoundError(f"Evaluation data not found: {self.data.eval_data_path}")
+
     @classmethod
-    def load_with_base(cls, config_path: str, base_config_path: str = "args/base.yaml") -> 'MultiCoCoConfig':
-        """
-        Load configuration with inheritance from a base config file.
-        
-        Args:
-            config_path: Path to the specific config file
-            base_config_path: Path to the base config file (default: args/base.yaml)
-            
-        Returns:
-            Complete MultiCoCo configuration with base values and overrides
-        """
+    def load_with_base(cls, config_path: str, 
+                      base_config_path: str = "args/base.yaml") -> 'MultiCoCoConfig':
+        """Load configuration with inheritance from a base config file."""
         import yaml
-        import os
         
-        # Load base configuration first
+        # Load base configuration
         base_dict = {}
         if os.path.exists(base_config_path):
             with open(base_config_path, 'r') as f:
@@ -263,37 +278,59 @@ class MultiCoCoConfig:
         # Merge configurations (config_dict overrides base_dict)
         merged_dict = {**base_dict, **config_dict}
         
-        # Handle nested dictionaries (like eval_config, coconut, generation)
+        # Handle nested dictionaries
         for key in ['eval_config', 'coconut', 'generation']:
-            if key in base_dict and key in config_dict:
-                if isinstance(base_dict[key], dict) and isinstance(config_dict[key], dict):
-                    merged_dict[key] = {**base_dict[key], **config_dict[key]}
+            if (key in base_dict and key in config_dict and 
+                isinstance(base_dict[key], dict) and 
+                isinstance(config_dict[key], dict)):
+                merged_dict[key] = {**base_dict[key], **config_dict[key]}
         
         return cls.from_dict(merged_dict)
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'MultiCoCoConfig':
-        """Create configuration from dictionary (typically loaded from YAML)."""
-        # Extract bf16 setting early to use throughout configuration
-        bf16_setting = config_dict.get('bf16', True)  # Default to True for better performance
-        fp16_setting = config_dict.get('fp16', False)
+        """Create configuration from dictionary."""
+        # Determine torch_dtype from precision settings
+        torch_dtype = cls._get_torch_dtype(config_dict)
         
-        # Validate bf16/fp16 mutual exclusivity
-        if bf16_setting and fp16_setting:
-            raise ValueError("Cannot enable both bf16 and fp16 simultaneously")
+        # Create sub-configurations
+        model_config = cls._create_model_config(config_dict, torch_dtype)
+        training_config = cls._create_training_config(config_dict)
+        data_config = cls._create_data_config(config_dict)
+        evaluation_config = cls._create_evaluation_config(config_dict)
+        coconut_config = cls._create_coconut_config(config_dict)
+        generation_config = cls._create_generation_config(config_dict)
+        logging_config = cls._create_logging_config(config_dict, training_config)
         
-        # Determine torch_dtype based on precision settings
-        if bf16_setting:
-            torch_dtype = "bfloat16"
-        elif fp16_setting:
-            torch_dtype = "float16"
+        return cls(
+            model=model_config,
+            training=training_config,
+            data=data_config,
+            evaluation=evaluation_config,
+            coconut=coconut_config,
+            generation=generation_config,
+            logging=logging_config,
+        )
+    
+    @staticmethod
+    def _get_torch_dtype(config_dict: Dict[str, Any]) -> str:
+        """Determine torch_dtype from precision settings."""
+        bf16 = config_dict.get('bf16', True)
+        fp16 = config_dict.get('fp16', False)
+        
+        if bf16:
+            return "bfloat16"
+        elif fp16:
+            return "float16"
         else:
-            torch_dtype = "float32"
-        
-        # Extract sub-configurations
-        model_config = ModelConfig(
+            return "float32"
+    
+    @staticmethod
+    def _create_model_config(config_dict: Dict[str, Any], torch_dtype: str) -> ModelConfig:
+        """Create model configuration."""
+        return ModelConfig(
             model_name=config_dict.get('model_name', DEFAULT_MODEL_NAME),
-            torch_dtype=torch_dtype,  # Use consistent dtype
+            torch_dtype=torch_dtype,
             config_id=config_dict.get('config_id'),
             tokenizer_id=config_dict.get('tokenizer_id'),
             image_processor_id=config_dict.get('image_processor_id'),
@@ -301,8 +338,11 @@ class MultiCoCoConfig:
             low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True),
             load_model_path=config_dict.get('load_model_path')
         )
-        
-        training_config = TrainingConfig(
+    
+    @staticmethod
+    def _create_training_config(config_dict: Dict[str, Any]) -> TrainingConfig:
+        """Create training configuration."""
+        return TrainingConfig(
             output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR),
             num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS),
             batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE),
@@ -312,8 +352,8 @@ class MultiCoCoConfig:
             eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1),
             resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False),
             mode=TrainingMode(config_dict.get('mode', 'cot_train')),
-            bf16=bf16_setting,  # Use consistent bf16 setting
-            fp16=fp16_setting,  # Use consistent fp16 setting
+            bf16=config_dict.get('bf16', True),
+            fp16=config_dict.get('fp16', False),
             gradient_checkpointing=config_dict.get('gradient_checkpointing', True),
             gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}),
             warmup_steps=config_dict.get('warmup_steps', 500),
@@ -332,47 +372,65 @@ class MultiCoCoConfig:
             data_seed=config_dict.get('data_seed'),
             name=config_dict.get('name') or config_dict.get('run_name')
         )
+    
+    @staticmethod
+    def _create_data_config(config_dict: Dict[str, Any]) -> DataConfig:
+        """Create data configuration."""
+        eval_data_path = (config_dict.get('eval_data_path') or 
+                         config_dict.get('val_data_path'))
         
-        # Handle both 'eval_data_path' and 'val_data_path' for backward compatibility
-        eval_data_path = config_dict.get('eval_data_path') or config_dict.get('val_data_path')
-        
-        data_config = DataConfig(
+        return DataConfig(
             data_dir=config_dict.get('data_dir', ''),
             train_data_path=config_dict.get('train_data_path'),
             eval_data_path=eval_data_path,
             limit_for_testing=config_dict.get('limit_for_testing', False)
         )
-        
-        evaluation_config = EvaluationConfig(
+    
+    @staticmethod
+    def _create_evaluation_config(config_dict: Dict[str, Any]) -> EvaluationConfig:
+        """Create evaluation configuration."""
+        return EvaluationConfig(
             vanilla=config_dict.get('vanilla', True),
             coconut=config_dict.get('coconut', False),
             cot=config_dict.get('cot', False),
             eval_latent_tokens=config_dict.get('eval_latent_tokens'),
             detailed_logging=config_dict.get('detailed_logging', True),
         )
-        
-        # Handle nested coconut configuration
+    
+    @staticmethod
+    def _create_coconut_config(config_dict: Dict[str, Any]) -> CoCoNutConfig:
+        """Create CoCoNut configuration."""
         coconut_dict = config_dict.get('coconut', {})
+        
         if isinstance(coconut_dict, bool):
             # Handle boolean coconut flag for backward compatibility
             coconut_enabled = coconut_dict
             coconut_dict = {}
         else:
-            coconut_enabled = coconut_dict.get('enabled', config_dict.get('coconut', False))
+            coconut_enabled = coconut_dict.get('enabled', 
+                                             config_dict.get('coconut', False))
         
-        coconut_config = CoCoNutConfig(
+        return CoCoNutConfig(
             enabled=coconut_enabled,
-            c_thought=coconut_dict.get('c_thought', config_dict.get('c_thought', DEFAULT_C_THOUGHT)),
-            max_latent_stage=coconut_dict.get('max_latent_stage', config_dict.get('max_latent_stage', DEFAULT_MAX_LATENT_STAGE)),
-            epochs_per_stage=coconut_dict.get('epochs_per_stage', config_dict.get('epochs_per_stage', 1)),
-            uniform_prob=coconut_dict.get('uniform_prob', config_dict.get('uniform_prob', 0.0)),
-            pad_latent_to_max=coconut_dict.get('pad_latent_to_max', config_dict.get('pad_latent_to_max', False)),
-            reset_optimizer=coconut_dict.get('reset_optimizer', config_dict.get('reset_optimizer', True))
+            c_thought=coconut_dict.get('c_thought', 
+                                     config_dict.get('c_thought', DEFAULT_C_THOUGHT)),
+            max_latent_stage=coconut_dict.get('max_latent_stage', 
+                                            config_dict.get('max_latent_stage', DEFAULT_MAX_LATENT_STAGE)),
+            epochs_per_stage=coconut_dict.get('epochs_per_stage', 
+                                            config_dict.get('epochs_per_stage', 1)),
+            uniform_prob=coconut_dict.get('uniform_prob', 
+                                        config_dict.get('uniform_prob', 0.0)),
+            pad_latent_to_max=coconut_dict.get('pad_latent_to_max', 
+                                             config_dict.get('pad_latent_to_max', False)),
+            reset_optimizer=coconut_dict.get('reset_optimizer', 
+                                           config_dict.get('reset_optimizer', True))
         )
-        
-        # Handle nested generation configuration
+    
+    @staticmethod
+    def _create_generation_config(config_dict: Dict[str, Any]) -> GenerationConfig:
+        """Create generation configuration."""
         generation_dict = config_dict.get('generation', {})
-        generation_config = GenerationConfig(
+        return GenerationConfig(
             max_new_tokens=generation_dict.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
             do_sample=generation_dict.get('do_sample', False),
             num_beams=generation_dict.get('num_beams', 1),
@@ -380,89 +438,20 @@ class MultiCoCoConfig:
             top_p=generation_dict.get('top_p', 1.0),
             top_k=generation_dict.get('top_k', 50),
         )
-        
-        logging_config = LoggingConfig(
+    
+    @staticmethod
+    def _create_logging_config(config_dict: Dict[str, Any], 
+                              training_config: TrainingConfig) -> LoggingConfig:
+        """Create logging configuration."""
+        return LoggingConfig(
             log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
             log_level=config_dict.get('log_level', 'INFO'),
             use_wandb=config_dict.get('use_wandb', True),
             console_output=config_dict.get('console_output', True),
             verbose=config_dict.get('verbose', False),
-            run_name=training_config.name  # Pass run name to logging
+            run_name=training_config.name
         )
-        
-        return cls(
-            model=model_config,
-            training=training_config,
-            data=data_config,
-            evaluation=evaluation_config,
-            coconut=coconut_config,
-            generation=generation_config,
-            logging=logging_config,
-        )
-    
-    def validate(self) -> None:
-        """Validate the entire configuration."""
-        # Check that we have data for the intended operation
-        if not self.training.mode == TrainingMode.EVAL_ONLY and not self.data.train_data_path:
-            raise ValueError("Training data path is required when not in eval_only mode")
-        
-        if self.training.mode == TrainingMode.EVAL_ONLY and not self.data.eval_data_path:
-            raise ValueError("Evaluation data path is required in eval_only mode")
-        
-        # Validate CoCoNut configuration
-        if self.coconut.enabled and not any([self.evaluation.coconut, self.evaluation.cot]):
-            raise ValueError("CoCoNut is enabled but neither coconut nor cot evaluation is configured")
     
     def get_wandb_report_to(self) -> List[str]:
         """Get the report_to list for training arguments."""
-        return ["wandb"] if self.logging.use_wandb else []
-
-
-def load_config_from_yaml(yaml_path: str) -> MultiCoCoConfig:
-    """
-    Load configuration from YAML file.
-    
-    Args:
-        yaml_path: Path to YAML configuration file
-        
-    Returns:
-        Complete MultiCoCo configuration
-        
-    Raises:
-        ConfigurationError: If configuration loading fails
-    """
-    try:
-        import yaml
-        
-        with open(yaml_path, 'r') as f:
-            yaml_config = yaml.safe_load(f)
-        
-        # Handle nested configuration format
-        model_config = ModelConfig(**yaml_config.get('model', {}))
-        training_config = TrainingConfig(**yaml_config.get('training', {}))
-        data_config = DataConfig(**yaml_config.get('data', {}))
-        evaluation_config = EvaluationConfig(**yaml_config.get('evaluation', {}))
-        generation_config = GenerationConfig(**yaml_config.get('generation', {}))
-        logging_config = LoggingConfig(**yaml_config.get('logging', {}))
-        
-        # Handle CoCoNut config carefully - could be boolean or dict
-        coconut_section = yaml_config.get('coconut', {})
-        if isinstance(coconut_section, dict):
-            coconut_config = CoCoNutConfig(**coconut_section)
-        else:
-            # Fallback for boolean value (old format)
-            coconut_config = CoCoNutConfig(enabled=bool(coconut_section))
-        
-        return MultiCoCoConfig(
-            model=model_config,
-            training=training_config,
-            data=data_config,
-            evaluation=evaluation_config,
-            coconut=coconut_config,
-            generation=generation_config,
-            logging=logging_config
-        )
-        
-    except Exception as e:
-        from .exceptions import ConfigurationError
-        raise ConfigurationError(f"Failed to load configuration from {yaml_path}: {e}") 
+        return ["wandb"] if self.logging.use_wandb else [] 
