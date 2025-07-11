@@ -423,6 +423,9 @@ class CoCoTrainer(Trainer):
         # Get generation kwargs from training arguments
         generation_kwargs = getattr(self.args, 'generation_kwargs', {})
         
+        # Get tokenizer/processing_class with deprecation handling
+        tokenizer = getattr(self, 'processing_class', None) or getattr(self, 'tokenizer', None)
+        
         # Set defaults if not provided
         config = {
             'max_new_tokens': generation_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
@@ -431,8 +434,8 @@ class CoCoTrainer(Trainer):
             'top_p': generation_kwargs.get('top_p', 0.9),
             'top_k': generation_kwargs.get('top_k', 50),
             'num_beams': generation_kwargs.get('num_beams', 1),
-            'pad_token_id': self.tokenizer.pad_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
+            'pad_token_id': tokenizer.pad_token_id if tokenizer else None,
+            'eos_token_id': tokenizer.eos_token_id if tokenizer else None,
         }
         
         return config
@@ -715,16 +718,19 @@ class CoCoTrainer(Trainer):
                 if pixel_values.dim() == 3:
                     pixel_values = pixel_values.unsqueeze(0)
             
+            # Get tokenizer with deprecation handling
+            tokenizer = getattr(self, 'processing_class', None) or getattr(self, 'tokenizer', None)
+            
             # Handle CoCoNut evaluation with latent tokens
             if eval_config.get('coconut', False):
                 response = self._generate_coconut_prediction(
-                    question, pixel_values, model, self.tokenizer, generation_config, device
+                    question, pixel_values, model, tokenizer, generation_config, device
                 )
             else:
                 # Use InternVL chat interface for standard evaluation
                 with torch.no_grad():
                     response = internvl_model.chat(
-                        tokenizer=self.tokenizer,
+                        tokenizer=tokenizer,
                         pixel_values=pixel_values,
                         question=question,
                         generation_config=generation_config,
