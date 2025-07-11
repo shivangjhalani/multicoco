@@ -408,6 +408,15 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             
+            # Debug WandB state after trainer initialization
+            if WANDB_AVAILABLE and wandb is not None:
+                logger.info(f"WandB run after trainer init: {wandb.run}")
+                if wandb.run is not None:
+                    logger.info(f"WandB run name: {wandb.run.name}")
+                    logger.info(f"WandB project: {wandb.run.project}")
+                else:
+                    logger.warning("WandB run is None after trainer initialization")
+            
             # Setup WandB configuration and custom metrics
             self._setup_wandb_config()
             
@@ -453,6 +462,11 @@ class MultiCoCoRunner:
             if self.config.logging.wandb_tags:
                 os.environ["WANDB_TAGS"] = ",".join(self.config.logging.wandb_tags)
         
+        report_to = self.config.get_wandb_report_to()
+        logger.info(f"TrainingArguments report_to: {report_to}")
+        logger.info(f"WandB use_wandb: {self.config.logging.use_wandb}")
+        logger.info(f"WANDB_AVAILABLE: {WANDB_AVAILABLE}")
+        
         return TrainingArguments(
             output_dir=training_config.output_dir,
             num_train_epochs=training_config.num_epochs,
@@ -479,7 +493,7 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=True,
             do_eval=True,
-            report_to=self.config.get_wandb_report_to(),
+            report_to=report_to,
             run_name=getattr(training_config, 'name', None)
         )
 
