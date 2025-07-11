@@ -11,7 +11,6 @@ import torch.nn as nn
 import logging
 from typing import Optional
 
-from multicoco import wandb_utils as wdb
 from .constants import END_LATENT_TOKEN, LATENT_TOKEN, START_LATENT_TOKEN
 
 logger = logging.getLogger(__name__)
@@ -409,12 +408,16 @@ class LatentWrapper(nn.Module):
                     )
 
                     # Push to Weights & Biases (one log per batch to avoid spam)
-                    if wdb.is_active():
-                        wdb.log({
-                            "model/vision_norm_mean": vision_mean,
-                            "model/text_norm_mean": text_mean,
-                            "model/vision_text_ratio": ratio,
-                        })
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "model/vision_norm_mean": vision_mean,
+                                "model/text_norm_mean": text_mean,
+                                "model/vision_text_ratio": ratio,
+                            })
+                    except ImportError:
+                        pass
                 else:
                     # No vision tokens in this batch
                     text_mean = batch_norms.mean().item()
@@ -422,11 +425,15 @@ class LatentWrapper(nn.Module):
                     logger.info(f"Hidden state norms - Batch {batch_idx}: "
                               f"No vision tokens, Text only: {len(batch_norms)} tokens, "
                               f"mean={text_mean:.4f}, std={text_std:.4f}")
-                    if wdb.is_active():
-                        wdb.log({
-                            "model/text_only_norm_mean": text_mean,
-                            "model/text_only_norm_std": text_std,
-                        })
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "model/text_only_norm_mean": text_mean,
+                                "model/text_only_norm_std": text_std,
+                            })
+                    except ImportError:
+                        pass
                               
         except Exception as e:
             logger.warning(f"Failed to log vision-text norms: {e}")

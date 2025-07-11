@@ -45,9 +45,6 @@ from .constants import (
 )
 from .exceptions import AnswerExtractionError, EvaluationError, GenerationError
 
-# Centralised wandb helper
-from multicoco import wandb_utils as wdb
-
 logger = logging.getLogger(__name__)
 
 
@@ -336,11 +333,20 @@ class CoCoTrainer(Trainer):
                 self.total_train_steps += 1
 
                 # Batch-level logging to Weights & Biases
-                if wdb.is_active() and step % self.args.gradient_accumulation_steps == 0:
-                    wdb.log({
-                        "train/batch_loss": loss.item(),
-                        "train/step": self.total_train_steps,
-                    })
+                if (
+                    getattr(self.args, "report_to", None)
+                    and "wandb" in self.args.report_to
+                    and step % self.args.gradient_accumulation_steps == 0
+                ):
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "train/batch_loss": loss.item(),
+                                "train/step": self.total_train_steps,
+                            })
+                    except ImportError:
+                        pass
         
         pbar.close()
         
@@ -350,11 +356,16 @@ class CoCoTrainer(Trainer):
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
 
             # Epoch-level WandB logging
-            if wdb.is_active():
-                wdb.log({
-                    "train/epoch_loss": avg_loss,
-                    "epoch": epoch + 1,
-                })
+            if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+                try:
+                    import wandb  # type: ignore
+                    if wandb.run is not None:
+                        wandb.log({
+                            "train/epoch_loss": avg_loss,
+                            "epoch": epoch + 1,
+                        })
+                except ImportError:
+                    pass
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -371,15 +382,19 @@ class CoCoTrainer(Trainer):
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
 
         # Upload checkpoint as a WandB artifact
-        if self.is_world_process_zero() and wdb.is_active():
-            import wandb  # type: ignore
-            artifact = wandb.Artifact(
-                name=f"model_epoch_{epoch}",
-                type="model",
-                metadata={"epoch": epoch},
-            )
-            artifact.add_dir(checkpoint_dir)
-            wandb.log_artifact(artifact)  # type: ignore[attr-defined]
+        if self.is_world_process_zero() and getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None:
+                    artifact = wandb.Artifact(
+                        name=f"model_epoch_{epoch}",
+                        type="model",
+                        metadata={"epoch": epoch},
+                    )
+                    artifact.add_dir(checkpoint_dir)
+                    wandb.log_artifact(artifact)
+            except ImportError:
+                pass
 
         return checkpoint_dir
 
@@ -428,8 +443,13 @@ class CoCoTrainer(Trainer):
                     logger.info(f"    {key}: {value:.4f}")
 
         # Log aggregated metrics to Weights & Biases
-        if wdb.is_active() and eval_metrics:
-            wdb.log({**eval_metrics, "epoch": epoch + 1, "epoch_time": epoch_time})
+        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None and eval_metrics:
+                    wandb.log({**eval_metrics, "epoch": epoch + 1, "epoch_time": epoch_time})
+            except ImportError:
+                pass
 
     def _log_coconut_epoch_summary(
         self, 
@@ -452,14 +472,19 @@ class CoCoTrainer(Trainer):
                     logger.info(f"    {key}: {value:.4f}")
 
         # Log per-stage aggregated metrics to Weights & Biases
-        if wdb.is_active() and eval_metrics:
-            wdb.log({
-                **eval_metrics,
-                "epoch": epoch + 1,
-                "stage": current_stage,
-                "stage_epoch": stage_epoch + 1,
-                "epoch_time": epoch_time,
-            })
+        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None and eval_metrics:
+                    wandb.log({
+                        **eval_metrics,
+                        "epoch": epoch + 1,
+                        "stage": current_stage,
+                        "stage_epoch": stage_epoch + 1,
+                        "epoch_time": epoch_time,
+                    })
+            except ImportError:
+                pass
 
     def _create_generation_config(self) -> Dict[str, Any]:
         """Create generation configuration from training arguments."""
