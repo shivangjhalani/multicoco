@@ -66,7 +66,6 @@ class EvaluationConfig:
     cot: bool = False
     coconut: bool = False
     eval_latent_tokens: Optional[int] = None
-    detailed_logging: bool = True
     
     def get_eval_type(self) -> str:
         """Get the evaluation type as a string."""
@@ -411,7 +410,6 @@ class MultiCoCoConfig:
             coconut=config_dict.get('coconut', False),
             cot=config_dict.get('cot', False),
             eval_latent_tokens=config_dict.get('eval_latent_tokens'),
-            detailed_logging=config_dict.get('detailed_logging', True),
         )
     
     @staticmethod

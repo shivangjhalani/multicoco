@@ -35,7 +35,6 @@ from transformers.training_args import TrainingArguments
 
 from .answer_extraction import extract_answer_choice
 from .constants import (
-    DEFAULT_INPUT_MAX_LENGTH,
     DEFAULT_MAX_NEW_TOKENS,
     EVAL_LOG_SEPARATOR,
     IMAGE_TOKEN,

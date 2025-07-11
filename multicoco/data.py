@@ -16,9 +16,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from .constants import (
-    DEFAULT_INPUT_MAX_LENGTH,
     DEFAULT_MAX_LENGTH,
-    DEFAULT_TARGET_MAX_LENGTH,
     END_LATENT_TOKEN,
     LATENT_TOKEN,
     LOSS_IGNORE_INDEX,

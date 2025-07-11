@@ -47,18 +47,15 @@ VALID_CHOICE_NUMBERS: List[str] = [choice.value for choice in AnswerChoice]
 # ============================================================================
 
 DEFAULT_DTYPE = "bfloat16"
-DEFAULT_IMAGE_SIZE = 448
+# Removed unused constants DEFAULT_IMAGE_SIZE and DEFAULT_NUM_BEAMS
 DEFAULT_MODEL_NAME = "OpenGVLab/InternVL3-1B-Pretrained"
 
 # ============================================================================
 # GENERATION PARAMETERS
 # ============================================================================
 
-DEFAULT_INPUT_MAX_LENGTH = 512
 DEFAULT_MAX_LENGTH = 768
 DEFAULT_MAX_NEW_TOKENS = 256
-DEFAULT_NUM_BEAMS = 1
-DEFAULT_TARGET_MAX_LENGTH = 256
 
 # ============================================================================
 # TRAINING DEFAULTS

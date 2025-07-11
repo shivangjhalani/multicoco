@@ -87,4 +87,3 @@ eval_config:
   cot: false
   coconut: false
   eval_latent_tokens: null
-  detailed_logging: true 
