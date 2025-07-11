@@ -16,16 +16,13 @@ import gc
 import time
 from datetime import datetime
 
-# ** Core libraries
 import torch
 import torch.distributed as dist
 from tqdm import tqdm
-from PIL import Image
 import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
 
-# ** Transformers components
 from transformers import Trainer
 from transformers.trainer_pt_utils import (
     find_batch_size,
@@ -35,16 +32,9 @@ from transformers.trainer_pt_utils import (
     nested_detach
 )
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.integrations.deepspeed import deepspeed_init
-from transformers.trainer_pt_utils import LabelSmoother
 from transformers.trainer_utils import EvalPrediction
 from transformers.trainer_utils import TrainOutput
-from transformers.training_args import TrainingArguments
-
-# ** Local imports
 from .constants import (
-    VALID_CHOICE_NUMBERS,
-    CHOICE_MAPPINGS,
     LOSS_IGNORE_INDEX,
     DEFAULT_MAX_NEW_TOKENS,
     IMAGE_TOKEN,
@@ -54,9 +44,9 @@ from .constants import (
 )
 from .exceptions import (
     EvaluationError,
-    AnswerExtractionError,
     GenerationError
 )
+from .answer_extraction import extract_answer_choice
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +82,6 @@ class CoCoTrainer(Trainer):
             *args: Arguments passed to parent Trainer
             **kwargs: Keyword arguments passed to parent Trainer
         """
-        # Remove processor argument as it's handled by parent class
         if 'processor' in kwargs:
             kwargs.pop('processor')
             
@@ -1128,9 +1117,7 @@ class CoCoTrainer(Trainer):
         """Clean up generated response by removing thought tokens."""
         eval_config = self.args.eval_config
         
-        # Remove thought tokens that might have been generated
         if eval_config.get('coconut', False):
-            # Remove latent special tokens that may appear in generation
             from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
             thought_tokens = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
             for token in thought_tokens:
@@ -1156,11 +1143,11 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Question: {question}\n")
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
-            log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
+            log_file.write(f"  Extracted Answer: {extract_answer_choice(prediction, is_cot)}\n")
             # Get tokenizer with proper handling of deprecation warning
             tokenizer = self.processing_class if hasattr(self, 'processing_class') and self.processing_class is not None else self.tokenizer
             log_file.write(f"  Tokens Generated: {len(tokenizer.tokenize(prediction))}\n")
-            log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
+            log_file.write(f"  Correct: {'Yes' if extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
         except Exception as e:
@@ -1180,7 +1167,7 @@ class CoCoTrainer(Trainer):
         total = len(labels)
         
         for pred, label in zip(predictions, labels):
-            extracted_answer = self.extract_answer_choice(pred, is_cot)
+            extracted_answer = extract_answer_choice(pred, is_cot)
             if extracted_answer == label.strip():
                 correct += 1
         

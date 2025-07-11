@@ -14,20 +14,17 @@ from typing import Dict, Any, Optional
 import random
 from datetime import datetime
 
-# ** Core libraries
 import torch
 import torch.utils.checkpoint as cp  # type: ignore
 from functools import partial
 import numpy as np
-from transformers import TrainingArguments, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, TrainingArguments
 
 if not getattr(cp.checkpoint, "__patched_use_reentrant", False):
     cp.checkpoint = partial(cp.checkpoint, use_reentrant=False)  # type: ignore[arg-type]
     cp.checkpoint.__patched_use_reentrant = True  # type: ignore[attr-defined]
-# ** Local imports
 from multicoco.config import (
     MultiCoCoConfig,
-    MultiCoCoConfig as _MC,
     TrainingMode
 )
 from multicoco.model import MultiCoCo
@@ -688,12 +685,8 @@ def main() -> None:
         parser = create_parser()
         args = parser.parse_args()
         
-        # Load configuration
-        # Load config using from_dict to support flat YAML format
-        import yaml
-        with open(args.config_path, 'r') as f:
-            yaml_config = yaml.safe_load(f)
-        config = MultiCoCoConfig.from_dict(yaml_config)
+        # Load configuration with base config inheritance
+        config = MultiCoCoConfig.load_with_base(args.config_path)
         
         # Apply command line overrides
         config = apply_cli_overrides(config, args)

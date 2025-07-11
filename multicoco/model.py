@@ -7,25 +7,19 @@ handling and special token management.
 """
 
 import logging
-import sys
 import contextlib
 from collections import namedtuple
-from io import StringIO
 from typing import Dict, List, Optional, Any, Union
 
-# ** Core libraries  
 import torch
 from torch import nn
 
-# ** Transformers components
 from transformers import (
     AutoTokenizer, 
     AutoModelForCausalLM, 
     AutoImageProcessor, 
     AutoConfig
 )
-
-# ** Local imports
 from .constants import (
     DEFAULT_MODEL_NAME,
     DEFAULT_DTYPE,
@@ -35,8 +29,7 @@ from .constants import (
 )
 from .exceptions import (
     ModelInitializationError,
-    DtypeMismatchError,
-    MissingSpecialTokenError
+    DtypeMismatchError
 )
 
 logger = logging.getLogger(__name__)

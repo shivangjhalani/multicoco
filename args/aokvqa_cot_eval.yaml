@@ -1,34 +1,15 @@
 # CoT Evaluation Only
 # For evaluating a trained CoT model following the current MultiCoCo implementation
+# Inherits from base.yaml with overrides
 
 # Training Configuration
 mode: "eval_only"
-project: "multicoco"
 name: "aokvqa-cot-eval"
 run_name: "aokvqa-cot-eval"
 limit_for_testing: true
-debug: false
-seed: 42
-
-# Precision Configuration
-bf16: true
-fp16: false
 
 # Model Configuration - Load trained CoT checkpoint
 load_model_path: "checkpoints/aokvqa_cot"  # Path to best CoT checkpoint
-model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base model for tokenizer/config
-use_flash_attention_2: true
-torch_compile: false
-
-# Data Configuration  
-data_dir: "data/"
-eval_data_path: "data/aokvqa_validation.json"
-
-# Logging Configuration
-log_dir: "logs/"
-log_level: "INFO"
-console_output: true
-verbose: false
 
 # CoT Evaluation
 eval_config:

@@ -8,7 +8,6 @@ to replace direct dictionary access throughout the codebase.
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 import os
-from pathlib import Path
 from enum import Enum
 import logging
 import random
@@ -223,6 +222,42 @@ class MultiCoCoConfig:
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     
+    @classmethod
+    def load_with_base(cls, config_path: str, base_config_path: str = "args/base.yaml") -> 'MultiCoCoConfig':
+        """
+        Load configuration with inheritance from a base config file.
+        
+        Args:
+            config_path: Path to the specific config file
+            base_config_path: Path to the base config file (default: args/base.yaml)
+            
+        Returns:
+            Complete MultiCoCo configuration with base values and overrides
+        """
+        import yaml
+        import os
+        
+        # Load base configuration first
+        base_dict = {}
+        if os.path.exists(base_config_path):
+            with open(base_config_path, 'r') as f:
+                base_dict = yaml.safe_load(f) or {}
+        
+        # Load specific configuration
+        with open(config_path, 'r') as f:
+            config_dict = yaml.safe_load(f) or {}
+        
+        # Merge configurations (config_dict overrides base_dict)
+        merged_dict = {**base_dict, **config_dict}
+        
+        # Handle nested dictionaries (like eval_config, coconut)
+        for key in ['eval_config', 'coconut']:
+            if key in base_dict and key in config_dict:
+                if isinstance(base_dict[key], dict) and isinstance(config_dict[key], dict):
+                    merged_dict[key] = {**base_dict[key], **config_dict[key]}
+        
+        return cls.from_dict(merged_dict)
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'MultiCoCoConfig':
         """Create configuration from dictionary (typically loaded from YAML)."""

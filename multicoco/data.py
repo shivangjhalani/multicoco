@@ -10,12 +10,9 @@ import os
 from typing import Dict, List, Any, Optional, Union
 import logging
 
-# ** Core libraries
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
-
-# ** Local imports
 from .constants import (
     DEFAULT_INPUT_MAX_LENGTH,
     DEFAULT_TARGET_MAX_LENGTH,

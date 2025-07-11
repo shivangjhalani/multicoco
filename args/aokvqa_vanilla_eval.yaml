@@ -1,37 +1,14 @@
 # Vanilla Evaluation Only
 # For evaluating the base InternVL3-1B model without CoT or CoCoNut training
+# Inherits from base.yaml with overrides
 
 # Training Configuration
 mode: "eval_only"
-project: "multicoco"
 name: "aokvqa-vanilla-eval"
 run_name: "aokvqa-vanilla-eval"
-
-# Training and Evaluation Control
 only_eval: true
 limit_for_testing: false
-debug: false
-seed: 42
 eval_batch_size: 64
-
-# Precision Configuration
-bf16: true
-fp16: false
-
-# Model Configuration - Base pretrained model (no checkpoint loading)
-model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base pretrained model
-use_flash_attention_2: true
-torch_compile: false
-
-# Data Configuration  
-data_dir: "data/"
-eval_data_path: "data/aokvqa_validation.json"
-
-# Logging Configuration
-log_dir: "logs/"
-log_level: "INFO"
-console_output: true
-verbose: false
 
 # Vanilla Evaluation
 eval_config:

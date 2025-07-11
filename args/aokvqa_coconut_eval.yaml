@@ -1,43 +1,23 @@
 # CoCoNut Evaluation Only
 # This configuration runs evaluation with CoCoNut latent reasoning
 # REQUIRES: A trained CoCoNut checkpoint
+# Inherits from base.yaml with overrides
 
 # Training Configuration
 mode: "eval_only"
-project: "multicoco"
 name: "aokvqa-coconut-evaluation"
 run_name: "aokvqa-coconut-evaluation"
 only_eval: true
 limit_for_testing: true
-debug: false
-seed: 42
-
-# Precision Configuration
-bf16: true
-fp16: false
 
 # Model Configuration - Load from CoCoNut checkpoint
 load_model_path: "checkpoints/aokvqa_coconut"  # Path to trained CoCoNut checkpoint
-model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base model for tokenizer/config
-use_flash_attention_2: true
-torch_compile: false
 
 # CoCoNut Configuration (needed for model initialization)
 coconut:
   enabled: true
   c_thought: 1          # Must match training configuration
   max_latent_stage: 6   # Must match training configuration
-
-# Data Configuration  
-data_dir: "data/"
-eval_data_path: "data/aokvqa_validation.json"
-eval_batch_size: 16
-
-# Logging Configuration
-log_dir: "logs/"
-log_level: "INFO"
-console_output: true
-verbose: false
 
 # CoCoNut Evaluation Configuration
 eval_config:

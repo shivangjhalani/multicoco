@@ -144,13 +144,24 @@ torchrun --nnodes 1 --nproc_per_node 1 run.py args/aokvqa_coconut_eval.yaml
 
 ## Configuration Files
 
+MultiCoCo uses a clean configuration inheritance system to reduce redundancy. All configurations inherit common settings from `args/base.yaml`, and specific configs only define what differs.
+
+### Base Configuration (`args/base.yaml`)
+Contains common settings shared across all configurations:
+- Project and model settings
+- Data paths and logging configuration
+- Default training parameters
+
 ### CoT Training (`args/aokvqa_cot.yaml`)
 ```yaml
-# Stage 0: Chain-of-Thought Training
+# Inherits from base.yaml with overrides
 mode: "cot_train"
-model_name: "OpenGVLab/InternVL3-1B-Pretrained"
+name: "aokvqa-cot-stage0"
 output_dir: "checkpoints/aokvqa_cot"
 num_epochs: 10
+batch_size: 16
+eval_batch_size: 64
+
 eval_config:
   cot: true
   coconut: false
@@ -158,34 +169,54 @@ eval_config:
 
 ### CoCoNut Training (`args/aokvqa_coconut.yaml`)
 ```yaml
-# CoCoNut Multi-Stage Training
+# Inherits from base.yaml with overrides
 mode: "coconut_train"
-load_model_path: "checkpoints/aokvqa_cot"  # CoT checkpoint
+name: "aokvqa-coconut-multistage"
 output_dir: "checkpoints/aokvqa_coconut"
 num_epochs: 50
+load_model_path: "checkpoints/aokvqa_cot"
 
 coconut:
   enabled: true
   c_thought: 1
   epochs_per_stage: 5
   max_latent_stage: 6
-  reset_optimizer: true
 
 eval_config:
   cot: false
   coconut: true
 ```
 
-### Evaluation (`args/aokvqa_coconut_eval.yaml`)
+### CoT Evaluation (`args/aokvqa_cot_eval.yaml`)
 ```yaml
-# CoCoNut Evaluation Only
+# Inherits from base.yaml with overrides
 mode: "eval_only"
-load_model_path: "checkpoints/aokvqa_coconut"  # Best CoCoNut checkpoint
+name: "aokvqa-cot-eval"
+load_model_path: "checkpoints/aokvqa_cot"
+limit_for_testing: true
+
+eval_config:
+  cot: true
+  coconut: false
+```
+
+### CoCoNut Evaluation (`args/aokvqa_coconut_eval.yaml`)
+```yaml
+# Inherits from base.yaml with overrides
+mode: "eval_only"
+name: "aokvqa-coconut-evaluation"
+load_model_path: "checkpoints/aokvqa_coconut"
 only_eval: true
+
+coconut:
+  enabled: true
+  c_thought: 1
+  max_latent_stage: 6
 
 eval_config:
   cot: false
   coconut: true
+  eval_latent_tokens: 6
 ```
 
 ## Wandb Logging

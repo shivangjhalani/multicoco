@@ -12,6 +12,7 @@ __author__ = "MultiCoCo Team"
 from .model import MultiCoCo
 from .trainer import CoCoTrainer
 from .data import SupervisedDataset, collate_fn
+from .answer_extraction import extract_answer_choice
 
 # Configuration and utilities
 from .config import (
@@ -24,7 +25,7 @@ from .config import (
     GenerationConfig,
     LoggingConfig
 )
-# Removed unused conversation and image-processing utilities to streamline the package
+
 
 # Constants
 from .constants import (
@@ -41,7 +42,8 @@ from .exceptions import (
     ModelInitializationError,
     DatasetError,
     EvaluationError,
-    CoCoNutTrainingError
+    GenerationError,
+    AnswerExtractionError
 )
 
 # Main exports
@@ -51,6 +53,7 @@ __all__ = [
     "CoCoTrainer", 
     "SupervisedDataset",
     "collate_fn",
+    "extract_answer_choice",
     
     # Configuration
     "MultiCoCoConfig",
@@ -61,9 +64,6 @@ __all__ = [
     "CoCoNutConfig",
     "GenerationConfig",
     "LoggingConfig",
-    
-    # (conversation utilities removed)
-    # (image-processing utilities removed)
     
     # Constants
     "DEFAULT_MODEL_NAME",
@@ -77,5 +77,6 @@ __all__ = [
     "ModelInitializationError",
     "DatasetError", 
     "EvaluationError",
-    "CoCoNutTrainingError",
+    "GenerationError",
+    "AnswerExtractionError",
 ]
