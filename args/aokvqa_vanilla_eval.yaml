@@ -20,7 +20,7 @@ fp16: false
 
 # Model Configuration - Base pretrained model (no checkpoint loading)
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base pretrained model
-load_model_path: "checkpoints/aokvqa_cot"
+load_model_path: "None"
 use_flash_attention_2: true
 torch_compile: false
 
