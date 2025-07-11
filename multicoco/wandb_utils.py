@@ -22,7 +22,8 @@ def log_wandb_samples(
     predictions: List[str], 
     images: Optional[List[Image.Image]] = None,
     max_samples: int = 20,
-    table_name: str = "research/samples"
+    table_name: str = "research/samples",
+    wandb_run = None
 ) -> None:
     """
     Log Q&A samples to wandb following coconut pattern.
@@ -34,8 +35,9 @@ def log_wandb_samples(
         images: Optional list of PIL images
         max_samples: Maximum number of samples to log
         table_name: Name for the wandb table
+        wandb_run: WandB run instance
     """
-    if wandb.run is None:
+    if wandb_run is None:
         return
         
     try:
@@ -67,7 +69,7 @@ def log_wandb_samples(
             table.add_data(*row_data)
         
         # Use copy to avoid wandb bug (like coconut does)
-        wandb.log({table_name: copy(table)})
+        wandb_run.log({table_name: copy(table)})
         
         logger.info(f"Logged {num_samples} samples to wandb table: {table_name}")
         

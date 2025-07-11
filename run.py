@@ -175,8 +175,11 @@ class MultiCoCoRunner:
                 
                 logger.info(f"WandB initialized for project '{log_config.wandb_project}'")
                 
-                # Store reference for later use
+                # Store reference for later use and make globally accessible
                 self.wandb_run = wandb_run
+                # Make wandb_run globally accessible like coconut does
+                import multicoco.trainer
+                multicoco.trainer.wandb_run = wandb_run
                 
             except Exception as e:
                 logger.warning(f"WandB initialization failed: {e}")
@@ -276,7 +279,7 @@ class MultiCoCoRunner:
         
         # Log model info to wandb like coconut does
         if self.wandb_run is not None:
-            wandb.log({
+            self.wandb_run.log({
                 "model/source": source_info,
                 "model/dtype": self.config.model.torch_dtype,
                 "model/bf16": self.config.training.bf16,
@@ -404,18 +407,18 @@ class MultiCoCoRunner:
                             "data/train_path": data_config.train_data_path
                         })
                     
-                    wandb.log(log_dict)
+                    self.wandb_run.log(log_dict)
                     
                     # Log dataset files as artifacts
                     if data_config.train_data_path and self.train_dataset is not None:
                         train_artifact = wandb.Artifact("train_dataset", type="dataset")
                         train_artifact.add_file(data_config.train_data_path)
-                        wandb.log_artifact(train_artifact)
+                        self.wandb_run.log_artifact(train_artifact)
                         
                     if data_config.eval_data_path:
                         eval_artifact = wandb.Artifact("eval_dataset", type="dataset")
                         eval_artifact.add_file(data_config.eval_data_path)
-                        wandb.log_artifact(eval_artifact)
+                        self.wandb_run.log_artifact(eval_artifact)
                         
                     logger.info("Datasets logged to wandb as artifacts")
                 except Exception as e:
