@@ -740,7 +740,9 @@ class CoCoTrainer(Trainer):
             return answer_choice
             
         except Exception as e:
-            logger.warning(f"Error in prediction generation: {e}")
+            import traceback
+            logger.warning(f"Error in prediction generation: {type(e).__name__}: {str(e)}")
+            logger.warning(f"Full traceback: {traceback.format_exc()}")
             return ""
 
     def _gather_evaluation_results(
