@@ -196,7 +196,7 @@ class LoggingConfig:
     verbose: bool = False
     run_name: Optional[str] = None
     # WandB-specific configuration
-    wandb_project: str = "multicoco"
+    wandb_project: str = "multicoco-research"
     wandb_entity: Optional[str] = None
     wandb_tags: List[str] = field(default_factory=list)
     wandb_group: Optional[str] = None
