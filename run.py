@@ -505,7 +505,7 @@ class MultiCoCoRunner:
             'save_steps': training_config.save_steps,
             'eval_steps': training_config.eval_steps,
             'save_strategy': 'epoch',
-            'evaluation_strategy': 'epoch',
+            'eval_strategy': 'epoch',
             'save_total_limit': training_config.save_total_limit,
             'load_best_model_at_end': training_config.load_best_model_at_end,
             'metric_for_best_model': training_config.metric_for_best_model,
