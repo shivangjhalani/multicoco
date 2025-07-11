@@ -182,9 +182,6 @@ class TrainingConfig:
         """Validate training configuration."""
         if self.seed is None:
             self.seed = random.randint(0, 2**32 - 1)
-            logging.info(f"Random seed not specified, using: {self.seed}")
-        else:
-            logging.info(f"Using specified seed: {self.seed}")
 
         if self.data_seed is None:
             self.data_seed = self.seed
@@ -208,6 +205,7 @@ class LoggingConfig:
     use_wandb: bool = True
     console_output: bool = True
     verbose: bool = False
+    run_name: Optional[str] = None
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -326,6 +324,7 @@ class MultiCoCoConfig:
             use_wandb=config_dict.get('use_wandb', True),
             console_output=config_dict.get('console_output', True),
             verbose=config_dict.get('verbose', False),
+            run_name=training_config.name  # Pass run name to logging
         )
         
         return cls(

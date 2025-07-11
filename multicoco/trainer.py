@@ -14,6 +14,7 @@ from typing import Optional, List, Tuple, Dict, Any, Union
 import random
 import gc
 import time
+from datetime import datetime
 
 # ** Core libraries
 import torch
@@ -883,12 +884,13 @@ class CoCoTrainer(Trainer):
         os.makedirs(log_dir, exist_ok=True)
         
         # Determine evaluation type
-        eval_config = self.args.eval_config
-        is_cot = eval_config.get('cot', False)
-        is_coconut = eval_config.get('coconut', False)
-        eval_type = "coconut" if is_coconut else "cot" if is_cot else "vanilla"
+        eval_type = self._get_eval_type_name(self.args.eval_config)
         
-        return os.path.join(log_dir, f'evaluation_{eval_type}.log')
+        # Create a unique log file name with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file_name = f"{timestamp}_evaluation_{eval_type}.log"
+        
+        return os.path.join(log_dir, log_file_name)
 
     def _write_evaluation_header(self, log_file) -> None:
         """Write evaluation header to log file."""
