@@ -107,8 +107,8 @@ class MultiCoCoRunner:
         else:
             logger.warning("CUDA not available, using CPU")
 
-        # Initialize WandB if available and enabled
-        self._init_wandb()
+        # WandB will be initialized by HuggingFace Trainer via report_to parameter
+        # We'll add custom metrics after trainer initialization
 
     def _set_random_seeds(self, seed: int) -> None:
         """Set random seeds for reproducibility."""
@@ -152,42 +152,37 @@ class MultiCoCoRunner:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
 
-    def _init_wandb(self) -> None:
-        """Initialize WandB if available and enabled."""
+    def _setup_wandb_config(self) -> None:
+        """Setup WandB configuration and custom metrics after HF Trainer initialization."""
         if not WANDB_AVAILABLE or not self.config.logging.use_wandb:
-            if not WANDB_AVAILABLE and self.config.logging.use_wandb:
-                logger.warning("WandB not available but use_wandb=True. Install wandb: pip install wandb")
             return
         
-        # Only initialize WandB on main process
+        # Only setup on main process
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
         if local_rank not in [-1, 0]:
             return
             
-        if wandb is None:
+        if wandb is None or wandb.run is None:
             return
             
         try:
-            # Initialize WandB run
-            wandb.init(
-                project=self.config.logging.wandb_project,
-                entity=self.config.logging.wandb_entity,
-                name=self.config.training.name,
-                group=self.config.logging.wandb_group,
-                tags=self.config.logging.wandb_tags,
-                config=self.config.to_dict(),
-                reinit=True
-            )
+            # Update WandB config with our custom configuration
+            wandb.config.update({
+                "project_name": self.config.logging.wandb_project,
+                "run_group": self.config.logging.wandb_group,
+                "tags": self.config.logging.wandb_tags,
+                **self.config.to_dict()
+            }, allow_val_change=True)
             
             # Define custom metrics for better tracking
             wandb.define_metric("train/loss", summary="min")
-            wandb.define_metric("eval/accuracy", summary="max")
+            wandb.define_metric("eval/accuracy", summary="max") 
             wandb.define_metric("coconut/stage", summary="max")
             
-            logger.info("WandB initialized for experiment tracking")
+            logger.info("WandB configuration updated with custom metrics")
             
         except Exception as e:
-            logger.warning(f"Failed to initialize WandB: {e}")
+            logger.warning(f"Failed to setup WandB configuration: {e}")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -413,6 +408,9 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             
+            # Setup WandB configuration and custom metrics
+            self._setup_wandb_config()
+            
             logger.info("Trainer created successfully")
             
         except Exception as e:
@@ -438,6 +436,16 @@ class MultiCoCoRunner:
 
     def _create_training_args(self, training_config) -> TrainingArguments:
         """Create training arguments for training modes."""
+        # Set WandB environment variables for HuggingFace integration
+        if self.config.logging.use_wandb and WANDB_AVAILABLE:
+            os.environ["WANDB_PROJECT"] = self.config.logging.wandb_project
+            if self.config.logging.wandb_entity:
+                os.environ["WANDB_ENTITY"] = self.config.logging.wandb_entity
+            if self.config.training.name:
+                os.environ["WANDB_NAME"] = self.config.training.name
+            if self.config.logging.wandb_tags:
+                os.environ["WANDB_TAGS"] = ",".join(self.config.logging.wandb_tags)
+        
         return TrainingArguments(
             output_dir=training_config.output_dir,
             num_train_epochs=training_config.num_epochs,

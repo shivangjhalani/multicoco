@@ -499,17 +499,10 @@ class CoCoTrainer(Trainer):
         return config
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
-        """Override log method to update progress bar with metrics and log to WandB."""
+        """Override log method to update progress bar with metrics."""
+        # Let HuggingFace handle WandB logging via report_to parameter
         super().log(logs, **kwargs)
         self._update_progress_bar_with_metrics(logs)
-        
-        # Log to WandB if available and on main process
-        if (WANDB_AVAILABLE and wandb is not None and wandb.run is not None and 
-            self.is_world_process_zero()):
-            try:
-                wandb.log(logs, step=self.total_train_steps)
-            except Exception as e:
-                logger.warning(f"Failed to log to WandB: {e}")
 
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """Update progress bar with training metrics."""
