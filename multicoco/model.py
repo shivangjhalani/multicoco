@@ -217,14 +217,6 @@ class MultiCoCo(nn.Module):
         # Keep reference to eos id for convenience
         self.eos_token_id = self.tokenizer.eos_token_id
 
-        # Ensure model config has pad_token_id set to avoid generate() warnings
-        if getattr(self.model.config, 'pad_token_id', None) is None:
-            self.model.config.pad_token_id = self.tokenizer.pad_token_id
-            # Also update generation_config if it exists
-            if hasattr(self.model, 'generation_config') and self.model.generation_config is not None:
-                self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
-            logger.debug("Set model.config.pad_token_id to tokenizer.pad_token_id to suppress warnings")
-
     def get_input_embeddings(self) -> nn.Module:
         """Get input embedding layer."""
         return self.model.get_input_embeddings()
