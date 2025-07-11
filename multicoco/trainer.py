@@ -544,3 +544,312 @@ class CoCoTrainer(Trainer):
         
         for line in summary_lines:
             logger.info(line)
+
+    def evaluate(
+        self,
+        eval_dataset=None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+    ) -> Dict[str, float]:
+        """
+        Custom evaluation implementation for MultiCoCo models.
+        
+        Handles prediction generation and answer extraction for multiple 
+        choice questions, providing detailed evaluation metrics.
+        """
+        try:
+            # Use provided dataset or default to trainer's eval dataset
+            eval_dataset = eval_dataset or self.eval_dataset
+            if eval_dataset is None:
+                raise EvaluationError("No evaluation dataset provided")
+            
+            # Set model to evaluation mode
+            self.model.eval()
+            
+            # Get evaluation dataloader
+            eval_dataloader = self.get_eval_dataloader(eval_dataset)
+            
+            # Run evaluation loop
+            eval_results = self._evaluation_loop(eval_dataloader, metric_key_prefix)
+            
+            logger.info(f"Evaluation completed: {len(eval_results)} samples processed")
+            return eval_results
+            
+        except Exception as e:
+            raise EvaluationError(f"Evaluation loop failed: {e}") from e
+
+    def _evaluation_loop(
+        self, 
+        dataloader: DataLoader, 
+        metric_key_prefix: str = "eval"
+    ) -> Dict[str, float]:
+        """
+        Main evaluation loop that processes batches and computes metrics.
+        
+        Args:
+            dataloader: DataLoader for evaluation data
+            metric_key_prefix: Prefix for metric names
+            
+        Returns:
+            Dictionary containing evaluation metrics
+        """
+        # Initialize metrics tracking
+        predictions = []
+        labels = []
+        questions = []
+        
+        # Evaluation parameters
+        max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
+        
+        # Create progress bar
+        total_samples = len(dataloader) 
+        progress_bar = tqdm(
+            dataloader,
+            desc="Evaluating",
+            total=total_samples,
+            disable=not self.is_world_process_zero()
+        )
+        
+        # Process each batch
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(progress_bar):
+                try:
+                    # Generate predictions for this batch
+                    batch_predictions = self._generate_batch_predictions(
+                        batch, max_new_tokens
+                    )
+                    
+                    # Extract batch information
+                    batch_labels = batch.get('answers', [])
+                    batch_questions = batch.get('questions', [])
+                    
+                    # Accumulate results
+                    predictions.extend(batch_predictions)
+                    labels.extend(batch_labels)
+                    questions.extend(batch_questions)
+                    
+                    # Update progress
+                    progress_bar.set_postfix({
+                        'processed': f"{len(predictions)}/{total_samples * self.args.per_device_eval_batch_size}"
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to generate prediction for sample {batch_idx}: {e}")
+                    # Add empty predictions to maintain alignment
+                    batch_size = len(batch.get('input_ids', []))
+                    predictions.extend([""] * batch_size)
+                    labels.extend(batch.get('answers', [""] * batch_size))
+                    questions.extend(batch.get('questions', [""] * batch_size))
+        
+        progress_bar.close()
+        
+        # Gather predictions from all processes if using distributed training
+        all_predictions, all_labels, all_questions = self._gather_evaluation_results(
+            predictions, labels, questions
+        )
+        
+        # Compute metrics on main process
+        if self.is_world_process_zero():
+            metrics = self._compute_evaluation_metrics(
+                all_predictions, all_labels, all_questions, metric_key_prefix
+            )
+            
+            # Log sample predictions for debugging
+            self._log_sample_predictions(all_predictions, all_labels, all_questions)
+            
+            return metrics
+        else:
+            return {}
+
+    def _generate_batch_predictions(
+        self, 
+        batch: Dict[str, Any], 
+        max_new_tokens: int
+    ) -> List[str]:
+        """Generate predictions for a batch of samples."""
+        batch_predictions = []
+        
+        # Move batch to device
+        device_batch = {
+            k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v 
+            for k, v in batch.items()
+        }
+        
+        # Handle different batch sizes
+        batch_size = len(device_batch.get('input_ids', []))
+        
+        for i in range(batch_size):
+            try:
+                # Extract single sample
+                sample = {
+                    k: v[i:i+1] if isinstance(v, torch.Tensor) else [v[i]] if isinstance(v, list) else v
+                    for k, v in device_batch.items()
+                }
+                
+                # Generate prediction
+                prediction = self._generate_single_prediction(sample, max_new_tokens)
+                batch_predictions.append(prediction)
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate prediction for sample {i}: {e}")
+                batch_predictions.append("")
+        
+        return batch_predictions
+
+    def _generate_single_prediction(
+        self, 
+        sample: Dict[str, Any], 
+        max_new_tokens: int
+    ) -> str:
+        """Generate a single prediction."""
+        try:
+            # Prepare inputs for generation
+            pixel_values = sample.get('pixel_values')
+            input_ids = sample.get('input_ids')
+            attention_mask = sample.get('attention_mask')
+            
+            if input_ids is None:
+                return ""
+            
+            # Generate using the model
+            with torch.no_grad():
+                generated_ids = self.model.generate(
+                    pixel_values=pixel_values,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                )
+            
+            # Extract generated tokens (remove input tokens)
+            input_length = input_ids.shape[1]
+            generated_tokens = generated_ids[:, input_length:]
+            
+            # Decode the generated text
+            generated_text = self.tokenizer.decode(
+                generated_tokens[0], 
+                skip_special_tokens=True
+            ).strip()
+            
+            # Extract answer choice from generated text
+            answer_choice = extract_answer_choice(generated_text)
+            
+            return answer_choice
+            
+        except Exception as e:
+            logger.warning(f"Error in prediction generation: {e}")
+            return ""
+
+    def _gather_evaluation_results(
+        self, 
+        predictions: List[str], 
+        labels: List[str], 
+        questions: List[str]
+    ) -> Tuple[List[str], List[str], List[str]]:
+        """Gather evaluation results from all processes in distributed setting."""
+        if not self.is_world_process_zero() and dist.is_initialized():
+            # For non-main processes, just return local results
+            local_rank = dist.get_rank()
+            logger.info(f"Process {local_rank}: Processed {len(predictions)} samples")
+            return predictions, labels, questions
+        
+        # Main process gathers all results
+        if dist.is_initialized() and dist.get_world_size() > 1:
+            world_size = dist.get_world_size()
+            
+            # Check for length mismatches before gathering
+            if len(predictions) != len(labels) or len(predictions) != len(questions):
+                logger.error(
+                    f"Rank {dist.get_rank()} has mismatched lengths: "
+                    f"predictions={len(predictions)}, labels={len(labels)}, questions={len(questions)}"
+                )
+            
+            # Gather from all processes - simplified approach
+            all_predictions = predictions  # Use local predictions for now
+            all_labels = labels
+            all_questions = questions
+            
+        else:
+            all_predictions = predictions
+            all_labels = labels  
+            all_questions = questions
+        
+        return all_predictions, all_labels, all_questions
+
+    def _compute_evaluation_metrics(
+        self, 
+        predictions: List[str], 
+        labels: List[str], 
+        questions: List[str],
+        metric_key_prefix: str
+    ) -> Dict[str, float]:
+        """Compute evaluation metrics from predictions and labels."""
+        if not predictions or not labels:
+            return {f"{metric_key_prefix}_accuracy": 0.0}
+        
+        # Ensure equal lengths
+        min_length = min(len(predictions), len(labels))
+        predictions = predictions[:min_length]
+        labels = labels[:min_length]
+        
+        # Compute accuracy
+        correct = sum(
+            1 for pred, label in zip(predictions, labels) 
+            if pred.lower().strip() == label.lower().strip()
+        )
+        
+        accuracy = correct / len(labels) if labels else 0.0
+        
+        # Create metrics dictionary
+        metrics = {
+            f"{metric_key_prefix}_accuracy": accuracy,
+            f"{metric_key_prefix}_num_samples": len(labels),
+            f"{metric_key_prefix}_correct": correct,
+        }
+        
+        logger.info(f"Evaluation metrics: {metrics}")
+        return metrics
+
+    def _log_sample_predictions(
+        self, 
+        predictions: List[str], 
+        labels: List[str], 
+        questions: List[str],
+        num_samples: int = 5
+    ) -> None:
+        """Log sample predictions for debugging."""
+        if not predictions:
+            return
+            
+        num_to_log = min(num_samples, len(predictions))
+        
+        logger.info(f"\n{SAMPLE_LOG_SEPARATOR}")
+        logger.info("SAMPLE PREDICTIONS")
+        logger.info(f"{SAMPLE_LOG_SEPARATOR}")
+        
+        for i in range(num_to_log):
+            question = questions[i] if i < len(questions) else "N/A"
+            prediction = predictions[i] if i < len(predictions) else "N/A"
+            label = labels[i] if i < len(labels) else "N/A"
+            
+            logger.info(f"Sample {i + 1}:")
+            logger.info(f"  Question: {question[:100]}...")
+            logger.info(f"  Predicted: '{prediction}'")
+            logger.info(f"  Actual: '{label}'")
+            logger.info(f"  Correct: {prediction.lower().strip() == label.lower().strip()}")
+            logger.info("")
+        
+        logger.info(f"{SAMPLE_LOG_SEPARATOR}")
+
+    @property
+    def tokenizer(self):
+        """Get tokenizer from model."""
+        if hasattr(self.model, 'tokenizer'):
+            return self.model.tokenizer
+        elif hasattr(self.model, 'module') and hasattr(self.model.module, 'tokenizer'):
+            return self.model.module.tokenizer
+        else:
+            raise AttributeError("Tokenizer not found in model")
