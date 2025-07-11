@@ -13,7 +13,8 @@ generation:
   do_sample: false  # Deterministic evaluation
   max_new_tokens: 256  # Allow full CoT reasoning
   num_beams: 3  # Beam search for better accuracy
-  temperature: 0.0  # Greedy for reproducibility
+  #temperature: 0.0  # Greedy decoding
+  # temperature removed - not used in greedy/beam decoding
   top_p: 1.0
   top_k: 50
 

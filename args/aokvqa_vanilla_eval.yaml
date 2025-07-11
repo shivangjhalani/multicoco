@@ -14,7 +14,8 @@ generation:
   do_sample: false  # Deterministic for reproducibility
   max_new_tokens: 128  # Sufficient for answers
   num_beams: 3  # Beam search improves VQA accuracy
-  temperature: 0.0  # Greedy decoding
+  #temperature: 0.0  # Greedy decoding
+  # temperature removed - not used in greedy/beam decoding
   top_p: 1.0  # Full distribution for beams
   top_k: 50  # Standard constraint
 

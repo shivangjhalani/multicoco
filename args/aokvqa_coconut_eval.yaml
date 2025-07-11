@@ -13,7 +13,8 @@ generation:
   do_sample: false  # Deterministic for fair comparison
   max_new_tokens: 256  # Allow latent reasoning space
   num_beams: 3  # Beam search improves latent accuracy
-  temperature: 0.0  # Greedy decoding
+  #temperature: 0.0  # Greedy decoding
+  # temperature removed - not used in greedy/beam decoding
   top_p: 1.0
   top_k: 50
 
