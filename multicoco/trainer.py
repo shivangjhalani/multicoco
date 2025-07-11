@@ -535,7 +535,8 @@ class CoCoTrainer(Trainer):
             return SimpleNamespace(
                 predictions=all_predictions,
                 label_ids=all_labels,
-                metrics=metrics
+                metrics=metrics,
+                num_samples=len(all_labels) if is_main_process else 0
             )
 
         except Exception as e:
@@ -698,47 +699,38 @@ class CoCoTrainer(Trainer):
             eval_config = getattr(self.args, 'eval_config', {})
             generation_config = self._create_generation_config()
             
-            # Create input prompt
-            prompt = f"<|im_start|>user\n<image>\n{question}<|im_end|><|im_start|>assistant\n"
+            # Access the underlying InternVL model for chat interface
+            if hasattr(model, 'model'):
+                internvl_model = model.model
+            else:
+                internvl_model = model
             
-            # Tokenize input
-            inputs = self.tokenizer(
-                prompt,
-                return_tensors='pt',
-                padding=True,
-                truncation=True,
-                max_length=DEFAULT_INPUT_MAX_LENGTH
-            )
-            
-            # Move to device and ensure correct dtype
-            device = next(model.parameters()).device
-            input_ids = inputs['input_ids'].to(device)
-            attention_mask = inputs['attention_mask'].to(device)
-            
+            # Ensure pixel values are properly formatted
             if pixel_values is not None:
                 pixel_values = self._ensure_correct_dtype(pixel_values, model)
+                device = next(model.parameters()).device
                 pixel_values = pixel_values.to(device)
+                
+                # Ensure proper shape
+                if pixel_values.dim() == 3:
+                    pixel_values = pixel_values.unsqueeze(0)
             
-            # Generate response
-            with torch.no_grad():
-                if eval_config.get('coconut', False):
-                    generated_ids = self._generate_coconut_prediction(
-                        question, pixel_values, model, self.tokenizer, generation_config, device
-                    )
-                else:
-                    generated_ids = model.generate(
-                        pixel_values=pixel_values,
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        **generation_config
-                    )
-            
-            # Decode response
-            if generated_ids.shape[1] > input_ids.shape[1]:
-                new_tokens = generated_ids[:, input_ids.shape[1]:]
-                response = self.tokenizer.decode(new_tokens[0], skip_special_tokens=True)
+            # Handle CoCoNut evaluation with latent tokens
+            if eval_config.get('coconut', False):
+                response = self._generate_coconut_prediction(
+                    question, pixel_values, model, self.tokenizer, generation_config, device
+                )
             else:
-                response = ""
+                # Use InternVL chat interface for standard evaluation
+                with torch.no_grad():
+                    response = internvl_model.chat(
+                        tokenizer=self.tokenizer,
+                        pixel_values=pixel_values,
+                        question=question,
+                        generation_config=generation_config,
+                        history=None,
+                        return_history=False
+                    )
             
             # Clean and extract answer
             response = self._clean_generated_response(response)
@@ -748,7 +740,7 @@ class CoCoTrainer(Trainer):
             return extracted_answer
             
         except Exception as e:
-            logger.error(f"Failed to generate prediction: {e}")
+            logger.error(f"Failed to generate prediction: {e}", exc_info=True)
             raise GenerationError(f"Prediction generation failed: {e}")
 
     def _generate_coconut_prediction(
@@ -759,7 +751,7 @@ class CoCoTrainer(Trainer):
         tokenizer,
         generation_config: Dict[str, Any],
         device: torch.device
-    ) -> torch.Tensor:
+    ) -> str:
         """Generate prediction using CoCoNut latent reasoning."""
         # Get number of latent tokens from eval config
         eval_config = getattr(self.args, 'eval_config', {})
@@ -784,12 +776,22 @@ class CoCoTrainer(Trainer):
         attention_mask = inputs['attention_mask'].to(device)
         
         # Generate with latent wrapper
-        return model.generate(
-            pixel_values=pixel_values,
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            **generation_config
-        )
+        with torch.no_grad():
+            generated_ids = model.generate(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **generation_config
+            )
+        
+        # Decode only the generated part
+        if generated_ids.shape[1] > input_ids.shape[1]:
+            new_tokens = generated_ids[:, input_ids.shape[1]:]
+            response = tokenizer.decode(new_tokens[0], skip_special_tokens=True)
+        else:
+            response = ""
+        
+        return response
 
     def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
         """Ensure pixel values have the correct dtype for the model."""
