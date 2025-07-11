@@ -12,7 +12,7 @@ only_eval: true
 limit_for_testing: false
 debug: false
 seed: 42
-eval_batch_size: 16
+eval_batch_size: 64
 
 # Precision Configuration
 bf16: true
