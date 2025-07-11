@@ -282,7 +282,8 @@ class LatentWrapper(nn.Module):
                 # prompt format changes such that `s-1` could be an image token,
                 # this injection logic may become unstable.
                 # Replace the latent tokens *inside* the span (s … e-1)
-                inputs_embeds[b, s:e] = last_hidden[b, s - 1].unsqueeze(0)
+                span_length = e - s
+                inputs_embeds[b, s:e] = last_hidden[b, s - 1].unsqueeze(0).repeat(span_length, 1)
 
         # ------------------------------------------------------------------
         # Pass 2: real forward with modified embeddings and cached vision embeds
