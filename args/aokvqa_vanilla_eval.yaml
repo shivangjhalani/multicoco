@@ -6,9 +6,13 @@ mode: "eval_only"
 project: "multicoco"
 name: "aokvqa-vanilla-eval"
 run_name: "aokvqa-vanilla-eval"
+
+# Training and Evaluation Control
+only_eval: true
 limit_for_testing: false
 debug: false
 seed: 42
+eval_batch_size: 16
 
 # Precision Configuration
 bf16: true
@@ -16,6 +20,7 @@ fp16: false
 
 # Model Configuration - Base pretrained model (no checkpoint loading)
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"  # Base pretrained model
+load_model_path: "checkpoints/aokvqa_cot"
 use_flash_attention_2: true
 torch_compile: false
 
