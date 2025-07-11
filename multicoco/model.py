@@ -26,7 +26,7 @@ from .constants import (
     IMAGE_TOKEN,
     IMG_CONTEXT_TOKEN,
 )
-from .exceptions import DtypeMismatchError, ModelInitializationError
+from .exceptions import ModelInitializationError
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +242,7 @@ class MultiCoCo(nn.Module):
             return kwargs
             
         except Exception as e:
-            raise DtypeMismatchError("unknown", "unknown") from e
+            raise ValueError("dtype mismatch during preprocessing") from e
 
     def _clean_forward_kwargs(self, **kwargs) -> Dict[str, Any]:
         """Remove custom arguments that shouldn't be passed to the base model."""

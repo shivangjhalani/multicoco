@@ -65,17 +65,7 @@ class EvaluationConfig:
     vanilla: bool = True
     cot: bool = False
     coconut: bool = False
-    eval_latent_tokens: Optional[int] = None
     
-    def get_eval_type(self) -> str:
-        """Get the evaluation type as a string."""
-        if self.coconut:
-            return "coconut"
-        elif self.cot:
-            return "cot"
-        else:
-            return "vanilla"
-
 
 @dataclass
 class CoCoNutConfig:
@@ -409,7 +399,6 @@ class MultiCoCoConfig:
             vanilla=config_dict.get('vanilla', True),
             coconut=config_dict.get('coconut', False),
             cot=config_dict.get('cot', False),
-            eval_latent_tokens=config_dict.get('eval_latent_tokens'),
         )
     
     @staticmethod
