@@ -15,7 +15,6 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
-import wandb
 # --- Patch: ensure torch.utils.checkpoint is called with explicit use_reentrant ---
 import torch.utils.checkpoint as _checkpoint_module  # type: ignore  # noqa: E402
 
@@ -141,20 +140,6 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
-        
-        # Initialize WandB if enabled
-        if self.config.logging.use_wandb:
-            wandb.init(
-                project=self.config.logging.wandb_project,
-                entity=self.config.logging.wandb_entity,
-                name=self.config.training.name,
-                group=self.config.logging.wandb_group,
-                tags=self.config.logging.wandb_tags,
-                config=self.config.to_dict()
-            )
-            wandb.define_metric("train/loss", summary="min")
-            wandb.define_metric("eval/accuracy", summary="max")
-            logger.info("WandB initialized for run.")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -242,9 +227,6 @@ class MultiCoCoRunner:
                    f"BF16: {self.config.training.bf16}, "
                    f"FP16: {self.config.training.fp16}")
         logger.info(f"Mode: {training_mode}, CoCoNut: {coconut_config.enabled}")
-        
-        # Note: Model metadata is already logged as hyperparameters in wandb.init()
-        # No need to log static config values as metrics here
 
     def _load_checkpoint_weights(self, checkpoint_path: str) -> None:
         """Load checkpoint weights into the base model."""
@@ -349,18 +331,6 @@ class MultiCoCoRunner:
                 logger.info(f"Evaluation dataset: {len(self.eval_dataset)} samples")
             else:
                 raise DataLoadingError("Evaluation data path is required")
-            
-            # Log datasets as WandB artifacts if enabled
-            if wandb.run is not None:
-                if data_config.train_data_path and os.path.exists(data_config.train_data_path):
-                    train_artifact = wandb.Artifact("train_dataset", type="dataset")
-                    train_artifact.add_file(data_config.train_data_path)
-                    wandb.log_artifact(train_artifact)
-                
-                if data_config.eval_data_path and os.path.exists(data_config.eval_data_path):
-                    eval_artifact = wandb.Artifact("eval_dataset", type="dataset")
-                    eval_artifact.add_file(data_config.eval_data_path)
-                    wandb.log_artifact(eval_artifact)
                 
         except Exception as e:
             raise DataLoadingError(f"Failed to setup datasets: {e}")

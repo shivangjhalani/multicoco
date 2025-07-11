@@ -28,8 +28,6 @@ load_model_path: "checkpoints/aokvqa_cot"
 
 # Logging Configuration
 use_wandb: true
-wandb_tags: ["coconut", "multimodal"]
-wandb_group: "aokvqa-coconut-progressive"
 
 # CoCoNut Configuration
 coconut:

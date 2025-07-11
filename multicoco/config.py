@@ -192,10 +192,6 @@ class LoggingConfig:
     log_dir: str = DEFAULT_LOG_DIR
     log_level: str = "INFO"
     use_wandb: bool = True
-    wandb_project: str = "multicoco-research"
-    wandb_entity: Optional[str] = None
-    wandb_tags: List[str] = field(default_factory=list)
-    wandb_group: Optional[str] = None
     console_output: bool = True
     verbose: bool = False
     run_name: Optional[str] = None
@@ -451,10 +447,6 @@ class MultiCoCoConfig:
             log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
             log_level=config_dict.get('log_level', 'INFO'),
             use_wandb=config_dict.get('use_wandb', True),
-            wandb_project=config_dict.get('wandb_project', "multicoco-research"),
-            wandb_entity=config_dict.get('wandb_entity'),
-            wandb_tags=config_dict.get('wandb_tags', []),
-            wandb_group=config_dict.get('wandb_group'),
             console_output=config_dict.get('console_output', True),
             verbose=config_dict.get('verbose', False),
             run_name=training_config.name
@@ -462,16 +454,4 @@ class MultiCoCoConfig:
     
     def get_wandb_report_to(self) -> List[str]:
         """Get the report_to list for training arguments."""
-        return ["wandb"] if self.logging.use_wandb else []
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for use with wandb logging."""
-        return {
-            'model': self.model.__dict__,
-            'training': self.training.__dict__,
-            'data': self.data.__dict__,
-            'evaluation': self.evaluation.__dict__,
-            'coconut': self.coconut.__dict__,
-            'generation': self.generation.__dict__,
-            'logging': self.logging.__dict__
-        } 
+        return ["wandb"] if self.logging.use_wandb else [] 

@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 import torch.distributed as dist
-import wandb
 from PIL import Image
 from torch import nn
 from torch.utils.data import DataLoader
@@ -194,13 +193,6 @@ class CoCoTrainer(Trainer):
             logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
             logger.info(f"{'='*60}")
             
-            # Log to WandB if enabled
-            if wandb.run is not None:
-                wandb.log({
-                    "coconut/stage": stage,
-                    "coconut/latent_tokens": stage * c_thought,
-                })
-            
             # Apply curriculum to dataset
             if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
                 self.train_dataset.apply_progressive_curriculum(
@@ -243,13 +235,6 @@ class CoCoTrainer(Trainer):
         for stage_epoch in range(epochs_per_stage):
             epoch_start_time = time.time()
             logger.info(f"Stage {stage}, Epoch {stage_epoch + 1}/{epochs_per_stage}")
-            
-            # Log to WandB if enabled
-            if wandb.run is not None:
-                wandb.log({
-                    "coconut/stage": stage,
-                    "coconut/epoch_in_stage": stage_epoch + 1
-                })
             
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
@@ -353,14 +338,6 @@ class CoCoTrainer(Trainer):
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
-            
-            # Log to WandB if enabled
-            if wandb.run is not None:
-                wandb.log({
-                    "train/loss": avg_loss,
-                    "train/epoch": epoch + 1,
-                    "train/step": self.total_train_steps
-                })
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -373,12 +350,6 @@ class CoCoTrainer(Trainer):
         if self.is_world_process_zero():
             state_path = os.path.join(checkpoint_dir, 'trainer_state.json')
             self.state.save_to_json(state_path)
-        
-        # Log to WandB artifacts if enabled
-        if wandb.run is not None and self.is_world_process_zero():
-            artifact = wandb.Artifact(f"checkpoint-epoch-{epoch}", type="model")
-            artifact.add_dir(checkpoint_dir)
-            wandb.log_artifact(artifact)
         
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
         return checkpoint_dir
@@ -470,13 +441,9 @@ class CoCoTrainer(Trainer):
         return config
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
-        """Override log method to update progress bar with metrics and log to WandB."""
+        """Override log method to update progress bar with metrics."""
         super().log(logs, **kwargs)
         self._update_progress_bar_with_metrics(logs)
-        
-        # Log to WandB if enabled
-        if wandb.run is not None:
-            wandb.log(logs, step=self.total_train_steps)
 
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """Update progress bar with training metrics."""
@@ -559,17 +526,6 @@ class CoCoTrainer(Trainer):
                     
                     if log_file:
                         self._write_evaluation_summary(log_file, metrics, len(all_labels))
-                    
-                    # Log to WandB if enabled
-                    if wandb.run is not None and self.is_world_process_zero():
-                        wandb.log(metrics)
-                        
-                        # Log sample table (up to 50 samples for insights)
-                        sample_table = wandb.Table(columns=["Question", "Ground Truth", "Prediction", "Correct"])
-                        for q, label, pred in zip(all_questions[:50], all_labels[:50], all_predictions[:50]):
-                            correct = pred.strip() == label.strip()
-                            sample_table.add_data(q, label, pred, correct)
-                        wandb.log({"eval/samples": sample_table})
 
             finally:
                 if log_file:
