@@ -11,6 +11,11 @@ num_epochs: 10
 batch_size: 16
 eval_batch_size: 64
 
+# Checkpoint Management Example (optional overrides)
+# max_checkpoints_to_keep: 5     # Keep more checkpoints for this experiment
+# keep_best_checkpoints: true    # Ensure we keep the best performing models
+# use_run_name_in_output_dir: true  # Will create: checkpoints/aokvqa_cot_aokvqa-cot-stage0/
+
 # Stage 0 Evaluation - CoT only
 eval_config:
   cot: true

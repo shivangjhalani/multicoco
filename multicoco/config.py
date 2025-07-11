@@ -177,6 +177,11 @@ class TrainingConfig:
     mode: TrainingMode = TrainingMode.COT_TRAIN
     name: Optional[str] = None  # Run name for wandb and logging
     
+    # Checkpoint management options
+    max_checkpoints_to_keep: int = 3  # Maximum number of checkpoints to keep
+    keep_best_checkpoints: bool = True  # Keep best checkpoints based on eval accuracy
+    use_run_name_in_output_dir: bool = True  # Include run name in output directory
+    
     def __post_init__(self):
         """Validate training configuration."""
         if self.seed is None:
@@ -191,6 +196,13 @@ class TrainingConfig:
             raise ValueError("batch_size must be positive")
         if self.num_epochs <= 0:
             raise ValueError("num_epochs must be positive")
+        
+        # Modify output directory to include run name if requested
+        if self.use_run_name_in_output_dir and self.name:
+            # Extract base directory and add run name
+            base_dir = os.path.dirname(self.output_dir) if os.path.dirname(self.output_dir) else "checkpoints"
+            dir_name = os.path.basename(self.output_dir)
+            self.output_dir = os.path.join(base_dir, f"{dir_name}_{self.name}")
         
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
@@ -307,6 +319,9 @@ class MultiCoCoConfig:
             save_steps=config_dict.get('save_steps', 1000),
             eval_steps=config_dict.get('eval_steps', 1000),
             save_total_limit=config_dict.get('save_total_limit', 2),
+            max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3),
+            keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True),
+            use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True),
             load_best_model_at_end=config_dict.get('load_best_model_at_end', True),
             metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'),
             greater_is_better=config_dict.get('greater_is_better', False),

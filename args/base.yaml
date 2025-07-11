@@ -32,4 +32,9 @@ eval_batch_size: 16
 learning_rate: 1.0e-5
 gradient_accumulation_steps: 2
 resume_from_checkpoint: true
-limit_for_testing: false 
+limit_for_testing: false
+
+# Checkpoint Management
+max_checkpoints_to_keep: 6        # Maximum number of checkpoints to keep
+keep_best_checkpoints: true       # Keep best checkpoints based on eval accuracy (vs most recent)
+use_run_name_in_output_dir: true  # Include run name in checkpoint directory path 

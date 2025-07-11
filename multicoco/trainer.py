@@ -91,6 +91,9 @@ class CoCoTrainer(Trainer):
         self.best_val_acc = 0.0
         self.total_train_steps = 0
         
+        # Checkpoint tracking for smart management
+        self.checkpoint_history = []  # List of (checkpoint_path, accuracy, epoch)
+        
         logger.info("CoCoTrainer initialized.")
 
     def train(
@@ -164,11 +167,12 @@ class CoCoTrainer(Trainer):
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
             
-            # Save checkpoint after epoch
-            checkpoint_dir = self._save_epoch_checkpoint(epoch)
-            
-            # Run evaluation after epoch
+            # Run evaluation after epoch first to get accuracy for checkpoint management
             eval_metrics = self._evaluate_after_epoch(epoch)
+            eval_accuracy = eval_metrics.get('eval_accuracy', 0.0)
+            
+            # Save checkpoint after epoch with accuracy info
+            checkpoint_dir = self._save_epoch_checkpoint(epoch, eval_accuracy)
             
             # Log epoch summary
             epoch_time = time.time() - epoch_start_time
@@ -299,13 +303,14 @@ class CoCoTrainer(Trainer):
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
             
-            # Save checkpoint after epoch
-            checkpoint_dir = self._save_epoch_checkpoint(epoch)
-            
-            # Run evaluation after epoch
+            # Run evaluation after epoch first to get accuracy for checkpoint management
             eval_metrics = self._evaluate_after_epoch(epoch)
             eval_metrics['eval_coconut_stage'] = current_stage
             eval_metrics['eval_max_latent_stage'] = max_latent_stage
+            eval_accuracy = eval_metrics.get('eval_accuracy', 0.0)
+            
+            # Save checkpoint after epoch with accuracy info
+            checkpoint_dir = self._save_epoch_checkpoint(epoch, eval_accuracy)
             
             # Log epoch summary
             epoch_time = time.time() - epoch_start_time
@@ -458,8 +463,8 @@ class CoCoTrainer(Trainer):
         avg_loss = epoch_loss / max(step_count, 1)
         logger.info(f"  Training completed - Average loss: {avg_loss:.4f}")
 
-    def _save_epoch_checkpoint(self, epoch: int) -> str:
-        """Save checkpoint after epoch."""
+    def _save_epoch_checkpoint(self, epoch: int, eval_accuracy: float = 0.0) -> str:
+        """Save checkpoint after epoch with smart checkpoint management."""
         checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-epoch-{epoch + 1}")
         
         # Save model state
@@ -475,12 +480,48 @@ class CoCoTrainer(Trainer):
         training_info = {
             "epoch": epoch + 1,
             "total_train_steps": self.total_train_steps,
-            "best_val_acc": self.best_val_acc
+            "best_val_acc": self.best_val_acc,
+            "eval_accuracy": eval_accuracy
         }
         torch.save(training_info, os.path.join(checkpoint_dir, "training_info.pt"))
         
+        # Track checkpoint for smart management
+        self.checkpoint_history.append((checkpoint_dir, eval_accuracy, epoch + 1))
+        
+        # Apply checkpoint management
+        self._manage_checkpoints()
+        
         logger.info(f"  Checkpoint saved: {checkpoint_dir}")
         return checkpoint_dir
+
+    def _manage_checkpoints(self) -> None:
+        """Manage checkpoints based on configuration settings."""
+        max_checkpoints = getattr(self.args, 'max_checkpoints_to_keep', 3)
+        keep_best = getattr(self.args, 'keep_best_checkpoints', True)
+        
+        if len(self.checkpoint_history) <= max_checkpoints:
+            return
+        
+        if keep_best:
+            # Sort by accuracy (descending) and keep the best ones
+            self.checkpoint_history.sort(key=lambda x: x[1], reverse=True)
+            checkpoints_to_remove = self.checkpoint_history[max_checkpoints:]
+            self.checkpoint_history = self.checkpoint_history[:max_checkpoints]
+        else:
+            # Keep the most recent ones
+            self.checkpoint_history.sort(key=lambda x: x[2])  # Sort by epoch
+            checkpoints_to_remove = self.checkpoint_history[:-max_checkpoints]
+            self.checkpoint_history = self.checkpoint_history[-max_checkpoints:]
+        
+        # Remove old checkpoints
+        for checkpoint_path, accuracy, epoch in checkpoints_to_remove:
+            try:
+                if os.path.exists(checkpoint_path):
+                    import shutil
+                    shutil.rmtree(checkpoint_path)
+                    logger.info(f"  Removed checkpoint: {checkpoint_path} (accuracy: {accuracy:.4f})")
+            except Exception as e:
+                logger.warning(f"  Failed to remove checkpoint {checkpoint_path}: {e}")
 
     def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
         """Run evaluation after epoch."""

@@ -151,6 +151,7 @@ Contains common settings shared across all configurations:
 - Project and model settings
 - Data paths and logging configuration
 - Default training parameters
+- Checkpoint management settings
 
 ### CoT Training (`args/aokvqa_cot.yaml`)
 ```yaml
@@ -218,6 +219,45 @@ eval_config:
   coconut: true
   eval_latent_tokens: 6
 ```
+
+## Checkpoint Management
+
+MultiCoCo provides intelligent checkpoint management with the following options:
+
+### Configuration Options
+
+```yaml
+# Checkpoint Management
+max_checkpoints_to_keep: 3        # Maximum number of checkpoints to keep
+keep_best_checkpoints: true       # Keep best checkpoints based on eval accuracy (vs most recent)
+use_run_name_in_output_dir: true  # Include run name in checkpoint directory path
+```
+
+### Features
+
+1. **Smart Checkpoint Cleanup**: Automatically manages disk space by keeping only the best N checkpoints
+2. **Performance-Based Selection**: When `keep_best_checkpoints: true`, keeps checkpoints with highest evaluation accuracy
+3. **Run-Specific Directories**: When `use_run_name_in_output_dir: true`, checkpoint directories include the run name:
+   - `checkpoints/aokvqa_cot_my-experiment/` instead of `checkpoints/aokvqa_cot/`
+   - `checkpoints/aokvqa_coconut_my-experiment/` instead of `checkpoints/aokvqa_coconut/`
+
+### Example Usage
+
+```yaml
+# Example: Keep only the best 5 checkpoints with run name in path
+name: "my-experiment"
+output_dir: "checkpoints/aokvqa_cot"
+max_checkpoints_to_keep: 5
+keep_best_checkpoints: true
+use_run_name_in_output_dir: true
+# Results in: checkpoints/aokvqa_cot_my-experiment/checkpoint-epoch-N/
+```
+
+### Checkpoint Selection Logic
+
+- **Best Checkpoints** (`keep_best_checkpoints: true`): Keeps checkpoints with highest `eval_accuracy`
+- **Recent Checkpoints** (`keep_best_checkpoints: false`): Keeps most recent checkpoints by epoch number
+- **Automatic Cleanup**: When checkpoint count exceeds `max_checkpoints_to_keep`, older/worse checkpoints are automatically deleted
 
 ## Wandb Logging
 
