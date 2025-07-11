@@ -342,28 +342,8 @@ def create_progressive_latent_dataset(
         if stage_to_train in stage_counts:
             stage_counts[stage_to_train] += 1
     
-    # Log stage distribution to Weights & Biases if available
-    _log_stage_distribution(stage_counts)
 
     return processed_samples
-
-
-def _log_stage_distribution(stage_counts: Dict[int, int]) -> None:
-    """Log stage distribution to Weights & Biases if available."""
-    try:
-        import wandb  # type: ignore
-        if wandb.run is not None:
-            table = wandb.Table(
-                data=[[int(k), int(v)] for k, v in stage_counts.items()],
-                columns=["stage", "count"],
-            )
-            wandb.log({
-                "data/stage_distribution": wandb.plot.bar(
-                    table, "stage", "count", title="Curriculum Stage Distribution"
-                )
-            })
-    except ImportError:
-        pass
 
 
 def _parse_reasoning_steps(steps: Union[List[str], str]) -> List[str]:

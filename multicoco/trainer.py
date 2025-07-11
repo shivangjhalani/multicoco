@@ -384,18 +384,7 @@ class CoCoTrainer(Trainer):
 
     def _log_training_step(self, loss: torch.Tensor, step: int) -> None:
         """Log training step to wandb if configured."""
-        if (step % self.args.gradient_accumulation_steps == 0 and
-            getattr(self.args, "report_to", None) and 
-            "wandb" in self.args.report_to):
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None:
-                    wandb.log({
-                        "train/batch_loss": loss.item(),
-                        "train/step": self.total_train_steps,
-                    })
-            except ImportError:
-                pass
+        # Per-step wandb logging disabled for brevity
 
     def _log_epoch_training_summary(self, epoch: int, epoch_loss: float, step_count: int) -> None:
         """Log epoch training summary."""
@@ -433,28 +422,9 @@ class CoCoTrainer(Trainer):
         
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
 
-        # Upload checkpoint as a WandB artifact
-        self._save_checkpoint_to_wandb(checkpoint_dir, epoch)
+        # Skipping checkpoint artifact upload to wandb to reduce noise
 
         return checkpoint_dir
-
-    def _save_checkpoint_to_wandb(self, checkpoint_dir: str, epoch: int) -> None:
-        """Save checkpoint to wandb as artifact."""
-        if (self.is_world_process_zero() and 
-            getattr(self.args, "report_to", None) and 
-            "wandb" in self.args.report_to):
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None:
-                    artifact = wandb.Artifact(
-                        name=f"model_epoch_{epoch}",
-                        type="model",
-                        metadata={"epoch": epoch},
-                    )
-                    artifact.add_dir(checkpoint_dir)
-                    wandb.log_artifact(artifact)
-            except ImportError:
-                pass
 
     def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
         """Evaluate model after epoch completion."""
