@@ -8,7 +8,11 @@ data (images and text) for training and evaluation with InternVL models.
 import json
 import logging
 import os
+# Standard libs
 import random
+
+# Third-party nad central utils
+from multicoco import wandb_utils as wdb
 from typing import Any, Dict, List, Optional, Union
 
 import torch
@@ -345,21 +349,19 @@ def create_progressive_latent_dataset(
         if stage_to_train in stage_counts:
             stage_counts[stage_to_train] += 1
     
-    # Log overall stage distribution to Weights & Biases
-    try:
-        import wandb  # type: ignore
-        if wandb.run is not None:
-            table = wandb.Table(
-                data=[[int(k), int(v)] for k, v in stage_counts.items()],
-                columns=["stage", "count"],
+    # Log overall stage distribution via central helper (if active)
+    if wdb.is_active():
+        import wandb  # type: ignore  # local import only if library present
+
+        table = wandb.Table(
+            data=[[int(k), int(v)] for k, v in stage_counts.items()],
+            columns=["stage", "count"],
+        )
+        wdb.log({
+            "data/stage_distribution": wandb.plot.bar(
+                table, "stage", "count", title="Curriculum Stage Distribution"
             )
-            wandb.log({
-                "data/stage_distribution": wandb.plot.bar(
-                    table, "stage", "count", title="Curriculum Stage Distribution"
-                )
-            })
-    except ImportError:
-        pass
+        })
 
     return processed_samples
 

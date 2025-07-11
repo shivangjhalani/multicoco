@@ -8,7 +8,7 @@ MultiCoCo framework, supporting vanilla, CoT, and CoCoNut methodologies.
 
 import argparse
 import logging
-from logging.handlers import RotatingFileHandler
+# RotatingFileHandler no longer needed – logging handled centrally
 import os
 import random
 import sys
@@ -56,14 +56,11 @@ from multicoco.exceptions import (
 from multicoco.latent_wrapper import LatentWrapper
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
-from multicoco.utils import TqdmLoggingHandler
+# (TqdmLoggingHandler import removed – handled centrally)
 
 logger = logging.getLogger(__name__)
 
-# Third-party formatters required for the logging system.
-from pythonjsonlogger import jsonlogger  # type: ignore
-import colorlog  # type: ignore
-import time
+# Third-party formatter imports removed – provided in logging_utils when required
 
 
 class MultiCoCoRunner:
@@ -98,6 +95,7 @@ class MultiCoCoRunner:
             self._set_random_seeds(self.config.training.seed)
         
         # Configure logging
+        # Use centralised logging helper for uniform behaviour
         self._setup_logging()
         
         # Set up CUDA environment
@@ -120,129 +118,39 @@ class MultiCoCoRunner:
         logger.info(f"Set random seed to {seed}")
 
     def _setup_logging(self) -> None:
-        """Configure structured logging (console + rotating JSON files).
-
-        This logging setup relies on:
-            • colorlog – coloured console output
-            • python-json-logger – JSON-formatted log files
-            • RotatingFileHandler – size-based file rotation
-        """
-
-        local_rank = int(os.environ.get("LOCAL_RANK", -1))
-        # Only enable full logging on the main process to avoid log spam.
-        if local_rank not in [-1, 0]:
-            logging.getLogger().setLevel(logging.CRITICAL)
-            return
-
-        log_cfg = self.config.logging
-        os.makedirs(log_cfg.log_dir, exist_ok=True)
-
-        # ------------------------------------------------------------------
-        # Root logger configuration
-        # ------------------------------------------------------------------
-        root_logger = logging.getLogger()
-        root_logger.setLevel(getattr(logging, log_cfg.log_level))
-
-        # Remove previously-attached handlers when re-initialising (e.g. in Jupyter).
-        if root_logger.hasHandlers():
-            root_logger.handlers.clear()
-
-        # ------------------------------------------------------------------
-        # Console handler (colour if colourlog is available)
-        # ------------------------------------------------------------------
-        console_handler = None
-        if log_cfg.console_output:
-            console_handler = TqdmLoggingHandler()
-
-            fmt_str = "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # noqa: E501 – long format string
-            console_formatter = colorlog.ColoredFormatter(
-                fmt_str,
-                log_colors={
-                    "DEBUG": "cyan",
-                    "INFO": "green",
-                    "WARNING": "yellow",
-                    "ERROR": "red",
-                    "CRITICAL": "bold_red",
-                },
-            )
-
-            console_handler.setFormatter(console_formatter)
-            root_logger.addHandler(console_handler)
-
-        # ------------------------------------------------------------------
-        # Rotating file handler (JSON if python-json-logger is available)
-        # ------------------------------------------------------------------
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        file_path = os.path.join(
-            log_cfg.log_dir,
-            f"multicoco_{log_cfg.run_name or 'run'}_{timestamp}.log",
-        )
-        rotating_handler = RotatingFileHandler(
-            file_path,
-            maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5,
-        )
-
-        file_formatter = jsonlogger.JsonFormatter(
-            "%(asctime)s %(name)s %(levelname)s %(message)s %(module)s %(funcName)s %(lineno)d",
-        )
-
-        rotating_handler.setFormatter(file_formatter)
-        root_logger.addHandler(rotating_handler)
-
-        # ------------------------------------------------------------------
-        # Summary handler (INFO+ only, plain text)
-        # ------------------------------------------------------------------
-        summary_path = os.path.join(log_cfg.log_dir, "summary.log")
-        summary_handler = logging.FileHandler(summary_path, mode="a")
-        summary_handler.setLevel(logging.INFO)
-        summary_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-        root_logger.addHandler(summary_handler)
-
-        # Suppress overly-verbose library loggers unless explicitly requested.
-        if not log_cfg.verbose:
-            logging.getLogger("transformers").setLevel(logging.WARNING)
-            logging.getLogger("torch").setLevel(logging.WARNING)
+        """Deprecated wrapper – delegates to central logging utility."""
+        from multicoco.logging_utils import setup_logging
+        setup_logging(self.config.logging)  # type: ignore[arg-type]
 
     def _setup_wandb(self) -> None:
-        """Initialize Weights & Biases logging if configured and available."""
+        """Initialize Weights & Biases via central helper."""
         if not self.config.logging.use_wandb:
             return
 
-        # Only initialize on main process
+        # Initialise only on rank-0 / single-process.
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
-        if local_rank not in [-1, 0]:
+        if local_rank not in (-1, 0):
             return
 
-        try:
-            import wandb  # type: ignore
-            from dataclasses import asdict, is_dataclass  # local import to avoid unnecessary dependency when disabled
+        from dataclasses import asdict, is_dataclass
+        from multicoco import wandb_utils
 
-            run_name = (
-                self.config.logging.run_name
-                or self.config.training.name
-                or f"run_{random.randint(0, 1_000_000)}"
-            )
-            project = getattr(self.config.logging, "project", "multicoco")
+        run_name = (
+            self.config.logging.run_name
+            or self.config.training.name
+            or f"run_{random.randint(0, 1_000_000)}"
+        )
 
-            self.wandb_run = wandb.init(project=project, name=run_name, reinit=True)
+        self.wandb_run = wandb_utils.init(
+            project=self.config.logging.project,
+            name=run_name,
+            config=asdict(self.config) if is_dataclass(self.config) else None,
+        )
 
-            # Record full config for reproducibility
-            cfg_dict = asdict(self.config) if is_dataclass(self.config) else {}
-            self.wandb_run.config.update(cfg_dict, allow_val_change=True)
-
-            # Define commonly tracked metrics for cleaner dashboards
-            wandb.define_metric("train/step")
-            wandb.define_metric("train/batch_loss", step_metric="train/step", summary="min")
-            wandb.define_metric("train/epoch_loss", summary="min")
-            wandb.define_metric("eval/accuracy", step_metric="epoch", summary="max")
-            wandb.define_metric("epoch")
-            wandb.define_metric("stage")
-
-            logger.info(f"Initialized wandb run: project={project}, name={run_name}")
-
-        except ImportError:
-            logger.warning("wandb package not found; skipping wandb integration")
+        if self.wandb_run is not None:
+            logger.info("Initialized wandb run: project=%s, name=%s", self.wandb_run.project, self.wandb_run.name)
+        else:
+            # Helper gracefully handles missing library – mark disabled to avoid further checks
             self.config.logging.use_wandb = False
 
     def initialize_model(self) -> None:
@@ -630,18 +538,14 @@ class MultiCoCoRunner:
             logger.info(f"  Accuracy: {accuracy:.4f}")
             logger.info(f"  Loss: {loss:.4f}")
             
-            # Log to Weights & Biases if available
-            if self.config.logging.use_wandb:
-                try:
-                    import wandb  # type: ignore
-                    if wandb.run is not None:
-                        wandb_log = {"eval/accuracy": accuracy, "eval/loss": loss}
-                        if 'eval_coconut_stage' in metrics:
-                            wandb_log['eval/coconut_stage'] = metrics.get('eval_coconut_stage', 0)
-                            wandb_log['eval/max_latent_stage'] = metrics.get('eval_max_latent_stage', 0)
-                        wandb.log(wandb_log)
-                except ImportError:
-                    pass
+            # Log to Weights & Biases via central helper (if active)
+            from multicoco import wandb_utils as wdb
+            if wdb.is_active():
+                wb_log = {"eval/accuracy": accuracy, "eval/loss": loss}
+                if 'eval_coconut_stage' in metrics:
+                    wb_log['eval/coconut_stage'] = metrics.get('eval_coconut_stage', 0)
+                    wb_log['eval/max_latent_stage'] = metrics.get('eval_max_latent_stage', 0)
+                wdb.log(wb_log)
                 
             # Log CoCoNut specific metrics if available
             if 'eval_coconut_stage' in metrics:
@@ -802,19 +706,19 @@ def main() -> None:
         runner = MultiCoCoRunner(config)
         metrics = runner.run()
         
-        # Print final results
-        print("\n" + "="*50)
-        print("FINAL RESULTS")
-        print("="*50)
+        # Log final results
+        logger.info("\n" + "="*50)
+        logger.info("FINAL RESULTS")
+        logger.info("="*50)
         for key, value in metrics.items():
-            print(f"{key}: {value}")
-        print("="*50)
+            logger.info("%s: %s", key, value)
+        logger.info("="*50)
         
     except KeyboardInterrupt:
-        print("\nInterrupted by user")
+        logger.warning("Interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error("Unhandled exception: %s", e)
         sys.exit(1)
 
 
