@@ -13,6 +13,15 @@ limit_for_testing: true
 # Model Configuration - Load from CoCoNut checkpoint
 load_model_path: "checkpoints/aokvqa_coconut"  # Path to trained CoCoNut checkpoint
 
+# Generation Configuration for CoCoNut Evaluation
+# Optimized for latent reasoning generation
+generation:
+  max_new_tokens: 256
+  do_sample: true
+  temperature: 0.8
+  top_p: 0.9
+  num_beams: 1
+
 # CoCoNut Configuration (needed for model initialization)
 coconut:
   enabled: true

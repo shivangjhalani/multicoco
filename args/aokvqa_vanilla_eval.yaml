@@ -10,6 +10,15 @@ only_eval: true
 limit_for_testing: false
 eval_batch_size: 64
 
+# Generation Configuration for Vanilla Evaluation
+# Conservative but flexible settings for direct question answering
+generation:
+  max_new_tokens: 128
+  do_sample: true
+  temperature: 0.6
+  top_p: 0.8
+  num_beams: 1
+
 # Vanilla Evaluation
 eval_config:
   cot: false
