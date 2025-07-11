@@ -141,20 +141,20 @@ class CoCoTrainer(Trainer):
         steps_per_epoch: int
     ) -> Dict[str, float]:
         """Train a single epoch and return metrics."""
-            epoch_start_time = time.time()
-            logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
-            
-            # Run training for this epoch
-            self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
-            
-            # Save checkpoint and evaluate after epoch
-            checkpoint_dir = self._save_epoch_checkpoint(epoch)
-            eval_metrics = self._evaluate_after_epoch(epoch)
-            
+        epoch_start_time = time.time()
+        logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
+        
+        # Run training for this epoch
+        self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+        
+        # Save checkpoint and evaluate after epoch
+        checkpoint_dir = self._save_epoch_checkpoint(epoch)
+        eval_metrics = self._evaluate_after_epoch(epoch)
+        
         # Log epoch summary
-            epoch_time = time.time() - epoch_start_time
-            self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
-            
+        epoch_time = time.time() - epoch_start_time
+        self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
+        
         return eval_metrics
 
     def _handle_checkpoint_resumption(
