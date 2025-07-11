@@ -612,8 +612,8 @@ class CoCoTrainer(Trainer):
         
         eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
         
-        # Create dataloader with distributed sampler if needed
-        return self._get_eval_dataloader(eval_dataset)
+        # Use parent class method to create dataloader with proper distributed setup
+        return super().get_eval_dataloader(eval_dataset)
 
     def _setup_evaluation_logging(self) -> str:
         """Setup evaluation logging and return log file path."""
