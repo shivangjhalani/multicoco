@@ -27,7 +27,10 @@ generation:
 load_model_path: "checkpoints/aokvqa_cot"
 
 # Logging Configuration
-use_wandb: true
+logging:
+  use_wandb: true
+  wandb_tags: ["coconut", "multimodal"]
+  wandb_group: "aokvqa-coconut-progressive"
 
 # CoCoNut Configuration
 coconut:
@@ -41,9 +44,4 @@ coconut:
 # Evaluation Configuration
 eval_config:
   coconut: true
-  cot: false
-
-# WandB Configuration
-wandb_tags: ["coconut", "aokvqa", "latent-reasoning", "multimodal"]
-wandb_group: "aokvqa-coconut-progressive"
-wandb_notes: "CoCoNut progressive curriculum training for AOK-VQA with latent reasoning tokens" 
+  cot: false 

@@ -76,12 +76,8 @@ class MultiCoCoRunner:
         self.trainer: Optional[CoCoTrainer] = None
         self.train_dataset: Optional[SupervisedDataset] = None
         self.eval_dataset: Optional[SupervisedDataset] = None
-        self.wandb_run = None  # Will be set in _initialize_wandb if enabled
         
         self._initialize()
-        
-        # Initialize WandB manually (like coconut) if enabled
-        self._initialize_wandb()
         
         mode_type = ('training' if config.training.mode != TrainingMode.EVAL_ONLY 
                     else 'evaluation')
@@ -95,6 +91,20 @@ class MultiCoCoRunner:
         
         # Configure logging
         self._setup_logging()
+
+        # Initialize WandB if enabled
+        if self.config.logging.use_wandb:
+            wandb.init(
+                project=self.config.logging.wandb_project,
+                entity=self.config.logging.wandb_entity,
+                name=self.config.training.name,
+                group=self.config.logging.wandb_group,
+                tags=self.config.logging.wandb_tags,
+                config=self.config.to_dict(),
+            )
+            wandb.define_metric("train/loss", summary="min")
+            wandb.define_metric("eval/accuracy", summary="max")
+            logger.info("WandB initialized for run.")
         
         # Set up CUDA environment
         if torch.cuda.is_available():
@@ -145,50 +155,6 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
-    
-    def _initialize_wandb(self) -> None:
-        """Initialize WandB logging manually following coconut pattern."""
-        log_config = self.config.logging
-        training_config = self.config.training
-        
-        # Only initialize on main process for distributed training
-        local_rank = int(os.environ.get("LOCAL_RANK", -1))
-        
-        if log_config.use_wandb and local_rank in [-1, 0]:
-            try:
-                # Manual wandb init like coconut - disable HuggingFace integration
-                wandb_run = wandb.init(
-                    project=log_config.wandb_project,
-                    entity=log_config.wandb_entity,
-                    name=training_config.name or f"multicoco-{training_config.mode.value}",
-                    group=log_config.wandb_group,
-                    tags=log_config.wandb_tags,
-                    notes=log_config.wandb_notes,
-                    config=self.config.to_dict()
-                )
-                
-                # Define custom metrics like coconut does
-                wandb.define_metric("train/loss", summary="min")
-                wandb.define_metric("eval/accuracy", summary="max")
-                wandb.define_metric("coconut/stage", step_metric="epoch")
-                wandb.define_metric("coconut/latent_tokens", step_metric="coconut/stage")
-                
-                logger.info(f"WandB initialized for project '{log_config.wandb_project}'")
-                
-                # Store reference for later use and make globally accessible
-                self.wandb_run = wandb_run
-                # Make wandb_run globally accessible like coconut does
-                import multicoco.trainer
-                multicoco.trainer.wandb_run = wandb_run
-                
-            except Exception as e:
-                logger.warning(f"WandB initialization failed: {e}")
-                logger.info("Continuing without WandB logging")
-                self.wandb_run = None
-        else:
-            self.wandb_run = None
-            if local_rank in [-1, 0]:
-                logger.info("WandB logging disabled")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -276,16 +242,13 @@ class MultiCoCoRunner:
                    f"BF16: {self.config.training.bf16}, "
                    f"FP16: {self.config.training.fp16}")
         logger.info(f"Mode: {training_mode}, CoCoNut: {coconut_config.enabled}")
-        
-        # Log model info to wandb like coconut does
-        if self.wandb_run is not None:
-            self.wandb_run.log({
+
+        if self.config.logging.use_wandb and wandb.run is not None:
+            wandb.log({
                 "model/source": source_info,
                 "model/dtype": self.config.model.torch_dtype,
-                "model/bf16": self.config.training.bf16,
-                "model/fp16": self.config.training.fp16,
-                "training/mode": training_mode.value,
-                "coconut/enabled": coconut_config.enabled
+                "training/mode": str(training_mode.value),
+                "coconut/enabled": coconut_config.enabled,
             })
 
     def _load_checkpoint_weights(self, checkpoint_path: str) -> None:
@@ -380,6 +343,16 @@ class MultiCoCoRunner:
                     test_limit=test_limit
                 )
                 logger.info(f"Training dataset: {len(self.train_dataset)} samples")
+
+                # Log dataset artifact to WandB
+                if self.config.logging.use_wandb and wandb.run is not None:
+                    try:
+                        artifact = wandb.Artifact("train_dataset", type="dataset")
+                        artifact.add_file(data_config.train_data_path)
+                        wandb.log_artifact(artifact)
+                        logger.info("Logged training dataset artifact to WandB.")
+                    except Exception as e:
+                        logger.error(f"Failed to log dataset artifact: {e}")
             
             # Load evaluation dataset
             if data_config.eval_data_path:
@@ -391,38 +364,6 @@ class MultiCoCoRunner:
                 logger.info(f"Evaluation dataset: {len(self.eval_dataset)} samples")
             else:
                 raise DataLoadingError("Evaluation data path is required")
-            
-            # Log datasets as wandb artifacts like coconut does
-            if self.wandb_run is not None:
-                try:
-                    # Log dataset info
-                    log_dict = {
-                        "data/eval_size": len(self.eval_dataset),
-                        "data/eval_path": data_config.eval_data_path
-                    }
-                    
-                    if self.train_dataset is not None:
-                        log_dict.update({
-                            "data/train_size": len(self.train_dataset),
-                            "data/train_path": data_config.train_data_path
-                        })
-                    
-                    self.wandb_run.log(log_dict)
-                    
-                    # Log dataset files as artifacts
-                    if data_config.train_data_path and self.train_dataset is not None:
-                        train_artifact = wandb.Artifact("train_dataset", type="dataset")
-                        train_artifact.add_file(data_config.train_data_path)
-                        self.wandb_run.log_artifact(train_artifact)
-                        
-                    if data_config.eval_data_path:
-                        eval_artifact = wandb.Artifact("eval_dataset", type="dataset")
-                        eval_artifact.add_file(data_config.eval_data_path)
-                        self.wandb_run.log_artifact(eval_artifact)
-                        
-                    logger.info("Datasets logged to wandb as artifacts")
-                except Exception as e:
-                    logger.warning(f"Failed to log dataset artifacts: {e}")
                 
         except Exception as e:
             raise DataLoadingError(f"Failed to setup datasets: {e}")

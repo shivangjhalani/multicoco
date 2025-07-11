@@ -64,19 +64,16 @@ train_data_path: "data/aokvqa_train.json"
 eval_data_path: "data/aokvqa_validation.json"
 
 # Logging Configuration
-console_output: true
-log_dir: "logs/"
-log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
-verbose: false
-use_wandb: true
-run_name: "my-experiment-run"
-
-# WandB Configuration
-wandb_project: "multicoco-research"
-wandb_entity: null  # Set to your wandb team/entity if applicable
-wandb_tags: ["experiment", "template"]  # Tags for organizing runs
-wandb_group: "template-experiments"  # Group related runs together
-wandb_notes: "Template configuration showing all available options"
+logging:
+  console_output: true
+  log_dir: "logs/"
+  log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
+  verbose: false
+  use_wandb: true
+  wandb_project: "multicoco-research"
+  wandb_entity: null
+  wandb_tags: []
+  wandb_group: null
 
 # CoCoNut Configuration
 coconut:

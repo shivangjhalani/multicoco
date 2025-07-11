@@ -10,7 +10,6 @@ import logging
 import os
 import random
 import time
-from copy import copy
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -23,9 +22,6 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import Trainer
-
-# Global wandb_run variable (set by MultiCoCoRunner)
-wandb_run = None
 from transformers.integrations.deepspeed import deepspeed_init
 from transformers.trainer_pt_utils import (
     LabelSmoother,
@@ -198,15 +194,10 @@ class CoCoTrainer(Trainer):
             logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
             logger.info(f"{'='*60}")
             
-            # Log coconut stage info to wandb like coconut does
-            if wandb_run is not None and self.is_world_process_zero():
-                wandb_run.log({
-                    "coconut/stage": stage,
-                    "coconut/latent_tokens": stage * c_thought,
-                    "coconut/max_latent_stage": max_latent_stage,
-                    "coconut/c_thought": c_thought
-                })
-            
+            # Log stage info to wandb
+            if self.state.is_world_process_zero and wandb.run is not None:
+                wandb.log({"coconut/stage": stage}, step=self.state.global_step)
+
             # Apply curriculum to dataset
             if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
                 self.train_dataset.apply_progressive_curriculum(
@@ -216,15 +207,6 @@ class CoCoTrainer(Trainer):
                     uniform_prob=getattr(self.args, 'uniform_prob', 0.0),
                     pad_latent_to_max=getattr(self.args, 'pad_latent_to_max', False)
                 )
-                
-                # Log dataset curriculum info to wandb like coconut does
-                if wandb_run is not None and self.is_world_process_zero():
-                    dataset_size = len(self.train_dataset) if hasattr(self.train_dataset, '__len__') else 0
-                    wandb_run.log({
-                        "coconut/dataset_stage": stage,
-                        "coconut/dataset_size": dataset_size,
-                        "coconut/uniform_prob": getattr(self.args, 'uniform_prob', 0.0)
-                    })
             
             # Reset optimizer if requested
             if reset_optimizer and stage > 0:
@@ -262,6 +244,14 @@ class CoCoTrainer(Trainer):
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
             
+            # Log stage-specific metrics
+            if self.state.is_world_process_zero and wandb.run is not None:
+                wandb.log({
+                    "coconut/stage": stage,
+                    "coconut/epoch_in_stage": stage_epoch + 1,
+                    "coconut/total_epochs_in_stage": epochs_per_stage
+                }, step=self.state.global_step)
+
             # Save checkpoint and evaluate
             checkpoint_dir = self._save_epoch_checkpoint(stage_epoch)
             eval_metrics = self._evaluate_after_epoch(stage_epoch)
@@ -361,39 +351,22 @@ class CoCoTrainer(Trainer):
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
-            
-            # Log to wandb like coconut does
-            if wandb_run is not None and self.is_world_process_zero():
-                wandb_run.log({
-                    "train/loss": avg_loss,
-                    "train/epoch": epoch + 1,
-                    "train/step": self.total_train_steps
-                })
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
-        """Save checkpoint after epoch completion."""
-        checkpoint_dir = os.path.join(self.args.output_dir, f'epoch-{epoch}')
-        
-        # Save the checkpoint
+        """Save a checkpoint after each epoch."""
+        checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-epoch-{epoch}")
         self.save_model(checkpoint_dir)
-        
-        # Save trainer state
-        if self.is_world_process_zero():
-            state_path = os.path.join(checkpoint_dir, 'trainer_state.json')
-            self.state.save_to_json(state_path)
-            
-            # Log checkpoint as wandb artifact like coconut does
-            if wandb_run is not None:
-                try:
-                    artifact_name = f"checkpoint-epoch-{epoch}"
-                    artifact = wandb.Artifact(artifact_name, type="model")
-                    artifact.add_dir(checkpoint_dir)
-                    wandb_run.log_artifact(artifact)
-                    logger.info(f"Checkpoint logged to wandb as artifact: {artifact_name}")
-                except Exception as e:
-                    logger.warning(f"Failed to log checkpoint artifact: {e}")
-        
-        logger.info(f"Checkpoint saved to: {checkpoint_dir}")
+        logger.info(f"Saved epoch {epoch + 1} checkpoint to {checkpoint_dir}")
+
+        if self.state.is_world_process_zero and wandb.run is not None:
+            try:
+                artifact = wandb.Artifact(f"checkpoint-epoch-{epoch}", type="model")
+                artifact.add_dir(checkpoint_dir)
+                wandb.log_artifact(artifact)
+                logger.info(f"Logged checkpoint artifact for epoch {epoch + 1} to WandB.")
+            except Exception as e:
+                logger.error(f"Failed to log checkpoint artifact to WandB: {e}")
+
         return checkpoint_dir
 
     def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
@@ -459,64 +432,43 @@ class CoCoTrainer(Trainer):
             for key, value in eval_metrics.items():
                 if isinstance(value, (int, float)):
                     logger.info(f"    {key}: {value:.4f}")
-        
-        # Log coconut stage progress to wandb like coconut does
-        if wandb_run is not None and self.is_world_process_zero():
-            wandb_log_dict = {
-                "coconut/stage_epoch": stage_epoch + 1,
-                "coconut/current_stage": current_stage,
-                "coconut/epoch_time": epoch_time
-            }
-            
-            # Add evaluation metrics
-            if eval_metrics:
-                for key, value in eval_metrics.items():
-                    if isinstance(value, (int, float)):
-                        wandb_log_dict[f"coconut/{key}"] = value
-            
-            wandb_run.log(wandb_log_dict)
 
     def _create_generation_config(self) -> Dict[str, Any]:
-        """Create generation configuration from training arguments."""
-        # Get generation kwargs from training arguments
-        generation_kwargs = getattr(self.args, 'generation_kwargs', {})
+        """Create generation configuration from trainer arguments."""
+        # Use a simplified generation config for evaluation
+        # to ensure consistency and speed.
         
-        # Get tokenizer/processing_class with deprecation handling
-        tokenizer = getattr(self, 'processing_class', None) or getattr(self, 'tokenizer', None)
+        # Get generation config from trainer arguments
+        gen_kwargs = getattr(self.args, "generation_kwargs", {})
         
-        # Set defaults if not provided
-        config = {
-            'max_new_tokens': generation_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
-            'do_sample': generation_kwargs.get('do_sample', True),
-            'temperature': generation_kwargs.get('temperature', 0.7),
-            'top_p': generation_kwargs.get('top_p', 0.9),
-            'top_k': generation_kwargs.get('top_k', 50),
-            'num_beams': generation_kwargs.get('num_beams', 1),
-            'pad_token_id': tokenizer.pad_token_id if tokenizer else None,
-            'eos_token_id': tokenizer.eos_token_id if tokenizer else None,
-        }
+        # Override with specific eval settings if needed
+        gen_kwargs['max_new_tokens'] = gen_kwargs.get(
+            'max_new_tokens', DEFAULT_MAX_NEW_TOKENS
+        )
+        gen_kwargs['num_beams'] = gen_kwargs.get('num_beams', 3)
         
-        return config
+        return gen_kwargs
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
-        """Override log method with custom wandb logging like coconut."""
+        """Log metrics to console and Weights & Biases."""
         super().log(logs, **kwargs)
-        self._update_progress_bar_with_metrics(logs)
-        
-        # Manual wandb logging like coconut does
-        if wandb_run is not None and self.is_world_process_zero():
-            # Add step information for proper wandb tracking
-            step = kwargs.get('step', self.state.global_step)
-            log_dict = {**logs}
-            
-            # Add epoch information if available
-            if hasattr(self.state, 'epoch') and self.state.epoch is not None:
-                log_dict['train/epoch'] = self.state.epoch
-                
-            wandb_run.log(log_dict)
+        if self.state.is_world_process_zero and wandb.run is not None:
+            # Add prefix to logs to distinguish train/eval
+            prefixed_logs = {}
+            for k, v in logs.items():
+                if "loss" in k.lower() or "runtime" in k.lower() or "lr" in k.lower():
+                    prefixed_logs[f"train/{k}"] = v
+                else:
+                    prefixed_logs[k] = v
+
+            if self.state.global_step > 0:
+                wandb.log(prefixed_logs, step=self.state.global_step)
+            else:
+                # For logs before training starts (e.g. eval before train)
+                wandb.log(prefixed_logs)
 
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
-        """Update progress bar with training metrics."""
+        """Update the TQDM progress bar with the latest metrics."""
         # This would update any active progress bars with metrics
         # Implementation depends on specific progress bar framework used
         pass
@@ -586,18 +538,13 @@ class CoCoTrainer(Trainer):
                 # Handle distributed evaluation
                 if torch.distributed.is_initialized():
                     all_predictions, all_labels, all_questions = self._gather_distributed_results(
-                        all_predictions, all_labels, all_questions, is_main_process
+                        all_predictions, all_labels, all_questions, is_main_process, metric_key_prefix
                     )
 
                 # Compute final metrics (only on main process)
                 metrics = {}
                 if is_main_process:
                     metrics = self._compute_final_metrics(all_predictions, all_labels, metric_key_prefix)
-                    
-                    # Log to wandb like coconut does
-                    self._log_wandb_evaluation_results(
-                        metrics, all_predictions, all_labels, all_questions
-                    )
                     
                     if log_file:
                         self._write_evaluation_summary(log_file, metrics, len(all_labels))
@@ -636,72 +583,44 @@ class CoCoTrainer(Trainer):
         all_predictions: List[str], 
         all_labels: List[str], 
         all_questions: List[str],
-        is_main_process: bool
+        is_main_process: bool,
+        metric_key_prefix: str
     ) -> Tuple[List[str], List[str], List[str]]:
-        """Gather results from all processes in distributed evaluation with robustness checks."""
-        if is_main_process:
-            logger.info(f"Process 0: Processed {len(all_labels)} samples")
-        
-        torch.distributed.barrier()
-        
-        # Gather results from all processes
-        world_size = torch.distributed.get_world_size()
-        gathered_predictions = [None for _ in range(world_size)]
-        gathered_labels = [None for _ in range(world_size)]
-        gathered_questions = [None for _ in range(world_size)]
-        
-        torch.distributed.all_gather_object(gathered_predictions, all_predictions)
-        torch.distributed.all_gather_object(gathered_labels, all_labels)
-        torch.distributed.all_gather_object(gathered_questions, all_questions)
-        
-        # Only main process combines results
-        if is_main_process:
-            final_predictions, final_labels, final_questions = [], [], []
+        """Gather results from all processes in distributed training."""
+        if dist.is_initialized():
+            # Gather predictions, labels, and questions from all processes
+            gathered_predictions = [None] * dist.get_world_size()
+            gathered_labels = [None] * dist.get_world_size()
+            gathered_questions = [None] * dist.get_world_size()
             
-            # Add robustness checks for length consistency
-            rank_lengths = []
-            for rank in range(world_size):
-                pred_len = len(gathered_predictions[rank]) if gathered_predictions[rank] is not None else 0
-                label_len = len(gathered_labels[rank]) if gathered_labels[rank] is not None else 0
-                question_len = len(gathered_questions[rank]) if gathered_questions[rank] is not None else 0
+            dist.all_gather_object(gathered_predictions, all_predictions)
+            dist.all_gather_object(gathered_labels, all_labels)
+            dist.all_gather_object(gathered_questions, all_questions)
+
+            if is_main_process:
+                all_predictions = [p for sublist in gathered_predictions for p in sublist]
+                all_labels = [l for sublist in gathered_labels for l in sublist]
+                all_questions = [q for sublist in gathered_questions for q in sublist]
+        
+        if is_main_process and wandb.run is not None:
+            try:
+                # Log sample table to wandb
+                table_name = f"{metric_key_prefix}/samples"
+                sample_table = wandb.Table(columns=["Question", "Ground Truth", "Prediction", "Correct"])
                 
-                # Check length consistency within rank
-                if not (pred_len == label_len == question_len):
-                    logger.error(f"Rank {rank} has mismatched lengths: "
-                               f"predictions={pred_len}, labels={label_len}, questions={question_len}")
-                    raise EvaluationError(f"Mismatched data lengths on rank {rank}")
+                for q, label, pred in zip(all_questions[:50], all_labels[:50], all_predictions[:50]):
+                    try:
+                        is_correct = extract_answer_choice(pred) == extract_answer_choice(label)
+                    except AnswerExtractionError:
+                        is_correct = False
+                    sample_table.add_data(q, label, pred, is_correct)
                 
-                rank_lengths.append(pred_len)
-                logger.info(f"Rank {rank}: {pred_len} samples")
-            
-            # Check for potential OOM issues (extreme length differences)
-            if len(set(rank_lengths)) > 1:
-                min_len, max_len = min(rank_lengths), max(rank_lengths)
-                if min_len == 0:
-                    logger.warning(f"Rank with 0 samples detected (possible OOM): {rank_lengths}")
-                elif max_len / min_len > 10:  # More than 10x difference suggests issues
-                    logger.warning(f"Large length discrepancy across ranks: {rank_lengths}")
-            
-            # Combine results from all ranks
-            for rank in range(world_size):
-                if (gathered_predictions[rank] is not None and 
-                    gathered_labels[rank] is not None and 
-                    gathered_questions[rank] is not None):
-                    final_predictions.extend(gathered_predictions[rank])
-                    final_labels.extend(gathered_labels[rank])
-                    final_questions.extend(gathered_questions[rank])
-                else:
-                    logger.warning(f"Rank {rank} returned None results (possible failure)")
-            
-            # Final sanity check
-            total_samples = len(final_predictions)
-            assert len(final_labels) == total_samples, f"Final label count mismatch: {len(final_labels)} vs {total_samples}"
-            assert len(final_questions) == total_samples, f"Final question count mismatch: {len(final_questions)} vs {total_samples}"
-            
-            logger.info(f"Successfully gathered {total_samples} total samples from {world_size} ranks")
-            
-            return final_predictions, final_labels, final_questions
-        
+                wandb.log({table_name: sample_table})
+
+                # Note: For multimodal logging, images would need to be passed here
+            except Exception as e:
+                logger.error(f"Failed to log samples to WandB: {e}")
+
         return all_predictions, all_labels, all_questions
 
     def _broadcast_metrics(self, metrics: Dict[str, float]) -> Dict[str, float]:
@@ -717,48 +636,6 @@ class CoCoTrainer(Trainer):
             return metrics_list[0]
         
         return metrics
-    
-    def _log_wandb_evaluation_results(
-        self, 
-        metrics: Dict[str, float], 
-        predictions: List[str], 
-        labels: List[str], 
-        questions: List[str],
-        max_samples: int = 50
-    ) -> None:
-        """Log evaluation results to wandb following coconut pattern."""
-        if wandb_run is None:
-            return
-            
-        # Log main metrics using wandb_run like coconut does
-        wandb_run.log(metrics)
-        
-        # Create sample table for detailed analysis like coconut does
-        sample_table = wandb.Table(columns=["Question", "Ground Truth", "Prediction", "Correct"])
-        
-        # Limit samples to avoid memory issues
-        num_samples = min(max_samples, len(predictions))
-        
-        for i in range(num_samples):
-            if i < len(questions) and i < len(labels) and i < len(predictions):
-                correct = predictions[i].strip() == labels[i].strip()
-                sample_table.add_data(
-                    questions[i][:200] + "..." if len(questions[i]) > 200 else questions[i],  # Truncate long questions
-                    labels[i], 
-                    predictions[i], 
-                    correct
-                )
-        
-        # Copy table to avoid wandb bug (like coconut does)
-        wandb_run.log({"eval/samples": copy(sample_table)})
-        
-        # Log accuracy breakdown like coconut's eval/acc format
-        correct_count = sum(1 for p, l in zip(predictions, labels) if p.strip() == l.strip())
-        wandb_run.log({
-            "eval/acc": correct_count / len(predictions) if predictions else 0.0,
-            "eval/total": len(predictions),
-            "eval/correct": correct_count
-        })
 
     def get_eval_dataloader(self, eval_dataset=None) -> DataLoader:
         """Get evaluation dataloader with proper distributed setup."""

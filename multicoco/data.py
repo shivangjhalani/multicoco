@@ -12,6 +12,7 @@ import random
 from typing import Any, Dict, List, Optional, Union
 
 import torch
+import wandb
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -296,52 +297,52 @@ def create_progressive_latent_dataset(
     no_cot: bool = False
 ) -> List[Dict]:
     """
-    Create a dataset for a specific stage of progressive latent training.
+    Create a progressive latent dataset for a specific training stage.
     
-    Implements the core progressive curriculum learning:
-    - Stage 0: Full CoT (question + reasoning_steps + answer)
-    - Stage 1: Replace 1st reasoning step with latent tokens  
-    - Stage 2: Replace 2nd reasoning step with additional latent tokens
-    - Stage N: Replace N reasoning steps with N×c_thought latent tokens
+    This function generates a new dataset by replacing parts of the reasoning
+    chain with latent tokens based on the current curriculum stage.
     """
-    logger.info(f"Creating progressive latent dataset for stage {scheduled_stage}")
-    logger.info(f"Parameters: c_thought={c_thought}, max_latent_stage={max_latent_stage}")
-    
     processed_samples = []
     
-    for sample in base_dataset:
-        # Parse reasoning steps
-        steps = _parse_reasoning_steps(sample.get('steps', []))
+    for item in base_dataset:
+        steps = _parse_reasoning_steps(item.get("steps", []))
         
-        # Determine training stage with uniform probability mixing
-        stage_to_train = (random.choice(range(len(steps) + 1)) 
-                         if random.random() < uniform_prob 
-                         else scheduled_stage)
-        
-        # Calculate latent tokens and steps to skip
-        n_skip_steps, n_latent_tokens = _calculate_curriculum_params(
-            stage_to_train, max_latent_stage, steps, pad_latent_to_max, no_cot
+        # Determine number of latent tokens for this stage and sample
+        stage_to_train, total_latent_tokens = _calculate_curriculum_params(
+            scheduled_stage, max_latent_stage, steps, pad_latent_to_max, no_cot
         )
         
-        total_latent_tokens = n_latent_tokens * c_thought
+        # Determine number of original reasoning steps to skip
+        n_skip_steps = min(stage_to_train, len(steps))
         
-        # Build reasoning text with progressive replacement
+        # Build the new reasoning text with latent tokens
         reasoning_text = _build_reasoning_text(
             total_latent_tokens, steps, n_skip_steps
         )
         
-        # Create processed sample
-        processed_sample = {
-            'question': sample['question'],
-            'reasoning': reasoning_text,
-            'answer': sample['answer'],
-            'stage': stage_to_train,
-            'n_latent_tokens': total_latent_tokens,
-            'n_skip_steps': n_skip_steps
-        }
+        # Create new sample
+        new_item = item.copy()
+        new_item["reasoning"] = reasoning_text
+        processed_samples.append(new_item)
         
-        processed_samples.append(processed_sample)
-    
+    # Calculate and log data compression ratio
+    if processed_samples and wandb.run is not None:
+        total_compression_ratio = 0
+        valid_samples = 0
+        for sample in processed_samples:
+            original_length = len(sample.get('steps', []))
+            compressed_length = len(sample.get('reasoning', '').split())
+            if original_length > 0:
+                total_compression_ratio += compressed_length / original_length
+                valid_samples += 1
+        
+        if valid_samples > 0:
+            avg_compression = total_compression_ratio / valid_samples
+            wandb.log({
+                "data/avg_compression_ratio": avg_compression,
+                "data/stage": scheduled_stage,
+            })
+
     return processed_samples
 
 

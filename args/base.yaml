@@ -44,21 +44,20 @@ eval_data_path: "data/aokvqa_validation.json"
 train_data_path: "data/aokvqa_train.json"
 
 # Logging Configuration
-console_output: true
-log_dir: "logs/"
-log_level: "INFO"
-verbose: false
-use_wandb: true
-run_name: null  # Will be set by specific configs
+logging:
+  console_output: true
+  log_dir: "logs/"
+  log_level: "INFO"
+  verbose: false
+  use_wandb: true
+  wandb_project: "multicoco-research"
+  wandb_entity: null
+  wandb_tags: []
+  wandb_group: null
 
-# WandB Configuration
-wandb_project: "multicoco-research"
-wandb_entity: null  # Set to your wandb team/entity if applicable
-wandb_tags: []  # Tags for organizing runs
-wandb_group: null  # Group related runs together
-wandb_notes: null  # Optional notes for this run
+run_name: null  # Will be set by specific configs
 
 # Checkpoint Management
 keep_best_checkpoints: true
 max_checkpoints_to_keep: 10
-use_run_name_in_output_dir: true 
+use_run_name_in_output_dir: true

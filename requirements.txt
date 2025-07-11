@@ -4,4 +4,4 @@ datasets>=2.19
 numpy
 tqdm
 pillow
-wandb>=0.18.0
+wandb
