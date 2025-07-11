@@ -438,6 +438,13 @@ class MultiCoCoRunner:
         """Create training arguments for training modes."""
         # Set WandB environment variables for HuggingFace integration
         if self.config.logging.use_wandb and WANDB_AVAILABLE:
+            # Ensure WandB is logged in before starting training
+            try:
+                wandb.login()
+                logger.info("WandB login successful")
+            except Exception as e:
+                logger.warning(f"WandB login failed: {e}. You may need to run 'wandb login' manually or set WANDB_API_KEY environment variable.")
+            
             os.environ["WANDB_PROJECT"] = self.config.logging.wandb_project
             if self.config.logging.wandb_entity:
                 os.environ["WANDB_ENTITY"] = self.config.logging.wandb_entity
