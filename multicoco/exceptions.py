@@ -78,4 +78,31 @@ class AnswerExtractionError(EvaluationError):
     
     This exception is used when the answer extraction utilities cannot
     parse or extract a valid answer choice from model-generated text.
-    """ 
+    """
+
+
+class DtypeMismatchError(MultiCoCoError):
+    """
+    Raised when tensor dtypes don't match model expectations.
+    
+    This exception is used when there are data type conversion issues
+    between tensors and model requirements, particularly during
+    input processing or model inference.
+    """
+    
+    def __init__(self, expected_dtype: str, actual_dtype: str, message: Optional[str] = None):
+        """
+        Initialize the exception with dtype information.
+        
+        Args:
+            expected_dtype: The expected tensor dtype
+            actual_dtype: The actual tensor dtype that was encountered
+            message: Optional custom error message
+        """
+        self.expected_dtype = expected_dtype
+        self.actual_dtype = actual_dtype
+        
+        if message is None:
+            message = f"Dtype mismatch: expected {expected_dtype}, got {actual_dtype}"
+        
+        super().__init__(message) 

@@ -33,30 +33,7 @@ class TrainingMode(str, Enum):
     COCONUT_TRAIN = "coconut_train"
 
 
-@dataclass
-class GenerationConfig:
-    """Configuration for text generation parameters."""
-    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
-    do_sample: bool = False
-    num_beams: int = 1
-    temperature: float = 1.0
-    top_p: float = 1.0
-    top_k: int = 50
-    pad_token_id: Optional[int] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for use with transformers."""
-        config = {
-            'max_new_tokens': self.max_new_tokens,
-            'do_sample': self.do_sample,
-            'num_beams': self.num_beams,
-            'temperature': self.temperature,
-            'top_p': self.top_p,
-            'top_k': self.top_k,
-        }
-        if self.pad_token_id is not None:
-            config['pad_token_id'] = self.pad_token_id
-        return config
+# GenerationConfig removed (unused)
 
 
 @dataclass
@@ -65,7 +42,17 @@ class EvaluationConfig:
     vanilla: bool = True
     cot: bool = False
     coconut: bool = False
+    eval_latent_tokens: Optional[int] = None
     
+    def get_eval_type(self) -> str:
+        """Get the evaluation type as a string."""
+        if self.coconut:
+            return "coconut"
+        elif self.cot:
+            return "cot"
+        else:
+            return "vanilla"
+
 
 @dataclass
 class CoCoNutConfig:
@@ -203,7 +190,7 @@ class MultiCoCoConfig:
     data: DataConfig = field(default_factory=DataConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     coconut: CoCoNutConfig = field(default_factory=CoCoNutConfig)
-    generation: GenerationConfig = field(default_factory=GenerationConfig)
+    # GenerationConfig field removed
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     
     def __post_init__(self):
@@ -310,7 +297,7 @@ class MultiCoCoConfig:
             'data': lambda: cls._build_data_config(config_dict),
             'evaluation': lambda: cls._build_evaluation_config(config_dict),
             'coconut': lambda: cls._build_coconut_config(config_dict),
-            'generation': lambda: cls._build_generation_config(config_dict),
+            # generation builder removed
         }
         
         configs = {name: builder() for name, builder in config_builders.items()}
@@ -399,6 +386,7 @@ class MultiCoCoConfig:
             vanilla=config_dict.get('vanilla', True),
             coconut=config_dict.get('coconut', False),
             cot=config_dict.get('cot', False),
+            eval_latent_tokens=config_dict.get('eval_latent_tokens'),
         )
     
     @staticmethod
@@ -428,18 +416,7 @@ class MultiCoCoConfig:
             reset_optimizer=get_coconut_value('reset_optimizer', True)
         )
     
-    @staticmethod
-    def _build_generation_config(config_dict: Dict[str, Any]) -> GenerationConfig:
-        """Create generation configuration."""
-        generation_dict = config_dict.get('generation', {})
-        return GenerationConfig(
-            max_new_tokens=generation_dict.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
-            do_sample=generation_dict.get('do_sample', False),
-            num_beams=generation_dict.get('num_beams', 1),
-            temperature=generation_dict.get('temperature', 1.0),
-            top_p=generation_dict.get('top_p', 1.0),
-            top_k=generation_dict.get('top_k', 50),
-        )
+    # _build_generation_config removed
     
     @staticmethod
     def _build_logging_config(config_dict: Dict[str, Any], 

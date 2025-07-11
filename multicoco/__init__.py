@@ -22,7 +22,6 @@ from .config import (
     DataConfig,
     EvaluationConfig,
     CoCoNutConfig,
-    GenerationConfig,
     LoggingConfig
 )
 
@@ -60,7 +59,6 @@ __all__ = [
     "DataConfig",
     "EvaluationConfig",
     "CoCoNutConfig",
-    "GenerationConfig",
     "LoggingConfig",
     
     # Constants
