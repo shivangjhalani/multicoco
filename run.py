@@ -15,7 +15,6 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
-import wandb
 # --- Patch: ensure torch.utils.checkpoint is called with explicit use_reentrant ---
 import torch.utils.checkpoint as _checkpoint_module  # type: ignore  # noqa: E402
 
@@ -91,20 +90,6 @@ class MultiCoCoRunner:
         
         # Configure logging
         self._setup_logging()
-
-        # Initialize WandB if enabled
-        if self.config.logging.use_wandb:
-            wandb.init(
-                project=self.config.logging.wandb_project,
-                entity=self.config.logging.wandb_entity,
-                name=self.config.training.name,
-                group=self.config.logging.wandb_group,
-                tags=self.config.logging.wandb_tags,
-                config=self.config.to_dict(),
-            )
-            wandb.define_metric("train/loss", summary="min")
-            wandb.define_metric("eval/accuracy", summary="max")
-            logger.info("WandB initialized for run.")
         
         # Set up CUDA environment
         if torch.cuda.is_available():
@@ -335,16 +320,6 @@ class MultiCoCoRunner:
                     test_limit=test_limit
                 )
                 logger.info(f"Training dataset: {len(self.train_dataset)} samples")
-
-                # Log dataset artifact to WandB
-                if self.config.logging.use_wandb and wandb.run is not None:
-                    try:
-                        artifact = wandb.Artifact("train_dataset", type="dataset")
-                        artifact.add_file(data_config.train_data_path)
-                        wandb.log_artifact(artifact)
-                        logger.info("Logged training dataset artifact to WandB.")
-                    except Exception as e:
-                        logger.error(f"Failed to log dataset artifact: {e}")
             
             # Load evaluation dataset
             if data_config.eval_data_path:

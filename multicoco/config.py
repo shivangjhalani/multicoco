@@ -195,11 +195,7 @@ class LoggingConfig:
     console_output: bool = True
     verbose: bool = False
     run_name: Optional[str] = None
-    wandb_project: str = "multicoco-research"
-    wandb_entity: Optional[str] = None
-    wandb_tags: List[str] = field(default_factory=list)
-    wandb_group: Optional[str] = None
-
+    
     def __post_init__(self):
         """Initialize logging configuration."""
         os.makedirs(self.log_dir, exist_ok=True)
@@ -216,12 +212,6 @@ class MultiCoCoConfig:
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     
-    def to_dict(self) -> Dict[str, Any]:
-      """Serializes the config object to a dictionary."""
-      # Use dataclasses.asdict for deep conversion
-      from dataclasses import asdict
-      return asdict(self)
-
     def __post_init__(self):
         """Validate the entire configuration after initialization."""
         self.validate()
@@ -289,7 +279,7 @@ class MultiCoCoConfig:
         merged_dict = {**base_dict, **config_dict}
         
         # Handle nested dictionaries
-        for key in ['eval_config', 'coconut', 'generation', 'logging']:
+        for key in ['eval_config', 'coconut', 'generation']:
             if (key in base_dict and key in config_dict and 
                 isinstance(base_dict[key], dict) and 
                 isinstance(config_dict[key], dict)):
@@ -453,18 +443,13 @@ class MultiCoCoConfig:
     def _create_logging_config(config_dict: Dict[str, Any], 
                               training_config: TrainingConfig) -> LoggingConfig:
         """Create logging configuration."""
-        logging_dict = config_dict.get('logging', config_dict)
         return LoggingConfig(
-            log_dir=logging_dict.get('log_dir', DEFAULT_LOG_DIR),
-            log_level=logging_dict.get('log_level', 'INFO'),
-            use_wandb=logging_dict.get('use_wandb', True),
-            console_output=logging_dict.get('console_output', True),
-            verbose=logging_dict.get('verbose', False),
-            run_name=training_config.name,
-            wandb_project=logging_dict.get('wandb_project', "multicoco-research"),
-            wandb_entity=logging_dict.get('wandb_entity'),
-            wandb_tags=logging_dict.get('wandb_tags', []),
-            wandb_group=logging_dict.get('wandb_group')
+            log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
+            log_level=config_dict.get('log_level', 'INFO'),
+            use_wandb=config_dict.get('use_wandb', True),
+            console_output=config_dict.get('console_output', True),
+            verbose=config_dict.get('verbose', False),
+            run_name=training_config.name
         )
     
     def get_wandb_report_to(self) -> List[str]:

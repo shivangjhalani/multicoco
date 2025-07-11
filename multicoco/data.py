@@ -12,7 +12,6 @@ import random
 from typing import Any, Dict, List, Optional, Union
 
 import torch
-import wandb
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -143,6 +142,18 @@ class SupervisedDataset(Dataset):
             
         return result
     
+    def get_image_path(self, index: int) -> Optional[str]:
+        """Get the full path to the image file for a given index."""
+        if index >= len(self.data):
+            return None
+        
+        item = self.data[index]
+        image_file = item.get('image')
+        if not image_file:
+            return None
+            
+        return os.path.join(self.data_dir, image_file)
+
     def _validate_item(self, item: Dict, index: int) -> None:
         """Validate that item has required fields."""
         required_fields = ['image', 'question']
@@ -297,52 +308,52 @@ def create_progressive_latent_dataset(
     no_cot: bool = False
 ) -> List[Dict]:
     """
-    Create a progressive latent dataset for a specific training stage.
+    Create a dataset for a specific stage of progressive latent training.
     
-    This function generates a new dataset by replacing parts of the reasoning
-    chain with latent tokens based on the current curriculum stage.
+    Implements the core progressive curriculum learning:
+    - Stage 0: Full CoT (question + reasoning_steps + answer)
+    - Stage 1: Replace 1st reasoning step with latent tokens  
+    - Stage 2: Replace 2nd reasoning step with additional latent tokens
+    - Stage N: Replace N reasoning steps with N×c_thought latent tokens
     """
+    logger.info(f"Creating progressive latent dataset for stage {scheduled_stage}")
+    logger.info(f"Parameters: c_thought={c_thought}, max_latent_stage={max_latent_stage}")
+    
     processed_samples = []
     
-    for item in base_dataset:
-        steps = _parse_reasoning_steps(item.get("steps", []))
+    for sample in base_dataset:
+        # Parse reasoning steps
+        steps = _parse_reasoning_steps(sample.get('steps', []))
         
-        # Determine number of latent tokens for this stage and sample
-        stage_to_train, total_latent_tokens = _calculate_curriculum_params(
-            scheduled_stage, max_latent_stage, steps, pad_latent_to_max, no_cot
+        # Determine training stage with uniform probability mixing
+        stage_to_train = (random.choice(range(len(steps) + 1)) 
+                         if random.random() < uniform_prob 
+                         else scheduled_stage)
+        
+        # Calculate latent tokens and steps to skip
+        n_skip_steps, n_latent_tokens = _calculate_curriculum_params(
+            stage_to_train, max_latent_stage, steps, pad_latent_to_max, no_cot
         )
         
-        # Determine number of original reasoning steps to skip
-        n_skip_steps = min(stage_to_train, len(steps))
+        total_latent_tokens = n_latent_tokens * c_thought
         
-        # Build the new reasoning text with latent tokens
+        # Build reasoning text with progressive replacement
         reasoning_text = _build_reasoning_text(
             total_latent_tokens, steps, n_skip_steps
         )
         
-        # Create new sample
-        new_item = item.copy()
-        new_item["reasoning"] = reasoning_text
-        processed_samples.append(new_item)
+        # Create processed sample
+        processed_sample = {
+            'question': sample['question'],
+            'reasoning': reasoning_text,
+            'answer': sample['answer'],
+            'stage': stage_to_train,
+            'n_latent_tokens': total_latent_tokens,
+            'n_skip_steps': n_skip_steps
+        }
         
-    # Calculate and log data compression ratio
-    if processed_samples and wandb.run is not None:
-        total_compression_ratio = 0
-        valid_samples = 0
-        for sample in processed_samples:
-            original_length = len(sample.get('steps', []))
-            compressed_length = len(sample.get('reasoning', '').split())
-            if original_length > 0:
-                total_compression_ratio += compressed_length / original_length
-                valid_samples += 1
-        
-        if valid_samples > 0:
-            avg_compression = total_compression_ratio / valid_samples
-            wandb.log({
-                "data/avg_compression_ratio": avg_compression,
-                "data/stage": scheduled_stage,
-            })
-
+        processed_samples.append(processed_sample)
+    
     return processed_samples
 
 

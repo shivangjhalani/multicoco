@@ -64,16 +64,12 @@ train_data_path: "data/aokvqa_train.json"
 eval_data_path: "data/aokvqa_validation.json"
 
 # Logging Configuration
-logging:
-  console_output: true
-  log_dir: "logs/"
-  log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
-  verbose: false
-  use_wandb: true
-  wandb_project: "multicoco-research"
-  wandb_entity: null
-  wandb_tags: []
-  wandb_group: null
+console_output: true
+log_dir: "logs/"
+log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
+verbose: false
+use_wandb: true
+run_name: "my-experiment-run"
 
 # CoCoNut Configuration
 coconut:
