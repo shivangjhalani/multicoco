@@ -32,7 +32,6 @@ from .constants import (
     DEFAULT_MODEL_NAME,
     COCONUT_SPECIAL_TOKENS,
     VALID_CHOICE_NUMBERS,
-    EVAL_TYPES
 )
 
 # Exceptions
@@ -69,7 +68,6 @@ __all__ = [
     "DEFAULT_MODEL_NAME",
     "COCONUT_SPECIAL_TOKENS",
     "VALID_CHOICE_NUMBERS",
-    "EVAL_TYPES",
     
     # Exceptions
     "MultiCoCoError",

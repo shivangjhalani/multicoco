@@ -43,18 +43,6 @@ CHOICE_MAPPINGS: Dict[str, str] = {
 VALID_CHOICE_NUMBERS: List[str] = [choice.value for choice in AnswerChoice]
 
 # ============================================================================
-# EVALUATION TYPES
-# ============================================================================
-
-class EvalType(Enum):
-    """Evaluation methodology types."""
-    COCONUT = 'coconut'
-    COT = 'cot'
-    VANILLA = 'vanilla'
-
-EVAL_TYPES: Dict[str, str] = {eval_type.name: eval_type.value for eval_type in EvalType}
-
-# ============================================================================
 # MODEL CONFIGURATION
 # ============================================================================
 
@@ -100,6 +88,6 @@ TEST_DATASET_LIMIT = 20
 # ============================================================================
 
 DEFAULT_LOG_DIR = 'logs'
-DEFAULT_OUTPUT_DIR = './output'
+DEFAULT_OUTPUT_DIR = 'logs'
 EVAL_LOG_SEPARATOR = "=" * 50
 SAMPLE_LOG_SEPARATOR = "-" * 40 
