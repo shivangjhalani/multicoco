@@ -400,6 +400,9 @@ class MultiCoCoRunner:
             # Propagate manual WandB settings to trainer's args for convenience
             self.trainer.args.wandb_log_frequency = self.config.logging.wandb_log_frequency
             self.trainer.args.use_wandb = self.config.logging.use_wandb
+            # Ensure trainer-level flags reflect these settings for runtime logging
+            setattr(self.trainer, 'use_wandb', self.config.logging.use_wandb)
+            setattr(self.trainer, 'wandb_log_frequency', self.config.logging.wandb_log_frequency)
             
             # Set configurations
             self.trainer.args.eval_config = self._create_eval_config()
