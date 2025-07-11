@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 # Third-party formatters required for the logging system.
 from pythonjsonlogger import jsonlogger  # type: ignore
 import colorlog  # type: ignore
+import time
 
 
 class MultiCoCoRunner:
@@ -171,9 +172,10 @@ class MultiCoCoRunner:
         # ------------------------------------------------------------------
         # Rotating file handler (JSON if python-json-logger is available)
         # ------------------------------------------------------------------
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
         file_path = os.path.join(
             log_cfg.log_dir,
-            f"multicoco_{log_cfg.run_name or 'run'}_{random.randint(0, 1_000_000)}.log",
+            f"multicoco_{log_cfg.run_name or 'run'}_{timestamp}.log",
         )
         rotating_handler = RotatingFileHandler(
             file_path,

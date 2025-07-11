@@ -670,10 +670,18 @@ class CoCoTrainer(Trainer):
         if not is_main_process:
             return None
             
-        log_file_path = self._setup_evaluation_logging()
-        log_file = open(log_file_path, 'w', encoding='utf-8')
-        self._write_evaluation_header(log_file)
-        return log_file
+        from multicoco.constants import DEFAULT_LOG_DIR  # local import to avoid circular
+        run_name = getattr(self.args, 'run_name', 'run')
+
+        # Create logs directory under global logs root
+        log_dir = os.path.join(DEFAULT_LOG_DIR, 'eval_logs')
+        os.makedirs(log_dir, exist_ok=True)
+        
+        # Create log file with timestamp and run name
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_file_path = os.path.join(log_dir, f'evaluation_{run_name}_{timestamp}.log')
+        
+        return log_file_path
 
     def _gather_distributed_results(
         self, 
@@ -774,13 +782,16 @@ class CoCoTrainer(Trainer):
 
     def _setup_evaluation_logging(self) -> str:
         """Setup evaluation logging and return log file path."""
-        # Create logs directory
-        log_dir = os.path.join(self.args.output_dir, 'eval_logs')
+        from multicoco.constants import DEFAULT_LOG_DIR  # local import to avoid circular
+        run_name = getattr(self.args, 'run_name', 'run')
+
+        # Create logs directory under global logs root
+        log_dir = os.path.join(DEFAULT_LOG_DIR, 'eval_logs')
         os.makedirs(log_dir, exist_ok=True)
         
-        # Create log file with timestamp
+        # Create log file with timestamp and run name
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        log_file_path = os.path.join(log_dir, f'evaluation_{timestamp}.log')
+        log_file_path = os.path.join(log_dir, f'evaluation_{run_name}_{timestamp}.log')
         
         return log_file_path
 
