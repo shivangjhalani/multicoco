@@ -10,6 +10,10 @@ only_eval: true
 limit_for_testing: true
 eval_batch_size: 16
 
+# Distributed Evaluation Configuration
+eval_accumulation_steps: 1  # Process each batch immediately for better debugging
+dataloader_num_workers: 0   # Reduce workers to avoid data loading issues in distributed mode
+
 # Generation Configuration for Vanilla Evaluation
 # Conservative but flexible settings for direct question answering
 generation:

@@ -783,8 +783,11 @@ class CoCoTrainer(Trainer):
         Custom evaluation loop with detailed logging and answer extraction.
         Supports distributed evaluation for multi-GPU setups and evaluation accumulation.
         
+        This method properly handles distributed evaluation by using HuggingFace's 
+        built-in distributed data loading and result gathering mechanisms.
+        
         Args:
-            dataloader: DataLoader for evaluation
+            dataloader: DataLoader for evaluation (automatically handles DistributedSampler)
             description: Description for progress bar
             prediction_loss_only: Whether to only compute loss
             ignore_keys: Keys to ignore in outputs
@@ -805,7 +808,7 @@ class CoCoTrainer(Trainer):
             all_questions = []
 
             # Set up logging (only on main process for distributed)
-            is_main_process = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
+            is_main_process = self.is_world_process_zero()
             log_file_path = None
             log_file = None
             
@@ -820,6 +823,7 @@ class CoCoTrainer(Trainer):
                 accumulated_batches = []
                 
                 # Run evaluation loop with accumulation
+                # Note: dataloader automatically handles distributed sampling via DistributedSampler
                 for step, inputs in enumerate(tqdm(dataloader, desc=description, disable=not is_main_process)):
                     # Accumulate batches
                     accumulated_batches.append(inputs)
@@ -838,23 +842,44 @@ class CoCoTrainer(Trainer):
                         # Clear accumulated batches for next accumulation cycle
                         accumulated_batches = []
 
-                # Gather results from all processes if using distributed training
+                # In distributed mode, each process has processed a different subset of data
+                # We need to gather all results from all processes
+                if self.is_world_process_zero():
+                    logger.info(f"Process 0: Processed {len(all_labels)} samples")
+                
+                # Synchronize all processes before gathering
                 if torch.distributed.is_initialized():
-                    # Synchronize all processes
                     torch.distributed.barrier()
                     
                     # Gather results from all processes
                     world_size = torch.distributed.get_world_size()
+                    
+                    # Prepare containers for gathering
                     gathered_predictions = [None for _ in range(world_size)]
                     gathered_labels = [None for _ in range(world_size)]
+                    gathered_questions = [None for _ in range(world_size)]
                     
+                    # Gather data from all processes
                     torch.distributed.all_gather_object(gathered_predictions, all_predictions)
                     torch.distributed.all_gather_object(gathered_labels, all_labels)
+                    torch.distributed.all_gather_object(gathered_questions, all_questions)
                     
+                    # Only main process combines results
                     if is_main_process:
-                        # Flatten gathered results, safely handling None
-                        all_predictions = [pred for sublist in gathered_predictions if sublist for pred in sublist]
-                        all_labels = [label for sublist in gathered_labels if sublist for label in sublist]
+                        # Flatten gathered results
+                        all_predictions = []
+                        all_labels = []
+                        all_questions = []
+                        
+                        for rank in range(world_size):
+                            if gathered_predictions[rank] is not None:
+                                all_predictions.extend(gathered_predictions[rank])
+                            if gathered_labels[rank] is not None:
+                                all_labels.extend(gathered_labels[rank])
+                            if gathered_questions[rank] is not None:
+                                all_questions.extend(gathered_questions[rank])
+                        
+                        logger.info(f"Combined results from {world_size} processes: {len(all_labels)} total samples")
 
                 # Compute final metrics (only on main process)
                 metrics = {}
@@ -883,12 +908,60 @@ class CoCoTrainer(Trainer):
 
             return SimpleNamespace(
                 metrics=metrics,
-                num_samples=len(all_labels),
+                num_samples=len(all_labels) if is_main_process else 0,
                 eval_preds=None
             )
             
         except Exception as e:
             raise EvaluationError(f"Evaluation loop failed: {e}")
+
+    def get_eval_dataloader(self, eval_dataset=None) -> DataLoader:
+        """
+        Returns the evaluation DataLoader with proper distributed sampling.
+        
+        This method ensures that in distributed evaluation, each process gets
+        a different subset of the data through DistributedSampler.
+        """
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
+        
+        # Import here to avoid circular imports
+        from torch.utils.data import DistributedSampler, RandomSampler, SequentialSampler
+        
+        # Create data collator
+        data_collator = self.data_collator
+        
+        # Set up sampler for distributed evaluation
+        if self.args.world_size <= 1:
+            # Single GPU or CPU - use sequential sampler
+            sampler = SequentialSampler(eval_dataset)
+        else:
+            # Multi-GPU - use distributed sampler to split data across processes
+            sampler = DistributedSampler(
+                eval_dataset,
+                num_replicas=self.args.world_size,
+                rank=self.args.process_index,
+                shuffle=False,  # Don't shuffle for evaluation
+                drop_last=False  # Don't drop incomplete batches
+            )
+        
+        # Create dataloader
+        dataloader = DataLoader(
+            eval_dataset,
+            sampler=sampler,
+            batch_size=self.args.per_device_eval_batch_size,
+            collate_fn=data_collator,
+            drop_last=False,  # Important: don't drop samples in evaluation
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.dataloader_pin_memory,
+        )
+        
+        if self.is_world_process_zero():
+            total_samples = len(eval_dataset)
+            samples_per_gpu = len(dataloader.dataset) if hasattr(dataloader, 'dataset') else total_samples // self.args.world_size
+            logger.info(f"Evaluation setup: {total_samples} total samples, ~{samples_per_gpu} samples per GPU")
+        
+        return dataloader
 
     def _setup_evaluation_logging(self) -> str:
         """Set up logging for evaluation."""
