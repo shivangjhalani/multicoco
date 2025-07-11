@@ -192,14 +192,13 @@ class LoggingConfig:
     log_dir: str = DEFAULT_LOG_DIR
     log_level: str = "INFO"
     use_wandb: bool = True
-    console_output: bool = True
-    verbose: bool = False
-    run_name: Optional[str] = None
-    # WandB-specific configuration
     wandb_project: str = "multicoco-research"
     wandb_entity: Optional[str] = None
     wandb_tags: List[str] = field(default_factory=list)
     wandb_group: Optional[str] = None
+    console_output: bool = True
+    verbose: bool = False
+    run_name: Optional[str] = None
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -452,13 +451,13 @@ class MultiCoCoConfig:
             log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
             log_level=config_dict.get('log_level', 'INFO'),
             use_wandb=config_dict.get('use_wandb', True),
-            console_output=config_dict.get('console_output', True),
-            verbose=config_dict.get('verbose', False),
-            run_name=training_config.name,
-            wandb_project=config_dict.get('wandb_project', 'multicoco-research'),
+            wandb_project=config_dict.get('wandb_project', "multicoco-research"),
             wandb_entity=config_dict.get('wandb_entity'),
             wandb_tags=config_dict.get('wandb_tags', []),
-            wandb_group=config_dict.get('wandb_group')
+            wandb_group=config_dict.get('wandb_group'),
+            console_output=config_dict.get('console_output', True),
+            verbose=config_dict.get('verbose', False),
+            run_name=training_config.name
         )
     
     def get_wandb_report_to(self) -> List[str]:
@@ -466,86 +465,13 @@ class MultiCoCoConfig:
         return ["wandb"] if self.logging.use_wandb else []
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the entire configuration to a dictionary for serialization."""
+        """Convert to dictionary for use with wandb logging."""
         return {
-            'model': {
-                'model_name': self.model.model_name,
-                'config_id': self.model.config_id,
-                'tokenizer_id': self.model.tokenizer_id,
-                'image_processor_id': self.model.image_processor_id,
-                'torch_dtype': self.model.torch_dtype,
-                'trust_remote_code': self.model.trust_remote_code,
-                'low_cpu_mem_usage': self.model.low_cpu_mem_usage,
-                'load_model_path': self.model.load_model_path,
-            },
-            'training': {
-                'output_dir': self.training.output_dir,
-                'num_epochs': self.training.num_epochs,
-                'batch_size': self.training.batch_size,
-                'eval_batch_size': self.training.eval_batch_size,
-                'gradient_accumulation_steps': self.training.gradient_accumulation_steps,
-                'eval_accumulation_steps': self.training.eval_accumulation_steps,
-                'gradient_checkpointing': self.training.gradient_checkpointing,
-                'learning_rate': self.training.learning_rate,
-                'warmup_steps': self.training.warmup_steps,
-                'logging_steps': self.training.logging_steps,
-                'save_steps': self.training.save_steps,
-                'eval_steps': self.training.eval_steps,
-                'save_total_limit': self.training.save_total_limit,
-                'load_best_model_at_end': self.training.load_best_model_at_end,
-                'metric_for_best_model': self.training.metric_for_best_model,
-                'greater_is_better': self.training.greater_is_better,
-                'bf16': self.training.bf16,
-                'fp16': self.training.fp16,
-                'weight_decay': self.training.weight_decay,
-                'seed': self.training.seed,
-                'data_seed': self.training.data_seed,
-                'mode': self.training.mode.value,
-                'name': self.training.name,
-                'max_checkpoints_to_keep': self.training.max_checkpoints_to_keep,
-                'keep_best_checkpoints': self.training.keep_best_checkpoints,
-                'use_run_name_in_output_dir': self.training.use_run_name_in_output_dir,
-            },
-            'data': {
-                'data_dir': self.data.data_dir,
-                'train_data_path': self.data.train_data_path,
-                'eval_data_path': self.data.eval_data_path,
-                'limit_for_testing': self.data.limit_for_testing,
-            },
-            'evaluation': {
-                'vanilla': self.evaluation.vanilla,
-                'cot': self.evaluation.cot,
-                'coconut': self.evaluation.coconut,
-                'eval_latent_tokens': self.evaluation.eval_latent_tokens,
-                'detailed_logging': self.evaluation.detailed_logging,
-            },
-            'coconut': {
-                'enabled': self.coconut.enabled,
-                'c_thought': self.coconut.c_thought,
-                'max_latent_stage': self.coconut.max_latent_stage,
-                'epochs_per_stage': self.coconut.epochs_per_stage,
-                'uniform_prob': self.coconut.uniform_prob,
-                'pad_latent_to_max': self.coconut.pad_latent_to_max,
-                'reset_optimizer': self.coconut.reset_optimizer,
-            },
-            'generation': {
-                'max_new_tokens': self.generation.max_new_tokens,
-                'do_sample': self.generation.do_sample,
-                'num_beams': self.generation.num_beams,
-                'temperature': self.generation.temperature,
-                'top_p': self.generation.top_p,
-                'top_k': self.generation.top_k,
-            },
-            'logging': {
-                'log_dir': self.logging.log_dir,
-                'log_level': self.logging.log_level,
-                'use_wandb': self.logging.use_wandb,
-                'console_output': self.logging.console_output,
-                'verbose': self.logging.verbose,
-                'run_name': self.logging.run_name,
-                'wandb_project': self.logging.wandb_project,
-                'wandb_entity': self.logging.wandb_entity,
-                'wandb_tags': self.logging.wandb_tags,
-                'wandb_group': self.logging.wandb_group,
-            }
+            'model': self.model.__dict__,
+            'training': self.training.__dict__,
+            'data': self.data.__dict__,
+            'evaluation': self.evaluation.__dict__,
+            'coconut': self.coconut.__dict__,
+            'generation': self.generation.__dict__,
+            'logging': self.logging.__dict__
         } 

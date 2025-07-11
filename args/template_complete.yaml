@@ -71,12 +71,6 @@ verbose: false
 use_wandb: true
 run_name: "my-experiment-run"
 
-# WandB Configuration  
-wandb_project: "multicoco-research"  # Your WandB project name
-wandb_entity: null  # Set to your team name if applicable
-wandb_tags: ["baseline", "cot"]  # List of tags for experiment organization
-wandb_group: "my-experiment-group"  # Group runs together for comparison
-
 # CoCoNut Configuration
 coconut:
   enabled: false

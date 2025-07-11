@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
+import wandb
 # --- Patch: ensure torch.utils.checkpoint is called with explicit use_reentrant ---
 import torch.utils.checkpoint as _checkpoint_module  # type: ignore  # noqa: E402
 
@@ -31,14 +32,6 @@ if not getattr(_checkpoint_module.checkpoint, "_patched_use_reentrant", False):
     _checkpoint_module.checkpoint = _checkpoint_with_explicit_use_reentrant
 # -------------------------------------------------------------------------------
 from transformers import AutoModelForCausalLM, TrainingArguments
-
-# WandB import (optional to avoid hard dependency)
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
-    wandb = None
 
 from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import (
@@ -107,9 +100,6 @@ class MultiCoCoRunner:
         else:
             logger.warning("CUDA not available, using CPU")
 
-        # WandB will be initialized by HuggingFace Trainer via report_to parameter
-        # We'll add custom metrics after trainer initialization
-
     def _set_random_seeds(self, seed: int) -> None:
         """Set random seeds for reproducibility."""
         random.seed(seed)
@@ -151,38 +141,20 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
-
-    def _setup_wandb_config(self) -> None:
-        """Setup WandB configuration and custom metrics after HF Trainer initialization."""
-        if not WANDB_AVAILABLE or not self.config.logging.use_wandb:
-            return
         
-        # Only setup on main process
-        local_rank = int(os.environ.get("LOCAL_RANK", -1))
-        if local_rank not in [-1, 0]:
-            return
-            
-        if wandb is None or wandb.run is None:
-            return
-            
-        try:
-            # Update WandB config with our custom configuration
-            wandb.config.update({
-                "project_name": self.config.logging.wandb_project,
-                "run_group": self.config.logging.wandb_group,
-                "tags": self.config.logging.wandb_tags,
-                **self.config.to_dict()
-            }, allow_val_change=True)
-            
-            # Define custom metrics for better tracking
+        # Initialize WandB if enabled
+        if self.config.logging.use_wandb:
+            wandb.init(
+                project=self.config.logging.wandb_project,
+                entity=self.config.logging.wandb_entity,
+                name=self.config.training.name,
+                group=self.config.logging.wandb_group,
+                tags=self.config.logging.wandb_tags,
+                config=self.config.to_dict()
+            )
             wandb.define_metric("train/loss", summary="min")
-            wandb.define_metric("eval/accuracy", summary="max") 
-            wandb.define_metric("coconut/stage", summary="max")
-            
-            logger.info("WandB configuration updated with custom metrics")
-            
-        except Exception as e:
-            logger.warning(f"Failed to setup WandB configuration: {e}")
+            wandb.define_metric("eval/accuracy", summary="max")
+            logger.info("WandB initialized for run.")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -270,6 +242,15 @@ class MultiCoCoRunner:
                    f"BF16: {self.config.training.bf16}, "
                    f"FP16: {self.config.training.fp16}")
         logger.info(f"Mode: {training_mode}, CoCoNut: {coconut_config.enabled}")
+        
+        # Log to WandB if enabled
+        if wandb.run is not None:
+            wandb.log({
+                "model/source": source_info,
+                "model/dtype": self.config.model.torch_dtype,
+                "training/mode": str(training_mode),
+                "coconut/enabled": coconut_config.enabled
+            })
 
     def _load_checkpoint_weights(self, checkpoint_path: str) -> None:
         """Load checkpoint weights into the base model."""
@@ -374,6 +355,18 @@ class MultiCoCoRunner:
                 logger.info(f"Evaluation dataset: {len(self.eval_dataset)} samples")
             else:
                 raise DataLoadingError("Evaluation data path is required")
+            
+            # Log datasets as WandB artifacts if enabled
+            if wandb.run is not None:
+                if data_config.train_data_path and os.path.exists(data_config.train_data_path):
+                    train_artifact = wandb.Artifact("train_dataset", type="dataset")
+                    train_artifact.add_file(data_config.train_data_path)
+                    wandb.log_artifact(train_artifact)
+                
+                if data_config.eval_data_path and os.path.exists(data_config.eval_data_path):
+                    eval_artifact = wandb.Artifact("eval_dataset", type="dataset")
+                    eval_artifact.add_file(data_config.eval_data_path)
+                    wandb.log_artifact(eval_artifact)
                 
         except Exception as e:
             raise DataLoadingError(f"Failed to setup datasets: {e}")
@@ -408,18 +401,6 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             
-            # Debug WandB state after trainer initialization
-            if WANDB_AVAILABLE and wandb is not None:
-                logger.info(f"WandB run after trainer init: {wandb.run}")
-                if wandb.run is not None:
-                    logger.info(f"WandB run name: {wandb.run.name}")
-                    logger.info(f"WandB project: {wandb.run.project}")
-                else:
-                    logger.warning("WandB run is None after trainer initialization")
-            
-            # Setup WandB configuration and custom metrics
-            self._setup_wandb_config()
-            
             logger.info("Trainer created successfully")
             
         except Exception as e:
@@ -445,46 +426,6 @@ class MultiCoCoRunner:
 
     def _create_training_args(self, training_config) -> TrainingArguments:
         """Create training arguments for training modes."""
-        # Set WandB environment variables for HuggingFace integration
-        if self.config.logging.use_wandb and WANDB_AVAILABLE:
-            # Ensure WandB is logged in before starting training
-            try:
-                wandb.login()
-                logger.info("WandB login successful")
-            except Exception as e:
-                logger.warning(f"WandB login failed: {e}. You may need to run 'wandb login' manually or set WANDB_API_KEY environment variable.")
-            
-            # Manually initialize WandB since HF Trainer sometimes fails to do it automatically
-            try:
-                if wandb.run is None:
-                    wandb.init(
-                        project=self.config.logging.wandb_project,
-                        entity=self.config.logging.wandb_entity,
-                        name=self.config.training.name,
-                        tags=self.config.logging.wandb_tags,
-                        group=self.config.logging.wandb_group,
-                        config=self.config.to_dict(),
-                        reinit=True
-                    )
-                    logger.info(f"WandB manually initialized: {wandb.run.name}")
-                else:
-                    logger.info("WandB already initialized")
-            except Exception as e:
-                logger.warning(f"WandB manual initialization failed: {e}")
-            
-            os.environ["WANDB_PROJECT"] = self.config.logging.wandb_project
-            if self.config.logging.wandb_entity:
-                os.environ["WANDB_ENTITY"] = self.config.logging.wandb_entity
-            if self.config.training.name:
-                os.environ["WANDB_NAME"] = self.config.training.name
-            if self.config.logging.wandb_tags:
-                os.environ["WANDB_TAGS"] = ",".join(self.config.logging.wandb_tags)
-        
-        report_to = self.config.get_wandb_report_to()
-        logger.info(f"TrainingArguments report_to: {report_to}")
-        logger.info(f"WandB use_wandb: {self.config.logging.use_wandb}")
-        logger.info(f"WANDB_AVAILABLE: {WANDB_AVAILABLE}")
-        
         return TrainingArguments(
             output_dir=training_config.output_dir,
             num_train_epochs=training_config.num_epochs,
@@ -511,7 +452,7 @@ class MultiCoCoRunner:
             dataloader_num_workers=training_config.dataloader_num_workers,
             do_train=True,
             do_eval=True,
-            report_to=report_to,
+            report_to=self.config.get_wandb_report_to(),
             run_name=getattr(training_config, 'name', None)
         )
 

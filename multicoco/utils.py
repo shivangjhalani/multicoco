@@ -3,35 +3,21 @@ Lightweight utilities for the MultiCoCo package.
 
 This module provides utility classes and functions that support the core
 MultiCoCo functionality. Currently contains logging utilities to maintain
-clean output formatting during training and evaluation.
+clean output formatting during training and evaluation, and WandB logging helpers.
 
 Classes:
     TqdmLoggingHandler: Custom logging handler that preserves tqdm progress bars
-    
+
 Functions:
-    log_wandb_samples: Log sample predictions with images to WandB
-    log_wandb_compression_ratio: Log latent compression metrics
-    log_wandb_multimodal_insights: Log custom multimodal research metrics
+    log_wandb_samples: Log sample tables to WandB for research insights
 """
 
 import logging
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Union
 from tqdm import tqdm
+import wandb
 
-# WandB import (optional to avoid hard dependency)
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
-    wandb = None
-
-__all__ = [
-    "TqdmLoggingHandler", 
-    "log_wandb_samples", 
-    "log_wandb_compression_ratio",
-    "log_wandb_multimodal_insights"
-]
+__all__ = ["TqdmLoggingHandler", "log_wandb_samples"]
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -70,170 +56,42 @@ def log_wandb_samples(
     labels: List[str], 
     predictions: List[str], 
     images: Optional[List] = None, 
-    max_samples: int = 20
+    max_samples: int = 20,
+    table_name: str = "research/samples"
 ) -> None:
     """
-    Log sample predictions with optional images to WandB for qualitative analysis.
+    Log sample predictions to WandB as a table for research insights.
     
     Args:
         questions: List of input questions
         labels: List of ground truth labels
         predictions: List of model predictions
-        images: Optional list of images (PIL Images or numpy arrays)
+        images: Optional list of images (will be converted to wandb.Image)
         max_samples: Maximum number of samples to log
+        table_name: Name for the WandB table
     """
-    if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
+    if wandb.run is None:
         return
     
-    try:
-        num_samples = min(max_samples, len(questions))
-        columns = ["Question", "Ground Truth", "Prediction", "Correct"]
-        if images:
-            columns.append("Image")
-        
-        table = wandb.Table(columns=columns)
-        
-        for i in range(num_samples):
-            correct = predictions[i].strip() == labels[i].strip()
-            row_data = [questions[i], labels[i], predictions[i], correct]
-            
-            if images and i < len(images) and images[i] is not None:
-                row_data.append(wandb.Image(images[i]))
-            elif images:
-                row_data.append(None)
-            
-            table.add_data(*row_data)
-        
-        wandb.log({"research/sample_predictions": table})
-        
-    except Exception as e:
-        print(f"Warning: Failed to log samples to WandB: {e}")
-
-
-def log_wandb_compression_ratio(
-    processed_samples: List[Dict[str, Any]], 
-    scheduled_stage: int,
-    stage_name: str = "training"
-) -> None:
-    """
-    Log latent compression ratio metrics to WandB.
+    # Create table columns
+    columns = ["Question", "Ground Truth", "Prediction", "Correct"]
+    if images:
+        columns.append("Image")
     
-    Args:
-        processed_samples: List of processed samples with reasoning and steps
-        scheduled_stage: Current stage number
-        stage_name: Name of the current stage (e.g., "training", "evaluation")
-    """
-    if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
-        return
+    table = wandb.Table(columns=columns)
     
-    try:
-        if not processed_samples:
-            return
+    # Add samples to table
+    num_samples = min(max_samples, len(questions))
+    for i in range(num_samples):
+        correct = predictions[i].strip() == labels[i].strip()
+        row_data = [questions[i], labels[i], predictions[i], correct]
         
-        # Calculate compression ratio: reasoning tokens / latent tokens
-        compression_ratios = []
-        for sample in processed_samples:
-            reasoning_tokens = len(sample.get('reasoning', '').split())
-            latent_tokens = len(sample.get('steps', [])) + 1  # +1 for base reasoning
-            
-            if latent_tokens > 0:
-                compression_ratios.append(reasoning_tokens / latent_tokens)
+        if images and i < len(images) and images[i] is not None:
+            img_data = wandb.Image(images[i]) if not isinstance(images[i], wandb.Image) else images[i]
+            row_data.append(img_data)
+        elif images:
+            row_data.append(None)
         
-        if compression_ratios:
-            avg_compression = sum(compression_ratios) / len(compression_ratios)
-            
-            wandb.log({
-                f"data/{stage_name}_compression_ratio": avg_compression,
-                f"data/{stage_name}_stage": scheduled_stage,
-                f"data/{stage_name}_samples": len(processed_samples),
-                f"data/{stage_name}_avg_reasoning_tokens": sum(
-                    len(s.get('reasoning', '').split()) for s in processed_samples
-                ) / len(processed_samples)
-            })
-            
-    except Exception as e:
-        print(f"Warning: Failed to log compression ratio to WandB: {e}")
-
-
-def log_wandb_multimodal_insights(
-    model_info: Dict[str, Any],
-    performance_metrics: Dict[str, float],
-    stage: Optional[int] = None
-) -> None:
-    """
-    Log custom multimodal and latent-specific insights to WandB.
+        table.add_data(*row_data)
     
-    Args:
-        model_info: Dictionary containing model information and statistics
-        performance_metrics: Dictionary of performance metrics
-        stage: Optional stage number for progressive training
-    """
-    if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
-        return
-    
-    try:
-        # Prepare metrics for logging
-        insights = {}
-        
-        # Model insights
-        if model_info:
-            for key, value in model_info.items():
-                if isinstance(value, (int, float, str)):
-                    insights[f"model/{key}"] = value
-        
-        # Performance insights
-        if performance_metrics:
-            for key, value in performance_metrics.items():
-                if isinstance(value, (int, float)):
-                    insights[f"performance/{key}"] = value
-        
-        # Stage-specific insights
-        if stage is not None:
-            insights["insights/stage"] = stage
-            
-        # Log system metrics if available
-        try:
-            import torch
-            if torch.cuda.is_available():
-                insights["system/gpu_memory_allocated"] = torch.cuda.memory_allocated() / 1024**3  # GB
-                insights["system/gpu_memory_reserved"] = torch.cuda.memory_reserved() / 1024**3   # GB
-        except:
-            pass
-        
-        if insights:
-            wandb.log(insights)
-            
-    except Exception as e:
-        print(f"Warning: Failed to log multimodal insights to WandB: {e}")
-
-
-def log_wandb_gradient_histograms(
-    model, 
-    step: int, 
-    log_frequency: int = 100
-) -> None:
-    """
-    Log gradient histograms for latent-related parameters to WandB.
-    
-    Args:
-        model: The model to log gradients for
-        step: Current training step
-        log_frequency: How often to log (every N steps)
-    """
-    if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
-        return
-    
-    if step % log_frequency != 0:
-        return
-    
-    try:
-        gradient_logs = {}
-        for name, param in model.named_parameters():
-            if param.grad is not None and ("latent" in name.lower() or "embedding" in name.lower()):
-                gradient_logs[f"gradients/{name}"] = wandb.Histogram(param.grad.cpu().numpy())
-        
-        if gradient_logs:
-            wandb.log(gradient_logs, step=step)
-            
-    except Exception as e:
-        print(f"Warning: Failed to log gradient histograms to WandB: {e}")
+    wandb.log({table_name: table})

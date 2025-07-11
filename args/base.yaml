@@ -49,13 +49,11 @@ log_dir: "logs/"
 log_level: "INFO"
 verbose: false
 use_wandb: true
-run_name: null  # Will be set by specific configs
-
-# WandB Configuration
 wandb_project: "multicoco-research"
 wandb_entity: null  # Set to your team name if applicable
-wandb_tags: []  # List of tags for experiment organization
-wandb_group: null  # Group runs together (e.g., "coconut-stages")
+wandb_tags: []  # List of tags, e.g., ["baseline", "cot"]
+wandb_group: null  # Group runs, e.g., "coconut-stages"
+run_name: null  # Will be set by specific configs
 
 # Checkpoint Management
 keep_best_checkpoints: true

@@ -1,233 +1,145 @@
 #!/usr/bin/env python3
 """
-Test script for WandB integration with MultiCoCo.
+Test script for WandB integration in MultiCoCo.
 
-This script verifies that all WandB logging components work correctly
-including configuration loading, initialization, metric logging, and utilities.
+This script performs basic validation of the WandB integration without 
+running a full training loop.
 """
 
 import os
 import sys
 import tempfile
-from pathlib import Path
+from typing import Dict, Any
 
-# Add multicoco package to path
-sys.path.insert(0, str(Path(__file__).parent))
-
-try:
-    from multicoco.config import MultiCoCoConfig
-    from multicoco.utils import (
-        log_wandb_samples, 
-        log_wandb_compression_ratio,
-        log_wandb_multimodal_insights
-    )
-    print("✓ Successfully imported MultiCoCo components")
-except ImportError as e:
-    print(f"✗ Failed to import MultiCoCo components: {e}")
-    sys.exit(1)
+# Add the multicoco module to the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import wandb
-    print("✓ WandB is available")
-    WANDB_AVAILABLE = True
-except ImportError:
-    print("✗ WandB is not available. Install with: pip install wandb")
-    WANDB_AVAILABLE = False
+    from multicoco.config import MultiCoCoConfig
+    from multicoco.utils import log_wandb_samples
+    print("✓ All imports successful")
+except ImportError as e:
+    print(f"✗ Import error: {e}")
+    sys.exit(1)
 
 
 def test_config_loading():
-    """Test that WandB configuration fields are properly loaded."""
-    print("\n--- Testing WandB Configuration Loading ---")
+    """Test that WandB configuration loads properly."""
+    print("\n--- Testing Configuration Loading ---")
     
     try:
-        # Test with base config
-        config = MultiCoCoConfig.load_with_base("args/base.yaml")
+        # Test loading base config
+        config = MultiCoCoConfig.load_with_base("args/aokvqa_coconut.yaml", "args/base.yaml")
         
-        # Check WandB config fields
+        # Check WandB config
+        assert hasattr(config.logging, 'use_wandb'), "Missing use_wandb field"
         assert hasattr(config.logging, 'wandb_project'), "Missing wandb_project field"
-        assert hasattr(config.logging, 'wandb_entity'), "Missing wandb_entity field" 
         assert hasattr(config.logging, 'wandb_tags'), "Missing wandb_tags field"
         assert hasattr(config.logging, 'wandb_group'), "Missing wandb_group field"
         
+        print(f"✓ WandB enabled: {config.logging.use_wandb}")
         print(f"✓ WandB project: {config.logging.wandb_project}")
-        print(f"✓ WandB entity: {config.logging.wandb_entity}")
         print(f"✓ WandB tags: {config.logging.wandb_tags}")
         print(f"✓ WandB group: {config.logging.wandb_group}")
-        print(f"✓ Use WandB: {config.logging.use_wandb}")
         
-        # Test to_dict serialization
+        # Test to_dict method
         config_dict = config.to_dict()
-        assert 'logging' in config_dict, "Missing logging section in config dict"
-        assert 'wandb_project' in config_dict['logging'], "Missing wandb_project in serialized config"
+        assert isinstance(config_dict, dict), "to_dict() should return a dictionary"
+        assert 'logging' in config_dict, "to_dict() should contain logging config"
         
-        print("✓ Configuration serialization works")
-        print("✓ WandB configuration loading: PASSED")
+        print("✓ Configuration loading successful")
+        return config
         
     except Exception as e:
-        print(f"✗ WandB configuration loading: FAILED - {e}")
-        return False
-    
-    return True
+        print(f"✗ Configuration loading failed: {e}")
+        return None
 
 
-def test_wandb_utilities():
-    """Test WandB utility functions."""
-    print("\n--- Testing WandB Utility Functions ---")
+def test_wandb_utils():
+    """Test the WandB utility functions."""
+    print("\n--- Testing WandB Utilities ---")
     
     try:
-        # Test sample logging utility
-        questions = ["What is this?", "How does it work?"]
-        labels = ["A", "B"] 
-        predictions = ["A", "C"]
+        # Test log_wandb_samples function with dummy data
+        questions = ["What is the color of the sky?", "How many legs does a cat have?"]
+        labels = ["blue", "four"]
+        predictions = ["blue", "4"]
         
-        # This should not crash even if WandB is not initialized
+        # This would normally log to WandB, but since we're not initializing WandB,
+        # it should return gracefully
         log_wandb_samples(questions, labels, predictions, max_samples=2)
-        print("✓ log_wandb_samples utility works")
+        print("✓ log_wandb_samples function works correctly (no WandB run)")
         
-        # Test compression ratio logging
-        sample_data = [
-            {"reasoning": "This is a test reasoning", "steps": ["step1", "step2"]},
-            {"reasoning": "Another reasoning example", "steps": ["step1"]}
-        ]
-        log_wandb_compression_ratio(sample_data, scheduled_stage=1)
-        print("✓ log_wandb_compression_ratio utility works")
-        
-        # Test multimodal insights logging
-        model_info = {"parameter_count": 1000000, "model_type": "test"}
-        performance_metrics = {"accuracy": 0.85, "loss": 0.15}
-        log_wandb_multimodal_insights(model_info, performance_metrics, stage=1)
-        print("✓ log_wandb_multimodal_insights utility works")
-        
-        print("✓ WandB utilities: PASSED")
-        
-    except Exception as e:
-        print(f"✗ WandB utilities: FAILED - {e}")
-        return False
-    
-    return True
-
-
-def test_wandb_initialization():
-    """Test WandB initialization (dry run)."""
-    print("\n--- Testing WandB Initialization ---")
-    
-    if not WANDB_AVAILABLE:
-        print("⚠ Skipping WandB initialization test (WandB not installed)")
         return True
-    
-    try:
-        # Test offline mode to avoid requiring WandB login
-        os.environ["WANDB_MODE"] = "offline"
-        
-        with tempfile.TemporaryDirectory() as temp_dir:
-            os.environ["WANDB_DIR"] = temp_dir
-            
-            # Initialize WandB run
-            run = wandb.init(
-                project="test-multicoco",
-                name="integration-test",
-                config={
-                    "test": True,
-                    "framework": "multicoco"
-                },
-                mode="offline"
-            )
-            
-            # Test basic logging
-            wandb.log({"test_metric": 0.5, "step": 1})
-            
-            # Test table logging
-            table = wandb.Table(columns=["question", "answer", "correct"])
-            table.add_data("test question", "test answer", True)
-            wandb.log({"test_table": table})
-            
-            # Finish run
-            wandb.finish()
-            
-        print("✓ WandB initialization and logging: PASSED")
         
     except Exception as e:
-        print(f"✗ WandB initialization: FAILED - {e}")
+        print(f"✗ WandB utilities test failed: {e}")
         return False
-    finally:
-        # Clean up environment
-        os.environ.pop("WANDB_MODE", None)
-        os.environ.pop("WANDB_DIR", None)
-    
-    return True
 
 
-def test_config_compatibility():
-    """Test that CoCoNut config works with WandB settings."""
-    print("\n--- Testing CoCoNut + WandB Config Compatibility ---")
+def test_wandb_report_to():
+    """Test the get_wandb_report_to method."""
+    print("\n--- Testing WandB Report Configuration ---")
     
     try:
-        # Load CoCoNut config
-        config = MultiCoCoConfig.load_with_base("args/aokvqa_coconut.yaml")
+        # Create a config with WandB enabled
+        config_dict = {"use_wandb": True}
+        config = MultiCoCoConfig.from_dict(config_dict)
         
-        # Verify WandB settings are present
-        assert config.logging.use_wandb == True, "WandB should be enabled in CoCoNut config"
-        assert len(config.logging.wandb_tags) > 0, "CoCoNut config should have WandB tags"
-        assert config.logging.wandb_group is not None, "CoCoNut config should have WandB group"
+        report_to = config.get_wandb_report_to()
+        assert report_to == ["wandb"], f"Expected ['wandb'], got {report_to}"
+        print("✓ WandB report_to works when enabled")
         
-        print(f"✓ CoCoNut WandB tags: {config.logging.wandb_tags}")
-        print(f"✓ CoCoNut WandB group: {config.logging.wandb_group}")
+        # Test with WandB disabled
+        config_dict = {"use_wandb": False}
+        config = MultiCoCoConfig.from_dict(config_dict)
         
-        # Verify CoCoNut parameters are present
-        assert config.coconut.enabled == True, "CoCoNut should be enabled"
-        assert config.coconut.c_thought >= 1, "c_thought should be >= 1"
-        assert config.coconut.max_latent_stage >= 1, "max_latent_stage should be >= 1"
+        report_to = config.get_wandb_report_to()
+        assert report_to == [], f"Expected [], got {report_to}"
+        print("✓ WandB report_to works when disabled")
         
-        print("✓ CoCoNut + WandB compatibility: PASSED")
+        return True
         
     except Exception as e:
-        print(f"✗ CoCoNut + WandB compatibility: FAILED - {e}")
+        print(f"✗ WandB report_to test failed: {e}")
         return False
-    
-    return True
 
 
 def main():
-    """Run all WandB integration tests."""
-    print("=" * 60)
-    print("MultiCoCo WandB Integration Test Suite")
-    print("=" * 60)
+    """Run all tests."""
+    print("=== MultiCoCo WandB Integration Test ===")
     
-    tests = [
-        test_config_loading,
-        test_wandb_utilities, 
-        test_config_compatibility,
-        test_wandb_initialization,
-    ]
+    # Change to multicoco directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
     
-    results = []
-    for test in tests:
-        results.append(test())
+    success = True
     
-    print("\n" + "=" * 60)
-    print("Test Results Summary")
-    print("=" * 60)
+    # Test configuration loading
+    config = test_config_loading()
+    if config is None:
+        success = False
     
-    passed = sum(results)
-    total = len(results)
+    # Test WandB utilities
+    if not test_wandb_utils():
+        success = False
     
-    for i, (test, result) in enumerate(zip(tests, results)):
-        status = "PASSED" if result else "FAILED"
-        print(f"{i+1}. {test.__name__}: {status}")
+    # Test WandB report configuration
+    if not test_wandb_report_to():
+        success = False
     
-    print(f"\nOverall: {passed}/{total} tests passed")
-    
-    if passed == total:
-        print("🎉 All WandB integration tests PASSED!")
+    print("\n=== Test Summary ===")
+    if success:
+        print("✓ All tests passed! WandB integration is working correctly.")
         print("\nNext steps:")
-        print("1. Run a full training with: python run.py --config args/aokvqa_coconut.yaml")
-        print("2. Check WandB dashboard for logged metrics and artifacts")
-        print("3. Try hyperparameter sweeps with: wandb sweep sweep_simple.yaml")
-        return 0
+        print("1. Run 'wandb login' to authenticate")
+        print("2. Start training with: python run.py args/aokvqa_coconut.yaml")
+        print("3. Check your WandB dashboard for logged metrics and artifacts")
     else:
-        print("❌ Some tests FAILED. Please fix issues before using WandB integration.")
-        return 1
+        print("✗ Some tests failed. Please check the errors above.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    main() 

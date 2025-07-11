@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 import torch.distributed as dist
+import wandb
 from PIL import Image
 from torch import nn
 from torch.utils.data import DataLoader
@@ -32,14 +33,6 @@ from transformers.trainer_pt_utils import (
 )
 from transformers.trainer_utils import EvalPrediction, TrainOutput, get_last_checkpoint
 from transformers.training_args import TrainingArguments
-
-# WandB import (optional to avoid hard dependency)
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
-    wandb = None
 
 from .answer_extraction import extract_answer_choice
 from .constants import (
@@ -201,6 +194,13 @@ class CoCoTrainer(Trainer):
             logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
             logger.info(f"{'='*60}")
             
+            # Log to WandB if enabled
+            if wandb.run is not None:
+                wandb.log({
+                    "coconut/stage": stage,
+                    "coconut/latent_tokens": stage * c_thought,
+                })
+            
             # Apply curriculum to dataset
             if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
                 self.train_dataset.apply_progressive_curriculum(
@@ -243,6 +243,13 @@ class CoCoTrainer(Trainer):
         for stage_epoch in range(epochs_per_stage):
             epoch_start_time = time.time()
             logger.info(f"Stage {stage}, Epoch {stage_epoch + 1}/{epochs_per_stage}")
+            
+            # Log to WandB if enabled
+            if wandb.run is not None:
+                wandb.log({
+                    "coconut/stage": stage,
+                    "coconut/epoch_in_stage": stage_epoch + 1
+                })
             
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
@@ -347,17 +354,13 @@ class CoCoTrainer(Trainer):
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
             
-            # Log to WandB if available
-            if (WANDB_AVAILABLE and wandb is not None and wandb.run is not None and 
-                self.is_world_process_zero()):
-                try:
-                    wandb.log({
-                        "train/loss": avg_loss,
-                        "train/epoch": epoch + 1,
-                        "train/step": self.total_train_steps
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to log epoch metrics to WandB: {e}")
+            # Log to WandB if enabled
+            if wandb.run is not None:
+                wandb.log({
+                    "train/loss": avg_loss,
+                    "train/epoch": epoch + 1,
+                    "train/step": self.total_train_steps
+                })
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -370,9 +373,12 @@ class CoCoTrainer(Trainer):
         if self.is_world_process_zero():
             state_path = os.path.join(checkpoint_dir, 'trainer_state.json')
             self.state.save_to_json(state_path)
-            
-            # Log checkpoint as WandB artifact
-            self._log_checkpoint_artifact(checkpoint_dir, epoch)
+        
+        # Log to WandB artifacts if enabled
+        if wandb.run is not None and self.is_world_process_zero():
+            artifact = wandb.Artifact(f"checkpoint-epoch-{epoch}", type="model")
+            artifact.add_dir(checkpoint_dir)
+            wandb.log_artifact(artifact)
         
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
         return checkpoint_dir
@@ -420,20 +426,6 @@ class CoCoTrainer(Trainer):
             for key, value in eval_metrics.items():
                 if isinstance(value, (int, float)):
                     logger.info(f"    {key}: {value:.4f}")
-        
-        # Log to WandB if available
-        if (WANDB_AVAILABLE and wandb is not None and wandb.run is not None and 
-            self.is_world_process_zero()):
-            try:
-                wandb_metrics = {
-                    "epoch/time": epoch_time,
-                    "epoch/number": epoch + 1
-                }
-                if eval_metrics:
-                    wandb_metrics.update(eval_metrics)
-                wandb.log(wandb_metrics)
-            except Exception as e:
-                logger.warning(f"Failed to log epoch summary to WandB: {e}")
 
     def _log_coconut_epoch_summary(
         self, 
@@ -454,27 +446,6 @@ class CoCoTrainer(Trainer):
             for key, value in eval_metrics.items():
                 if isinstance(value, (int, float)):
                     logger.info(f"    {key}: {value:.4f}")
-        
-        # Log CoCoNut stage-specific metrics to WandB
-        if (WANDB_AVAILABLE and wandb is not None and wandb.run is not None and 
-            self.is_world_process_zero()):
-            try:
-                c_thought = getattr(self.args, 'c_thought', 1)
-                wandb_metrics = {
-                    "coconut/stage": current_stage,
-                    "coconut/latent_tokens": current_stage * c_thought,
-                    "coconut/epoch_in_stage": stage_epoch + 1,
-                    "coconut/stage_time": epoch_time,
-                }
-                if eval_metrics:
-                    # Prefix evaluation metrics for stage tracking
-                    for key, value in eval_metrics.items():
-                        wandb_metrics[f"coconut/{key}"] = value
-                
-                wandb.log(wandb_metrics)
-                
-            except Exception as e:
-                logger.warning(f"Failed to log CoCoNut stage metrics to WandB: {e}")
 
     def _create_generation_config(self) -> Dict[str, Any]:
         """Create generation configuration from training arguments."""
@@ -499,10 +470,13 @@ class CoCoTrainer(Trainer):
         return config
 
     def log(self, logs: Dict[str, float], **kwargs) -> None:
-        """Override log method to update progress bar with metrics."""
-        # Let HuggingFace handle WandB logging via report_to parameter
+        """Override log method to update progress bar with metrics and log to WandB."""
         super().log(logs, **kwargs)
         self._update_progress_bar_with_metrics(logs)
+        
+        # Log to WandB if enabled
+        if wandb.run is not None:
+            wandb.log(logs, step=self.total_train_steps)
 
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """Update progress bar with training metrics."""
@@ -586,10 +560,16 @@ class CoCoTrainer(Trainer):
                     if log_file:
                         self._write_evaluation_summary(log_file, metrics, len(all_labels))
                     
-                    # Log to WandB with sample tables
-                    self._log_wandb_evaluation_results(
-                        metrics, all_predictions, all_labels, all_questions
-                    )
+                    # Log to WandB if enabled
+                    if wandb.run is not None and self.is_world_process_zero():
+                        wandb.log(metrics)
+                        
+                        # Log sample table (up to 50 samples for insights)
+                        sample_table = wandb.Table(columns=["Question", "Ground Truth", "Prediction", "Correct"])
+                        for q, label, pred in zip(all_questions[:50], all_labels[:50], all_predictions[:50]):
+                            correct = pred.strip() == label.strip()
+                            sample_table.add_data(q, label, pred, correct)
+                        wandb.log({"eval/samples": sample_table})
 
             finally:
                 if log_file:
@@ -706,118 +686,6 @@ class CoCoTrainer(Trainer):
             return metrics_list[0]
         
         return metrics
-
-    def _log_wandb_evaluation_results(
-        self, 
-        metrics: Dict[str, float], 
-        predictions: List[str], 
-        labels: List[str], 
-        questions: List[str]
-    ) -> None:
-        """Log evaluation results and sample tables to WandB."""
-        if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
-            return
-            
-        try:
-            # Log evaluation metrics
-            wandb.log(metrics)
-            
-            # Create sample table for qualitative analysis (up to 50 samples)
-            max_samples = min(50, len(predictions))
-            if max_samples > 0:
-                sample_table = wandb.Table(columns=[
-                    "Question", "Ground Truth", "Prediction", "Correct"
-                ])
-                
-                for i in range(max_samples):
-                    correct = predictions[i].strip() == labels[i].strip()
-                    sample_table.add_data(
-                        questions[i], 
-                        labels[i], 
-                        predictions[i], 
-                        correct
-                    )
-                
-                wandb.log({"eval/samples": sample_table})
-                
-                # Log accuracy distribution
-                correct_predictions = sum(
-                    1 for pred, label in zip(predictions, labels) 
-                    if pred.strip() == label.strip()
-                )
-                accuracy = correct_predictions / len(predictions) if predictions else 0.0
-                
-                wandb.log({
-                    "eval/sample_accuracy": accuracy,
-                    "eval/total_samples": len(predictions),
-                    "eval/correct_predictions": correct_predictions
-                })
-            
-        except Exception as e:
-            logger.warning(f"Failed to log evaluation results to WandB: {e}")
-
-    def _log_checkpoint_artifact(self, checkpoint_dir: str, epoch: int) -> None:
-        """Log model checkpoint as WandB artifact for versioning and reproducibility."""
-        if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
-            return
-            
-        try:
-            # Create artifact for model checkpoint
-            artifact_name = f"checkpoint-epoch-{epoch}"
-            model_artifact = wandb.Artifact(
-                name=artifact_name,
-                type="model",
-                description=f"Model checkpoint after epoch {epoch}",
-                metadata={
-                    "epoch": epoch,
-                    "global_step": self.total_train_steps,
-                    "learning_rate": self.optimizer.param_groups[0]['lr'] if self.optimizer else None,
-                }
-            )
-            
-            # Add checkpoint directory to artifact
-            model_artifact.add_dir(checkpoint_dir)
-            
-            # Log the artifact with epoch alias
-            wandb.log_artifact(model_artifact, aliases=[f"epoch_{epoch}", "latest"])
-            
-            logger.info(f"Logged checkpoint as WandB artifact: {artifact_name}")
-            
-        except Exception as e:
-            logger.warning(f"Failed to log checkpoint artifact to WandB: {e}")
-
-    def _log_dataset_artifacts(self, train_data_path: str, eval_data_path: str) -> None:
-        """Log training and evaluation datasets as WandB artifacts."""
-        if not (WANDB_AVAILABLE and wandb is not None and wandb.run is not None):
-            return
-            
-        try:
-            # Log training dataset
-            if train_data_path and os.path.exists(train_data_path):
-                train_artifact = wandb.Artifact(
-                    name="train_dataset",
-                    type="dataset",
-                    description="Training dataset for MultiCoCo",
-                    metadata={"split": "train", "format": "json"}
-                )
-                train_artifact.add_file(train_data_path)
-                wandb.log_artifact(train_artifact)
-                
-            # Log evaluation dataset
-            if eval_data_path and os.path.exists(eval_data_path):
-                eval_artifact = wandb.Artifact(
-                    name="eval_dataset", 
-                    type="dataset",
-                    description="Evaluation dataset for MultiCoCo",
-                    metadata={"split": "eval", "format": "json"}
-                )
-                eval_artifact.add_file(eval_data_path)
-                wandb.log_artifact(eval_artifact)
-                
-            logger.info("Logged datasets as WandB artifacts")
-            
-        except Exception as e:
-            logger.warning(f"Failed to log dataset artifacts to WandB: {e}")
 
     def get_eval_dataloader(self, eval_dataset=None) -> DataLoader:
         """Get evaluation dataloader with proper distributed setup."""
