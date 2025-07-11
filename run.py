@@ -164,12 +164,7 @@ class MultiCoCoRunner:
                     group=log_config.wandb_group,
                     tags=log_config.wandb_tags,
                     notes=log_config.wandb_notes,
-                    config=self.config.to_dict(),
-                    # Enable system metrics like GPU usage following guide recommendation
-                    settings=wandb.Settings(
-                        start_method="fork" if sys.platform != "win32" else None,
-                        _stats_sample_rate_seconds=10  # Sample system metrics every 10 seconds
-                    )
+                    config=self.config.to_dict()
                 )
                 
                 # Define custom metrics like coconut does
