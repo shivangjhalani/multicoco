@@ -15,13 +15,13 @@ eval_accumulation_steps: 1  # Process each batch immediately for better debuggin
 dataloader_num_workers: 0   # Reduce workers to avoid data loading issues in distributed mode
 
 # Generation Configuration for Vanilla Evaluation
-# Conservative but flexible settings for direct question answering
+# DETERMINISTIC settings for reproducible results across GPU configurations
 generation:
   max_new_tokens: 128
-  do_sample: true
-  temperature: 0.6
-  top_p: 0.8
-  num_beams: 1
+  do_sample: false     # Use greedy decoding for deterministic results
+  temperature: 0.0     # No randomness
+  top_p: 1.0          # No nucleus sampling
+  num_beams: 1        # Single beam (deterministic)
 
 # Vanilla Evaluation
 eval_config:
