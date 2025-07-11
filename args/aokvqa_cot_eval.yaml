@@ -11,6 +11,15 @@ limit_for_testing: true
 # Model Configuration - Load trained CoT checkpoint
 load_model_path: "checkpoints/aokvqa_cot"  # Path to best CoT checkpoint
 
+# Generation Configuration for CoT Evaluation
+# Enable sampling with creativity to encourage reasoning
+generation:
+  max_new_tokens: 256
+  do_sample: true
+  temperature: 1.0
+  top_p: 0.9
+  num_beams: 1
+
 # CoT Evaluation
 eval_config:
   cot: true

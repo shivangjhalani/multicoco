@@ -262,8 +262,8 @@ class MultiCoCoConfig:
         # Merge configurations (config_dict overrides base_dict)
         merged_dict = {**base_dict, **config_dict}
         
-        # Handle nested dictionaries (like eval_config, coconut)
-        for key in ['eval_config', 'coconut']:
+        # Handle nested dictionaries (like eval_config, coconut, generation)
+        for key in ['eval_config', 'coconut', 'generation']:
             if key in base_dict and key in config_dict:
                 if isinstance(base_dict[key], dict) and isinstance(config_dict[key], dict):
                     merged_dict[key] = {**base_dict[key], **config_dict[key]}
@@ -368,6 +368,17 @@ class MultiCoCoConfig:
             reset_optimizer=coconut_dict.get('reset_optimizer', config_dict.get('reset_optimizer', True))
         )
         
+        # Handle nested generation configuration
+        generation_dict = config_dict.get('generation', {})
+        generation_config = GenerationConfig(
+            max_new_tokens=generation_dict.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
+            do_sample=generation_dict.get('do_sample', False),
+            num_beams=generation_dict.get('num_beams', 1),
+            temperature=generation_dict.get('temperature', 1.0),
+            top_p=generation_dict.get('top_p', 1.0),
+            top_k=generation_dict.get('top_k', 50),
+        )
+        
         logging_config = LoggingConfig(
             log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
             log_level=config_dict.get('log_level', 'INFO'),
@@ -383,6 +394,7 @@ class MultiCoCoConfig:
             data=data_config,
             evaluation=evaluation_config,
             coconut=coconut_config,
+            generation=generation_config,
             logging=logging_config,
         )
     

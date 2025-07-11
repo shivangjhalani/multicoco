@@ -34,7 +34,15 @@ gradient_accumulation_steps: 2
 resume_from_checkpoint: true
 limit_for_testing: false
 
+# Generation Configuration for Evaluation
+generation:
+  max_new_tokens: 256
+  do_sample: true
+  temperature: 0.7
+  top_p: 0.9
+  num_beams: 1
+
 # Checkpoint Management
-max_checkpoints_to_keep: 6        # Maximum number of checkpoints to keep
+max_checkpoints_to_keep: 10        # Maximum number of checkpoints to keep
 keep_best_checkpoints: true       # Keep best checkpoints based on eval accuracy (vs most recent)
 use_run_name_in_output_dir: true  # Include run name in checkpoint directory path 
