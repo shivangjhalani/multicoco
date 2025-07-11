@@ -454,6 +454,24 @@ class MultiCoCoRunner:
             except Exception as e:
                 logger.warning(f"WandB login failed: {e}. You may need to run 'wandb login' manually or set WANDB_API_KEY environment variable.")
             
+            # Manually initialize WandB since HF Trainer sometimes fails to do it automatically
+            try:
+                if wandb.run is None:
+                    wandb.init(
+                        project=self.config.logging.wandb_project,
+                        entity=self.config.logging.wandb_entity,
+                        name=self.config.training.name,
+                        tags=self.config.logging.wandb_tags,
+                        group=self.config.logging.wandb_group,
+                        config=self.config.to_dict(),
+                        reinit=True
+                    )
+                    logger.info(f"WandB manually initialized: {wandb.run.name}")
+                else:
+                    logger.info("WandB already initialized")
+            except Exception as e:
+                logger.warning(f"WandB manual initialization failed: {e}")
+            
             os.environ["WANDB_PROJECT"] = self.config.logging.wandb_project
             if self.config.logging.wandb_entity:
                 os.environ["WANDB_ENTITY"] = self.config.logging.wandb_entity
