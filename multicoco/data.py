@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from PIL import Image
@@ -60,10 +60,9 @@ class SupervisedDataset(Dataset):
 
     def _validate_paths(self, data_path: str, data_dir: str) -> None:
         """Validate that required paths exist."""
-        if not os.path.exists(data_path):
-            raise DataLoadingError(f"Data file not found: {data_path}")
-        if not os.path.exists(data_dir):
-            raise DataLoadingError(f"Data directory not found: {data_dir}")
+        for path, name in [(data_path, "Data file"), (data_dir, "Data directory")]:
+            if not os.path.exists(path):
+                raise DataLoadingError(f"{name} not found: {path}")
 
     def _load_data(self, data_path: str, test_limit: Optional[int]) -> List[Dict]:
         """Load and optionally limit data from JSON file."""
@@ -71,7 +70,7 @@ class SupervisedDataset(Dataset):
             with open(data_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except (json.JSONDecodeError, IOError) as e:
-            raise DataLoadingError(f"Failed to load data from {data_path}: {e}")
+            raise DataLoadingError(f"Failed to load data from {data_path}: {e}") from e
         
         if test_limit is not None:
             data = data[:test_limit]
@@ -122,10 +121,8 @@ class SupervisedDataset(Dataset):
         item = self.data[index]
         self._validate_item(item, index)
         
-        # Load image with fallback
+        # Load image with fallback and extract text components
         image = self._load_image(item['image'])
-        
-        # Extract text components
         question = item['question']
         answer = item.get('answer', item.get('direct_answer', ''))
         
@@ -145,9 +142,9 @@ class SupervisedDataset(Dataset):
     def _validate_item(self, item: Dict, index: int) -> None:
         """Validate that item has required fields."""
         required_fields = ['image', 'question']
-        for field in required_fields:
-            if field not in item:
-                raise DatasetError(f"Sample {index} missing '{field}' field")
+        missing_fields = [field for field in required_fields if field not in item]
+        if missing_fields:
+            raise DatasetError(f"Sample {index} missing fields: {missing_fields}")
     
     def _load_image(self, image_file: str) -> Image.Image:
         """Load image with error handling and fallback."""
@@ -214,30 +211,21 @@ def collate_fn(
     
     except Exception as e:
         logger.error(f"Error in collate_fn: {e}", exc_info=True)
-        raise DatasetError(f"Failed to collate batch: {e}")
+        raise DatasetError(f"Failed to collate batch: {e}") from e
 
 
 def _create_chat_formatted_texts(
     batch: List[Dict[str, Any]], 
     questions: List[str], 
     answers: List[str]
-) -> tuple[List[str], List[str]]:
+) -> Tuple[List[str], List[str]]:
     """Create chat-formatted texts and prompts for training."""
     full_texts = []
     prompts = []
     
     for i, (question, answer) in enumerate(zip(questions, answers)):
         # Determine assistant response format
-        reasoning_text = batch[i].get('reasoning', '')
-        reasoning_steps = batch[i].get('steps', [])
-        
-        if reasoning_text:
-            assistant_part = f"{reasoning_text} The answer is {answer}"
-        elif reasoning_steps:
-            reasoning_combined = " ".join(reasoning_steps)
-            assistant_part = f"{reasoning_combined} The answer is {answer}"
-        else:
-            assistant_part = answer
+        assistant_part = _build_assistant_response(batch[i], answer)
         
         # Construct chat format
         prompt = f"<|im_start|>user\n<image>\n{question}<|im_end|><|im_start|>assistant\n"
@@ -249,6 +237,17 @@ def _create_chat_formatted_texts(
     return full_texts, prompts
 
 
+def _build_assistant_response(item: Dict[str, Any], answer: str) -> str:
+    """Build the assistant response part of the chat format."""
+    if reasoning_text := item.get('reasoning', ''):
+        return f"{reasoning_text} The answer is {answer}"
+    elif reasoning_steps := item.get('steps', []):
+        reasoning_combined = " ".join(reasoning_steps)
+        return f"{reasoning_combined} The answer is {answer}"
+    else:
+        return answer
+
+
 def _process_images(images: List[Image.Image], image_processor: Any) -> torch.Tensor:
     """Process a list of PIL images into a batch of tensors."""
     try:
@@ -256,7 +255,7 @@ def _process_images(images: List[Image.Image], image_processor: Any) -> torch.Te
         return processed['pixel_values']
     except Exception as e:
         logger.error(f"Failed to process images: {e}", exc_info=True)
-        raise ImageProcessingError(f"Error during image processing: {e}")
+        raise ImageProcessingError(f"Error during image processing: {e}") from e
 
 
 def _create_training_labels(
@@ -345,7 +344,14 @@ def create_progressive_latent_dataset(
         if stage_to_train in stage_counts:
             stage_counts[stage_to_train] += 1
     
-    # Log overall stage distribution to Weights & Biases
+    # Log stage distribution to Weights & Biases if available
+    _log_stage_distribution(stage_counts)
+
+    return processed_samples
+
+
+def _log_stage_distribution(stage_counts: Dict[int, int]) -> None:
+    """Log stage distribution to Weights & Biases if available."""
     try:
         import wandb  # type: ignore
         if wandb.run is not None:
@@ -361,8 +367,6 @@ def create_progressive_latent_dataset(
     except ImportError:
         pass
 
-    return processed_samples
-
 
 def _parse_reasoning_steps(steps: Union[List[str], str]) -> List[str]:
     """Parse reasoning steps from various input formats."""
@@ -377,7 +381,7 @@ def _calculate_curriculum_params(
     steps: List[str], 
     pad_latent_to_max: bool, 
     no_cot: bool
-) -> tuple[int, int]:
+) -> Tuple[int, int]:
     """Calculate curriculum parameters for progressive training."""
     if no_cot:
         return 100, 0  # Skip all steps, no latent tokens

@@ -10,6 +10,7 @@ Classes:
 """
 
 import logging
+
 from tqdm import tqdm
 
 __all__ = ["TqdmLoggingHandler"]

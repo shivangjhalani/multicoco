@@ -102,10 +102,7 @@ class CoCoTrainer(Trainer):
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
         
-        logger.info(f"Starting epoch-based training:")
-        logger.info(f"  Steps per epoch: {steps_per_epoch}")
-        logger.info(f"  Total epochs: {int(self.args.num_train_epochs)}")
-        logger.info(f"  Total steps: {total_steps}")
+        self._log_training_setup(steps_per_epoch, total_steps)
         
         # Initialize model and optimizer
         model = self._wrap_model(self.model_wrapped)
@@ -113,20 +110,11 @@ class CoCoTrainer(Trainer):
         
         # Training loop - epoch by epoch
         for epoch in range(start_epoch, int(self.args.num_train_epochs)):
-            epoch_start_time = time.time()
-            logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
+            epoch_metrics = self._train_single_epoch(
+                model, train_dataloader, epoch, steps_per_epoch
+            )
             
-            # Run training for this epoch
-            self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
-            
-            # Save checkpoint and evaluate after epoch
-            checkpoint_dir = self._save_epoch_checkpoint(epoch)
-            eval_metrics = self._evaluate_after_epoch(epoch)
-            
-            # Log epoch summary and cleanup
-            epoch_time = time.time() - epoch_start_time
-            self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
-            
+            # Cleanup after epoch
             gc.collect()
             torch.cuda.empty_cache()
         
@@ -137,6 +125,37 @@ class CoCoTrainer(Trainer):
             training_loss=0.0,
             metrics={}
         )
+
+    def _log_training_setup(self, steps_per_epoch: int, total_steps: int) -> None:
+        """Log training setup information."""
+        logger.info(f"Starting epoch-based training:")
+        logger.info(f"  Steps per epoch: {steps_per_epoch}")
+        logger.info(f"  Total epochs: {int(self.args.num_train_epochs)}")
+        logger.info(f"  Total steps: {total_steps}")
+
+    def _train_single_epoch(
+        self, 
+        model: nn.Module, 
+        train_dataloader: DataLoader, 
+        epoch: int, 
+        steps_per_epoch: int
+    ) -> Dict[str, float]:
+        """Train a single epoch and return metrics."""
+        epoch_start_time = time.time()
+        logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
+        
+        # Run training for this epoch
+        self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+        
+        # Save checkpoint and evaluate after epoch
+        checkpoint_dir = self._save_epoch_checkpoint(epoch)
+        eval_metrics = self._evaluate_after_epoch(epoch)
+        
+        # Log epoch summary
+        epoch_time = time.time() - epoch_start_time
+        self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
+        
+        return eval_metrics
 
     def _handle_checkpoint_resumption(
         self, resume_from_checkpoint: Optional[Union[str, bool]]
@@ -177,40 +196,13 @@ class CoCoTrainer(Trainer):
         self._setup_epoch_training()
         
         # Get CoCoNut parameters
-        c_thought = getattr(self.args, 'c_thought', 1)
-        max_latent_stage = getattr(self.args, 'max_latent_stage', 3)
-        epochs_per_stage = getattr(self.args, 'epochs_per_stage', 5)
-        reset_optimizer = getattr(self.args, 'reset_optimizer', True)
+        coconut_params = self._get_coconut_parameters()
         
-        logger.info(f"Starting CoCoNut progressive training:")
-        logger.info(f"  Max latent stage: {max_latent_stage}")
-        logger.info(f"  Epochs per stage: {epochs_per_stage}")
-        logger.info(f"  C-thought: {c_thought}")
+        self._log_coconut_setup(coconut_params)
         
         # Training loop across stages
-        for stage in range(max_latent_stage + 1):
-            logger.info(f"\n{'='*60}")
-            logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
-            logger.info(f"{'='*60}")
-            
-            # Apply curriculum to dataset
-            if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
-                self.train_dataset.apply_progressive_curriculum(
-                    scheduled_stage=stage,
-                    c_thought=c_thought,
-                    max_latent_stage=max_latent_stage,
-                    uniform_prob=getattr(self.args, 'uniform_prob', 0.0),
-                    pad_latent_to_max=getattr(self.args, 'pad_latent_to_max', False)
-                )
-            
-            # Reset optimizer if requested
-            if reset_optimizer and stage > 0:
-                self.optimizer = None
-                self.lr_scheduler = None
-                logger.info("Reset optimizer for new stage")
-            
-            # Train for this stage
-            self._train_coconut_stage(stage, epochs_per_stage)
+        for stage in range(coconut_params['max_latent_stage'] + 1):
+            self._train_coconut_stage_with_logging(stage, coconut_params)
         
         logger.info("CoCoNut progressive training completed!")
         
@@ -219,6 +211,49 @@ class CoCoTrainer(Trainer):
             training_loss=0.0,
             metrics={}
         )
+
+    def _get_coconut_parameters(self) -> Dict[str, Any]:
+        """Extract CoCoNut parameters from training arguments."""
+        return {
+            'c_thought': getattr(self.args, 'c_thought', 1),
+            'max_latent_stage': getattr(self.args, 'max_latent_stage', 3),
+            'epochs_per_stage': getattr(self.args, 'epochs_per_stage', 5),
+            'reset_optimizer': getattr(self.args, 'reset_optimizer', True),
+            'uniform_prob': getattr(self.args, 'uniform_prob', 0.0),
+            'pad_latent_to_max': getattr(self.args, 'pad_latent_to_max', False)
+        }
+
+    def _log_coconut_setup(self, params: Dict[str, Any]) -> None:
+        """Log CoCoNut training setup."""
+        logger.info(f"Starting CoCoNut progressive training:")
+        logger.info(f"  Max latent stage: {params['max_latent_stage']}")
+        logger.info(f"  Epochs per stage: {params['epochs_per_stage']}")
+        logger.info(f"  C-thought: {params['c_thought']}")
+
+    def _train_coconut_stage_with_logging(self, stage: int, params: Dict[str, Any]) -> None:
+        """Train a single CoCoNut stage with proper logging."""
+        logger.info(f"\n{'='*60}")
+        logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
+        logger.info(f"{'='*60}")
+        
+        # Apply curriculum to dataset
+        if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
+            self.train_dataset.apply_progressive_curriculum(
+                scheduled_stage=stage,
+                c_thought=params['c_thought'],
+                max_latent_stage=params['max_latent_stage'],
+                uniform_prob=params['uniform_prob'],
+                pad_latent_to_max=params['pad_latent_to_max']
+            )
+        
+        # Reset optimizer if requested
+        if params['reset_optimizer'] and stage > 0:
+            self.optimizer = None
+            self.lr_scheduler = None
+            logger.info("Reset optimizer for new stage")
+        
+        # Train for this stage
+        self._train_coconut_stage(stage, params['epochs_per_stage'])
 
     def _train_coconut_stage(self, stage: int, epochs_per_stage: int) -> None:
         """Train a single CoCoNut stage."""
@@ -233,24 +268,39 @@ class CoCoTrainer(Trainer):
         
         # Train epochs for this stage
         for stage_epoch in range(epochs_per_stage):
-            epoch_start_time = time.time()
-            logger.info(f"Stage {stage}, Epoch {stage_epoch + 1}/{epochs_per_stage}")
-            
-            # Run training for this epoch
-            self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
-            
-            # Save checkpoint and evaluate
-            checkpoint_dir = self._save_epoch_checkpoint(stage_epoch)
-            eval_metrics = self._evaluate_after_epoch(stage_epoch)
-            
-            # Log coconut-specific epoch summary
-            epoch_time = time.time() - epoch_start_time
-            self._log_coconut_epoch_summary(
-                stage_epoch, stage, stage_epoch, eval_metrics, checkpoint_dir, epoch_time
+            epoch_metrics = self._train_coconut_single_epoch(
+                model, train_dataloader, stage, stage_epoch, steps_per_epoch
             )
-            
-            gc.collect()
-            torch.cuda.empty_cache()
+
+    def _train_coconut_single_epoch(
+        self, 
+        model: nn.Module, 
+        train_dataloader: DataLoader, 
+        stage: int, 
+        stage_epoch: int, 
+        steps_per_epoch: int
+    ) -> Dict[str, float]:
+        """Train a single epoch in CoCoNut mode."""
+        epoch_start_time = time.time()
+        logger.info(f"Stage {stage}, Epoch {stage_epoch + 1}")
+        
+        # Run training for this epoch
+        self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
+        
+        # Save checkpoint and evaluate
+        checkpoint_dir = self._save_epoch_checkpoint(stage_epoch)
+        eval_metrics = self._evaluate_after_epoch(stage_epoch)
+        
+        # Log coconut-specific epoch summary
+        epoch_time = time.time() - epoch_start_time
+        self._log_coconut_epoch_summary(
+            stage_epoch, stage, stage_epoch, eval_metrics, checkpoint_dir, epoch_time
+        )
+        
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        return eval_metrics
 
     def _get_last_epoch_checkpoint(self, output_dir: str) -> Optional[str]:
         """Get the last epoch checkpoint directory."""
@@ -305,13 +355,9 @@ class CoCoTrainer(Trainer):
         model.train()
         
         # Create progress bar for this epoch
-        pbar = tqdm(
-            train_dataloader, 
-            desc=f"Epoch {epoch + 1}",
-            total=len(train_dataloader),
-            disable=not self.is_world_process_zero()
-        )
+        pbar = self._create_progress_bar(epoch, train_dataloader)
         
+        # Training loop
         epoch_loss = 0.0
         step_count = 0
         
@@ -322,50 +368,68 @@ class CoCoTrainer(Trainer):
             if loss is not None:
                 epoch_loss += loss.item()
                 step_count += 1
-            
-            # Update progress bar
-            if step_count > 0:
+                
+                # Update progress bar
                 avg_loss = epoch_loss / step_count
                 pbar.set_postfix({'loss': f'{avg_loss:.4f}'})
+                
+                # Log to wandb if configured
+                self._log_training_step(loss, step)
             
             # Update global step counter
             if step % self.args.gradient_accumulation_steps == 0:
                 self.total_train_steps += 1
-
-                # Batch-level logging to Weights & Biases
-                if (
-                    getattr(self.args, "report_to", None)
-                    and "wandb" in self.args.report_to
-                    and step % self.args.gradient_accumulation_steps == 0
-                ):
-                    try:
-                        import wandb  # type: ignore
-                        if wandb.run is not None:
-                            wandb.log({
-                                "train/batch_loss": loss.item(),
-                                "train/step": self.total_train_steps,
-                            })
-                    except ImportError:
-                        pass
         
         pbar.close()
         
-        # Log epoch training summary
+        # Log epoch summary
+        self._log_epoch_training_summary(epoch, epoch_loss, step_count)
+
+    def _create_progress_bar(self, epoch: int, train_dataloader: DataLoader) -> tqdm:
+        """Create progress bar for epoch training."""
+        return tqdm(
+            train_dataloader, 
+            desc=f"Epoch {epoch + 1}",
+            total=len(train_dataloader),
+            disable=not self.is_world_process_zero()
+        )
+
+    def _log_training_step(self, loss: torch.Tensor, step: int) -> None:
+        """Log training step to wandb if configured."""
+        if (step % self.args.gradient_accumulation_steps == 0 and
+            getattr(self.args, "report_to", None) and 
+            "wandb" in self.args.report_to):
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None:
+                    wandb.log({
+                        "train/batch_loss": loss.item(),
+                        "train/step": self.total_train_steps,
+                    })
+            except ImportError:
+                pass
+
+    def _log_epoch_training_summary(self, epoch: int, epoch_loss: float, step_count: int) -> None:
+        """Log epoch training summary."""
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f"Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}")
 
             # Epoch-level WandB logging
-            if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
-                try:
-                    import wandb  # type: ignore
-                    if wandb.run is not None:
-                        wandb.log({
-                            "train/epoch_loss": avg_loss,
-                            "epoch": epoch + 1,
-                        })
-                except ImportError:
-                    pass
+            self._log_epoch_to_wandb(avg_loss, epoch)
+
+    def _log_epoch_to_wandb(self, avg_loss: float, epoch: int) -> None:
+        """Log epoch metrics to wandb."""
+        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None:
+                    wandb.log({
+                        "train/epoch_loss": avg_loss,
+                        "epoch": epoch + 1,
+                    })
+            except ImportError:
+                pass
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -382,7 +446,15 @@ class CoCoTrainer(Trainer):
         logger.info(f"Checkpoint saved to: {checkpoint_dir}")
 
         # Upload checkpoint as a WandB artifact
-        if self.is_world_process_zero() and getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+        self._save_checkpoint_to_wandb(checkpoint_dir, epoch)
+
+        return checkpoint_dir
+
+    def _save_checkpoint_to_wandb(self, checkpoint_dir: str, epoch: int) -> None:
+        """Save checkpoint to wandb as artifact."""
+        if (self.is_world_process_zero() and 
+            getattr(self.args, "report_to", None) and 
+            "wandb" in self.args.report_to):
             try:
                 import wandb  # type: ignore
                 if wandb.run is not None:
@@ -396,32 +468,22 @@ class CoCoTrainer(Trainer):
             except ImportError:
                 pass
 
-        return checkpoint_dir
-
     def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
-        """Run evaluation after epoch completion."""
-        if self.eval_dataset is None:
-            logger.warning("No evaluation dataset provided, skipping evaluation")
-            return {}
-        
-        try:
-            # Run evaluation
-            eval_output = self.evaluate()
+        """Evaluate model after epoch completion."""
+        if self.eval_dataset is not None:
+            logger.info(f"Running evaluation after epoch {epoch + 1}")
+            eval_result = self.evaluate()
             
-            # Extract metrics
-            metrics = eval_output.metrics if hasattr(eval_output, 'metrics') else eval_output
-            
-            # Update best validation accuracy
-            if 'eval_accuracy' in metrics:
-                current_acc = metrics['eval_accuracy']
+            # Track best validation accuracy
+            if 'eval_accuracy' in eval_result:
+                current_acc = eval_result['eval_accuracy']
                 if current_acc > self.best_val_acc:
                     self.best_val_acc = current_acc
-                    logger.info(f"New best validation accuracy: {current_acc:.4f}")
+                    logger.info(f"New best validation accuracy: {self.best_val_acc:.4f}")
             
-            return metrics
-            
-        except Exception as e:
-            logger.error(f"Evaluation failed after epoch {epoch}: {e}")
+            return eval_result
+        else:
+            logger.info("No evaluation dataset provided, skipping evaluation")
             return {}
 
     def _log_epoch_summary(
@@ -431,25 +493,25 @@ class CoCoTrainer(Trainer):
         checkpoint_dir: str, 
         epoch_time: float
     ) -> None:
-        """Log summary after epoch completion."""
-        logger.info(f"\nEpoch {epoch + 1} Summary:")
-        logger.info(f"  Time: {epoch_time:.2f}s")
-        logger.info(f"  Checkpoint: {checkpoint_dir}")
+        """Log comprehensive epoch summary."""
+        summary_lines = [
+            f"\n{EVAL_LOG_SEPARATOR}",
+            f"EPOCH {epoch + 1} SUMMARY",
+            f"{EVAL_LOG_SEPARATOR}",
+            f"Checkpoint: {checkpoint_dir}",
+            f"Epoch time: {epoch_time:.2f}s",
+        ]
         
         if eval_metrics:
-            logger.info("  Evaluation metrics:")
-            for key, value in eval_metrics.items():
-                if isinstance(value, (int, float)):
-                    logger.info(f"    {key}: {value:.4f}")
-
-        # Log aggregated metrics to Weights & Biases
-        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None and eval_metrics:
-                    wandb.log({**eval_metrics, "epoch": epoch + 1, "epoch_time": epoch_time})
-            except ImportError:
-                pass
+            summary_lines.extend([
+                f"Evaluation metrics:",
+                *[f"  {k}: {v:.4f}" for k, v in eval_metrics.items()],
+            ])
+        
+        summary_lines.append(f"{EVAL_LOG_SEPARATOR}\n")
+        
+        for line in summary_lines:
+            logger.info(line)
 
     def _log_coconut_epoch_summary(
         self, 
@@ -460,608 +522,25 @@ class CoCoTrainer(Trainer):
         checkpoint_dir: str, 
         epoch_time: float
     ) -> None:
-        """Log summary after CoCoNut epoch completion."""
-        logger.info(f"\nStage {current_stage}, Epoch {stage_epoch + 1} Summary:")
-        logger.info(f"  Time: {epoch_time:.2f}s")
-        logger.info(f"  Checkpoint: {checkpoint_dir}")
+        """Log CoCoNut-specific epoch summary."""
+        summary_lines = [
+            f"\n{EVAL_LOG_SEPARATOR}",
+            f"COCONUT STAGE {current_stage} - EPOCH {stage_epoch + 1} SUMMARY",
+            f"{EVAL_LOG_SEPARATOR}",
+            f"Global epoch: {epoch + 1}",
+            f"Stage: {current_stage}",
+            f"Stage epoch: {stage_epoch + 1}",
+            f"Checkpoint: {checkpoint_dir}",
+            f"Epoch time: {epoch_time:.2f}s",
+        ]
         
         if eval_metrics:
-            logger.info("  Evaluation metrics:")
-            for key, value in eval_metrics.items():
-                if isinstance(value, (int, float)):
-                    logger.info(f"    {key}: {value:.4f}")
-
-        # Log per-stage aggregated metrics to Weights & Biases
-        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None and eval_metrics:
-                    wandb.log({
-                        **eval_metrics,
-                        "epoch": epoch + 1,
-                        "stage": current_stage,
-                        "stage_epoch": stage_epoch + 1,
-                        "epoch_time": epoch_time,
-                    })
-            except ImportError:
-                pass
-
-    def _create_generation_config(self) -> Dict[str, Any]:
-        """Create generation configuration from training arguments."""
-        # Get generation kwargs from training arguments
-        generation_kwargs = getattr(self.args, 'generation_kwargs', {})
-
-        # Get tokenizer/processing_class with deprecation handling
-        tokenizer = getattr(self, 'processing_class', None) or getattr(self, 'tokenizer', None)
-
-        # Set defaults if not provided
-        config = {
-            'max_new_tokens': generation_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
-            'do_sample': generation_kwargs.get('do_sample', True),
-            'num_beams': generation_kwargs.get('num_beams', 1),
-            'pad_token_id': tokenizer.pad_token_id if tokenizer else None,
-            'eos_token_id': tokenizer.eos_token_id if tokenizer else None,
-        }
-
-        # Add sampling parameters only if do_sample is True
-        if config['do_sample']:
-            config['temperature'] = generation_kwargs.get('temperature', 0.7)
-            config['top_p'] = generation_kwargs.get('top_p', 0.9)
-            config['top_k'] = generation_kwargs.get('top_k', 50)
-
-        return config
-    def log(self, logs: Dict[str, float], **kwargs) -> None:
-        """Override log method to update progress bar with metrics."""
-        super().log(logs, **kwargs)
-        self._update_progress_bar_with_metrics(logs)
-
-        # Forward logs to Weights & Biases if enabled
-        if getattr(self.args, 'report_to', None) and "wandb" in self.args.report_to:
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None:
-                    wandb.log(logs)
-            except ImportError:
-                pass
-
-    def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
-        """Update progress bar with training metrics."""
-        # This would update any active progress bars with metrics
-        # Implementation depends on specific progress bar framework used
-        pass
-
-    def _apply_coconut_masking_to_inputs(
-        self, inputs: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
-        """Apply CoCoNut masking to training inputs if needed."""
-        # Apply any CoCoNut-specific input masking
-        # This is a placeholder for CoCoNut-specific preprocessing
-        return inputs
-
-    def compute_metrics(self, p: EvalPrediction) -> Dict[str, float]:
-        """
-        Compute metrics for evaluation.
+            summary_lines.extend([
+                f"Evaluation metrics:",
+                *[f"  {k}: {v:.4f}" for k, v in eval_metrics.items()],
+            ])
         
-        This is a placeholder as the evaluation_loop calculates metrics directly.
-        """
-        return {}
-
-    def evaluation_loop(
-        self,
-        dataloader: DataLoader,
-        description: str,
-        prediction_loss_only: Optional[bool] = None,
-        ignore_keys: Optional[List[str]] = None,
-        metric_key_prefix: str = "eval",
-    ) -> SimpleNamespace:
-        """
-        Custom evaluation loop with detailed logging and answer extraction.
+        summary_lines.append(f"{EVAL_LOG_SEPARATOR}\n")
         
-        Supports distributed evaluation for multi-GPU setups and evaluation
-        accumulation for memory efficiency.
-        """
-        try:
-            # Prepare model and evaluation state
-            model = self._wrap_model(self.model, training=False, dataloader=dataloader)
-            model.eval()
-            self.callback_handler.eval_dataloader = dataloader
-
-            # Initialize result containers
-            all_predictions, all_labels, all_questions = [], [], []
-
-            # Set up logging (only on main process for distributed)
-            is_main_process = self.is_world_process_zero()
-            log_file = self._setup_evaluation_file(is_main_process)
-
-            try:
-                # Run evaluation with accumulation
-                eval_accumulation_steps = getattr(self.args, 'eval_accumulation_steps', 1)
-                accumulated_batches = []
-                
-                for step, inputs in enumerate(tqdm(dataloader, desc=description, disable=not is_main_process)):
-                    accumulated_batches.append(inputs)
-                    
-                    # Process when accumulation complete or at end
-                    if len(accumulated_batches) == eval_accumulation_steps or step == len(dataloader) - 1:
-                        for batch_inputs in accumulated_batches:
-                            batch_results = self._process_evaluation_batch(batch_inputs, model, log_file)
-                            
-                            all_predictions.extend(batch_results['predictions'])
-                            all_labels.extend(batch_results['labels'])
-                            all_questions.extend(batch_results['questions'])
-                        
-                        accumulated_batches = []
-
-                # Handle distributed evaluation
-                if torch.distributed.is_initialized():
-                    all_predictions, all_labels, all_questions = self._gather_distributed_results(
-                        all_predictions, all_labels, all_questions, is_main_process
-                    )
-
-                # Compute final metrics (only on main process)
-                metrics = {}
-                if is_main_process:
-                    metrics = self._compute_final_metrics(all_predictions, all_labels, metric_key_prefix)
-
-                    # WandB visual logging
-                    if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
-                        try:
-                            import wandb  # type: ignore
-                            if wandb.run is not None:
-                                # Confusion matrix (if labels are small integers)
-                                try:
-                                    from sklearn.metrics import confusion_matrix
-                                    import numpy as np
-
-                                    classes = sorted(list(set(all_labels)))
-                                    cm = confusion_matrix(all_labels, all_predictions, labels=classes)
-                                    wandb.log({
-                                        "eval/confusion_matrix": wandb.plot.confusion_matrix(
-                                            probs=None,
-                                            y_true=all_labels,
-                                            preds=all_predictions,
-                                            class_names=[str(c) for c in classes],
-                                        )
-                                    })
-                                except Exception as cm_err:
-                                    logger.warning(f"Failed to compute confusion matrix: {cm_err}")
-
-                                # Evaluation samples table (first 100)
-                                table = wandb.Table(columns=["question", "ground_truth", "prediction", "correct"])
-                                preview_limit = min(100, len(all_predictions))
-                                for i in range(preview_limit):
-                                    table.add_data(
-                                        all_questions[i],
-                                        str(all_labels[i]),
-                                        str(all_predictions[i]),
-                                        bool(all_predictions[i] == all_labels[i]),
-                                    )
-                                wandb.log({"eval/samples": table})
-
-                                # Aggregate metrics
-                                wandb.log(metrics)
-                        except ImportError:
-                            pass
-
-                    if log_file:
-                        self._write_evaluation_summary(log_file, metrics, len(all_labels))
-
-            finally:
-                if log_file:
-                    log_file.close()
-
-            # Broadcast metrics to all processes in distributed setting
-            if torch.distributed.is_initialized():
-                metrics = self._broadcast_metrics(metrics)
-
-            return SimpleNamespace(
-                predictions=all_predictions,
-                label_ids=all_labels,
-                metrics=metrics,
-                num_samples=len(all_labels) if is_main_process else 0
-            )
-
-        except Exception as e:
-            logger.error(f"Evaluation failed: {e}")
-            raise EvaluationError(f"Evaluation loop failed: {e}")
-
-    def _setup_evaluation_file(self, is_main_process: bool):
-        """Setup evaluation log file."""
-        if not is_main_process:
-            return None
-            
-        from multicoco.constants import DEFAULT_LOG_DIR  # local import to avoid circular
-        run_name = getattr(self.args, 'run_name', 'run')
-
-        # Create logs directory under global logs root
-        log_dir = os.path.join(DEFAULT_LOG_DIR, 'eval_logs')
-        os.makedirs(log_dir, exist_ok=True)
-        
-        # Create log file with timestamp and run name
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        log_file_path = os.path.join(log_dir, f'evaluation_{run_name}_{timestamp}.log')
-        
-        return log_file_path
-
-    def _gather_distributed_results(
-        self, 
-        all_predictions: List[str], 
-        all_labels: List[str], 
-        all_questions: List[str],
-        is_main_process: bool
-    ) -> Tuple[List[str], List[str], List[str]]:
-        """Gather results from all processes in distributed evaluation with robustness checks."""
-        if is_main_process:
-            logger.info(f"Process 0: Processed {len(all_labels)} samples")
-        
-        torch.distributed.barrier()
-        
-        # Gather results from all processes
-        world_size = torch.distributed.get_world_size()
-        gathered_predictions = [None for _ in range(world_size)]
-        gathered_labels = [None for _ in range(world_size)]
-        gathered_questions = [None for _ in range(world_size)]
-        
-        torch.distributed.all_gather_object(gathered_predictions, all_predictions)
-        torch.distributed.all_gather_object(gathered_labels, all_labels)
-        torch.distributed.all_gather_object(gathered_questions, all_questions)
-        
-        # Only main process combines results
-        if is_main_process:
-            final_predictions, final_labels, final_questions = [], [], []
-            
-            # Add robustness checks for length consistency
-            rank_lengths = []
-            for rank in range(world_size):
-                pred_len = len(gathered_predictions[rank]) if gathered_predictions[rank] is not None else 0
-                label_len = len(gathered_labels[rank]) if gathered_labels[rank] is not None else 0
-                question_len = len(gathered_questions[rank]) if gathered_questions[rank] is not None else 0
-                
-                # Check length consistency within rank
-                if not (pred_len == label_len == question_len):
-                    logger.error(f"Rank {rank} has mismatched lengths: "
-                               f"predictions={pred_len}, labels={label_len}, questions={question_len}")
-                    raise EvaluationError(f"Mismatched data lengths on rank {rank}")
-                
-                rank_lengths.append(pred_len)
-                logger.info(f"Rank {rank}: {pred_len} samples")
-            
-            # Check for potential OOM issues (extreme length differences)
-            if len(set(rank_lengths)) > 1:
-                min_len, max_len = min(rank_lengths), max(rank_lengths)
-                if min_len == 0:
-                    logger.warning(f"Rank with 0 samples detected (possible OOM): {rank_lengths}")
-                elif max_len / min_len > 10:  # More than 10x difference suggests issues
-                    logger.warning(f"Large length discrepancy across ranks: {rank_lengths}")
-            
-            # Combine results from all ranks
-            for rank in range(world_size):
-                if (gathered_predictions[rank] is not None and 
-                    gathered_labels[rank] is not None and 
-                    gathered_questions[rank] is not None):
-                    final_predictions.extend(gathered_predictions[rank])
-                    final_labels.extend(gathered_labels[rank])
-                    final_questions.extend(gathered_questions[rank])
-                else:
-                    logger.warning(f"Rank {rank} returned None results (possible failure)")
-            
-            # Final sanity check
-            total_samples = len(final_predictions)
-            assert len(final_labels) == total_samples, f"Final label count mismatch: {len(final_labels)} vs {total_samples}"
-            assert len(final_questions) == total_samples, f"Final question count mismatch: {len(final_questions)} vs {total_samples}"
-            
-            logger.info(f"Successfully gathered {total_samples} total samples from {world_size} ranks")
-            
-            return final_predictions, final_labels, final_questions
-        
-        return all_predictions, all_labels, all_questions
-
-    def _broadcast_metrics(self, metrics: Dict[str, float]) -> Dict[str, float]:
-        """Broadcast metrics from main process to all processes."""
-        if torch.distributed.is_initialized():
-            # Convert metrics to list for broadcasting
-            if self.is_world_process_zero():
-                metrics_list = [metrics]
-            else:
-                metrics_list = [None]
-            
-            torch.distributed.broadcast_object_list(metrics_list, src=0)
-            return metrics_list[0]
-        
-        return metrics
-
-    def get_eval_dataloader(self, eval_dataset=None) -> DataLoader:
-        """Get evaluation dataloader with proper distributed setup."""
-        if eval_dataset is None and self.eval_dataset is None:
-            raise ValueError("No evaluation dataset provided")
-        
-        eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
-        
-        # Use parent class method to create dataloader with proper distributed setup
-        return super().get_eval_dataloader(eval_dataset)
-
-    def _setup_evaluation_logging(self) -> str:
-        """Setup evaluation logging and return log file path."""
-        from multicoco.constants import DEFAULT_LOG_DIR  # local import to avoid circular
-        run_name = getattr(self.args, 'run_name', 'run')
-
-        # Create logs directory under global logs root
-        log_dir = os.path.join(DEFAULT_LOG_DIR, 'eval_logs')
-        os.makedirs(log_dir, exist_ok=True)
-        
-        # Create log file with timestamp and run name
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        log_file_path = os.path.join(log_dir, f'evaluation_{run_name}_{timestamp}.log')
-        
-        return log_file_path
-
-    def _write_evaluation_header(self, log_file) -> None:
-        """Write evaluation header to log file."""
-        eval_config = getattr(self.args, 'eval_config', {})
-        eval_type = self._get_eval_type_name(eval_config)
-        
-        log_file.write(f"Evaluation Type: {eval_type}\n")
-        log_file.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        log_file.write(f"{EVAL_LOG_SEPARATOR}\n")
-
-    def _get_eval_type_name(self, eval_config: Dict[str, bool]) -> str:
-        """Get evaluation type name from config."""
-        if eval_config.get('coconut', False):
-            return "coconut"
-        elif eval_config.get('cot', False):
-            return "cot"
-        else:
-            return "vanilla"
-
-    def _process_evaluation_batch(
-        self, 
-        inputs: Dict[str, torch.Tensor], 
-        model: nn.Module, 
-        log_file
-    ) -> Dict[str, List[str]]:
-        """Process a single evaluation batch and return results."""
-        # Move inputs to device
-        inputs = self._prepare_inputs(inputs)
-        
-        # Extract batch information
-        questions = inputs.get('questions', [])
-        answers = inputs.get('answers', [])
-        pixel_values = inputs.get('pixel_values')
-        
-        # Generate predictions for each sample in batch
-        predictions = []
-        for i in range(len(questions)):
-            question = questions[i]
-            sample_pixel_values = pixel_values[i:i+1] if pixel_values is not None else None
-            
-            try:
-                prediction = self._generate_single_prediction(question, sample_pixel_values, model)
-                predictions.append(prediction)
-                
-                # Log sample result if log file available
-                if log_file and i < len(answers):
-                    self._log_sample_result(
-                        log_file, question, answers[i], prediction, len(predictions)
-                    )
-                    
-            except Exception as e:
-                logger.warning(f"Failed to generate prediction for sample {i}: {e}")
-                predictions.append("")
-        
-        return {
-            'predictions': predictions,
-            'labels': answers,
-            'questions': questions
-        }
-
-    def _generate_single_prediction(
-        self, 
-        question: str, 
-        pixel_values: torch.Tensor, 
-        model: nn.Module
-    ) -> str:
-        """Generate prediction for a single question."""
-        try:
-            # Get evaluation configuration
-            eval_config = getattr(self.args, 'eval_config', {})
-            generation_config = self._create_generation_config()
-            
-            # Access the underlying InternVL model for chat interface
-            if hasattr(model, 'model'):
-                internvl_model = model.model
-            else:
-                internvl_model = model
-            
-            # Ensure pixel values are properly formatted
-            if pixel_values is not None:
-                pixel_values = self._ensure_correct_dtype(pixel_values, model)
-                device = next(model.parameters()).device
-                pixel_values = pixel_values.to(device)
-                
-                # Ensure proper shape
-                if pixel_values.dim() == 3:
-                    pixel_values = pixel_values.unsqueeze(0)
-            
-            # Get tokenizer with deprecation handling
-            tokenizer = getattr(self, 'processing_class', None) or getattr(self, 'tokenizer', None)
-            
-            # Handle CoCoNut evaluation with latent tokens
-            if eval_config.get('coconut', False):
-                response = self._generate_coconut_prediction(
-                    question, pixel_values, model, tokenizer, generation_config, device
-                )
-            else:
-                # Use InternVL chat interface for standard evaluation
-                with torch.no_grad():
-                    response = internvl_model.chat(
-                        tokenizer=tokenizer,
-                        pixel_values=pixel_values,
-                        question=question,
-                        generation_config=generation_config,
-                        history=None,
-                        return_history=False
-                    )
-            
-            # Clean and extract answer
-            response = self._clean_generated_response(response)
-            is_cot = eval_config.get('cot', False)
-            extracted_answer = extract_answer_choice(response, is_cot)
-            
-            return extracted_answer
-            
-        except Exception as e:
-            logger.error(f"Failed to generate prediction: {e}", exc_info=True)
-            raise GenerationError(f"Prediction generation failed: {e}")
-
-    def _generate_coconut_prediction(
-        self,
-        question: str,
-        pixel_values: torch.Tensor,
-        model: nn.Module,
-        tokenizer,
-        generation_config: Dict[str, Any],
-        device: torch.device
-    ) -> str:
-        """Generate prediction using CoCoNut latent reasoning."""
-        # Get number of latent tokens from eval config
-        eval_config = getattr(self.args, 'eval_config', {})
-        eval_latent_tokens = eval_config.get('eval_latent_tokens', 3)
-        
-        # Create latent reasoning prompt
-        latent_tokens = " ".join(["<|latent|>"] * eval_latent_tokens)
-        latent_prompt = f"<|start_latent|> {latent_tokens} <|end_latent|>"
-        
-        prompt = f"<|im_start|>user\n<image>\n{question}<|im_end|><|im_start|>assistant\n{latent_prompt}"
-        
-        # Tokenize
-        inputs = tokenizer(
-            prompt,
-            return_tensors='pt',
-            padding=True,
-            truncation=True,
-            max_length=DEFAULT_INPUT_MAX_LENGTH
-        )
-        
-        input_ids = inputs['input_ids'].to(device)
-        attention_mask = inputs['attention_mask'].to(device)
-        
-        # Generate with latent wrapper
-        with torch.no_grad():
-            generated_ids = model.generate(
-                pixel_values=pixel_values,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                **generation_config
-            )
-        
-        # Decode only the generated part
-        if generated_ids.shape[1] > input_ids.shape[1]:
-            new_tokens = generated_ids[:, input_ids.shape[1]:]
-            response = tokenizer.decode(new_tokens[0], skip_special_tokens=True)
-        else:
-            response = ""
-        
-        return response
-
-    def _ensure_correct_dtype(self, pixel_values: torch.Tensor, model: nn.Module) -> torch.Tensor:
-        """Ensure pixel values have the correct dtype for the model."""
-        model_dtype = next(model.parameters()).dtype
-        if pixel_values.dtype != model_dtype:
-            return pixel_values.to(dtype=model_dtype)
-        return pixel_values
-
-    def _clean_generated_response(self, response: str) -> str:
-        """Clean the generated response text."""
-        # Remove extra whitespace and newlines
-        response = response.strip()
-        
-        # Remove common artifacts
-        response = response.replace('<|im_end|>', '').replace('<|im_start|>', '')
-        
-        return response
-
-    def _log_sample_result(
-        self, 
-        log_file, 
-        question: str, 
-        ground_truth: str, 
-        prediction: str, 
-        sample_idx: int,
-        is_cot: bool = False
-    ) -> None:
-        """Log individual sample evaluation result."""
-        log_file.write(f"\n{SAMPLE_LOG_SEPARATOR}\n")
-        log_file.write(f"Sample {sample_idx}\n")
-        log_file.write(f"Question: {question}\n")
-        log_file.write(f"Ground Truth: {ground_truth}\n")
-        log_file.write(f"Prediction: {prediction}\n")
-        
-        # Check if prediction is correct
-        is_correct = prediction.strip() == ground_truth.strip()
-        log_file.write(f"Correct: {is_correct}\n")
-
-    def _compute_final_metrics(
-        self, 
-        predictions: List[str], 
-        labels: List[str], 
-        metric_key_prefix: str
-    ) -> Dict[str, float]:
-        """Compute final evaluation metrics."""
-        if not predictions or not labels or len(predictions) != len(labels):
-            logger.warning("Empty or mismatched predictions/labels")
-            return {}
-        
-        # Calculate accuracy
-        correct = sum(1 for pred, label in zip(predictions, labels) if pred.strip() == label.strip())
-        total = len(predictions)
-        accuracy = correct / total if total > 0 else 0.0
-        
-        # Create metrics dictionary
-        metrics = {
-            f'{metric_key_prefix}_accuracy': accuracy,
-            f'{metric_key_prefix}_total_samples': total,
-            f'{metric_key_prefix}_correct_samples': correct,
-        }
-        
-        logger.info(f"Evaluation completed: {correct}/{total} correct ({accuracy:.4f})")
-        
-        return metrics
-
-    def _write_evaluation_summary(
-        self, 
-        log_file, 
-        metrics: Dict[str, float], 
-        num_samples: int
-    ) -> None:
-        """Write evaluation summary to log file."""
-        log_file.write(f"\n{EVAL_LOG_SEPARATOR}\n")
-        log_file.write("EVALUATION SUMMARY\n")
-        log_file.write(f"{EVAL_LOG_SEPARATOR}\n")
-        
-        accuracy = metrics.get('eval_accuracy', 0.0)
-        log_file.write(f"Total Samples: {num_samples}\n")
-        log_file.write(f"Accuracy: {accuracy:.4f}\n")
-        
-        log_file.write(f"{EVAL_LOG_SEPARATOR}\n")
-
-    def prediction_step(
-        self,
-        model: nn.Module,
-        inputs: Dict[str, torch.Tensor],
-        prediction_loss_only: bool,
-        ignore_keys: Optional[List[str]] = None,
-    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Perform a prediction step (used by HuggingFace evaluation)."""
-        # This method is required by the HuggingFace Trainer interface
-        # but we use our custom evaluation_loop instead
-        model.eval()
-        
-        with torch.no_grad():
-            inputs = self._prepare_inputs(inputs)
-            outputs = model(**inputs)
-            
-            loss = outputs.loss if hasattr(outputs, 'loss') else None
-            logits = outputs.logits if hasattr(outputs, 'logits') else None
-            labels = inputs.get('labels')
-            
-        return (loss, logits, labels)
+        for line in summary_lines:
+            logger.info(line)

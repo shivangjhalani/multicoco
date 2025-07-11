@@ -6,10 +6,11 @@ Expects the underlying model to expose `.model` attribute identical to
 """
 from __future__ import annotations
 
-import torch
-import torch.nn as nn
 import logging
 from typing import Optional
+
+import torch
+import torch.nn as nn
 
 from .constants import END_LATENT_TOKEN, LATENT_TOKEN, START_LATENT_TOKEN
 
@@ -25,11 +26,21 @@ class LatentWrapper(nn.Module):
     InternVL structure and may break if the architecture changes.
     """
 
-    def __init__(self, base_model: nn.Module, tokenizer):
-        """Initialize the LatentWrapper with base model and tokenizer."""
+    def __init__(self, base_model: nn.Module, tokenizer, enable_norm_logging: bool = False):
+        """
+        Initialize the LatentWrapper with base model and tokenizer.
+        
+        Args:
+            base_model: The base model to wrap
+            tokenizer: Tokenizer for token ID conversion
+            enable_norm_logging: Whether to enable detailed norm logging
+        """
         super().__init__()
         self.base_model = base_model
         self.tokenizer = tokenizer
+        self.enable_norm_logging = enable_norm_logging
+        
+        # Convert tokens to IDs
         self.latent_id = tokenizer.convert_tokens_to_ids(LATENT_TOKEN)
         self.start_id = tokenizer.convert_tokens_to_ids(START_LATENT_TOKEN)
         self.end_id = tokenizer.convert_tokens_to_ids(END_LATENT_TOKEN)
@@ -79,10 +90,10 @@ class LatentWrapper(nn.Module):
 
     def _has_latent_spans(self, input_ids: torch.Tensor) -> bool:
         """Check if input contains latent token spans."""
-        for ids in input_ids.tolist():
-            if self.start_id in ids and self.end_id in ids:
-                return True
-        return False
+        return any(
+            self.start_id in ids.tolist() and self.end_id in ids.tolist()
+            for ids in input_ids
+        )
 
     def _generate_with_latent_injection(
         self,
@@ -107,62 +118,97 @@ class LatentWrapper(nn.Module):
         device = input_ids.device
         batch_size = input_ids.shape[0]
         
-        # Set default token IDs
-        pad_token_id = (pad_token_id or self.tokenizer.pad_token_id or 
-                       self.tokenizer.eos_token_id)
-        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
+        # Set default token IDs and prepare generation state
+        generation_state = self._initialize_generation_state(
+            batch_size, device, input_ids, attention_mask, 
+            pad_token_id, eos_token_id
+        )
         
         # Cache vision embeddings
         image_embeds = self._get_cached_vision_embeddings(pixel_values, device)
-        
-        # Initialize generation state
-        unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=device)
-        generated_ids = input_ids.clone()
-        attention_mask = (attention_mask if attention_mask is not None 
-                         else torch.ones_like(input_ids))
         
         # Generation loop
         for _ in range(max_new_tokens):
             # Forward pass with latent injection
             with torch.no_grad():
                 outputs = self.forward(
-                    input_ids=generated_ids,
-                    attention_mask=attention_mask,
+                    input_ids=generation_state['generated_ids'],
+                    attention_mask=generation_state['attention_mask'],
                     pixel_values=None,
                     image_embeds=image_embeds,
                 )
             
-            # Get and process logits
-            logits = outputs["logits"][:, -1, :]
-            logits = self._apply_generation_filters(
-                logits, temperature, top_k, top_p
+            # Sample and update next token
+            next_token = self._sample_and_update_token(
+                outputs['logits'], generation_state, 
+                temperature, top_k, top_p, do_sample
             )
             
-            # Sample next token
-            next_token_id = self._sample_next_token(logits, do_sample)
-            
-            # Handle finished sequences
-            next_token_id = self._handle_finished_sequences(
-                next_token_id, unfinished_sequences, pad_token_id
-            )
-            
-            # Update generation state
-            generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
-            attention_mask = torch.cat(
-                [attention_mask, unfinished_sequences.unsqueeze(-1)], dim=1
-            )
-            
-            # Update unfinished sequences
-            if eos_token_id is not None:
-                newly_finished = ((next_token_id.squeeze(-1) == eos_token_id) & 
-                                (unfinished_sequences == 1))
-                unfinished_sequences.mul_((~newly_finished).long())
-            
-            # Early termination if all sequences finished
-            if unfinished_sequences.max() == 0:
+            # Check for early termination
+            if generation_state['unfinished_sequences'].max() == 0:
                 break
         
-        return generated_ids
+        return generation_state['generated_ids']
+    
+    def _initialize_generation_state(
+        self, 
+        batch_size: int, 
+        device: torch.device,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        pad_token_id: Optional[int],
+        eos_token_id: Optional[int]
+    ) -> dict:
+        """Initialize generation state."""
+        pad_token_id = (pad_token_id or self.tokenizer.pad_token_id or 
+                       self.tokenizer.eos_token_id)
+        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
+        
+        return {
+            'generated_ids': input_ids.clone(),
+            'attention_mask': (attention_mask if attention_mask is not None 
+                             else torch.ones_like(input_ids)),
+            'unfinished_sequences': torch.ones(batch_size, dtype=torch.long, device=device),
+            'pad_token_id': pad_token_id,
+            'eos_token_id': eos_token_id
+        }
+    
+    def _sample_and_update_token(
+        self,
+        logits: torch.Tensor,
+        generation_state: dict,
+        temperature: float,
+        top_k: int, 
+        top_p: float,
+        do_sample: bool
+    ) -> torch.Tensor:
+        """Sample next token and update generation state."""
+        # Get and process logits
+        current_logits = logits[:, -1, :]
+        current_logits = self._apply_generation_filters(current_logits, temperature, top_k, top_p)
+        
+        # Sample next token
+        next_token_id = self._sample_next_token(current_logits, do_sample)
+        
+        # Handle finished sequences
+        next_token_id = self._handle_finished_sequences(
+            next_token_id, generation_state['unfinished_sequences'], 
+            generation_state['pad_token_id']
+        )
+        
+        # Update generation state
+        generation_state['generated_ids'] = torch.cat([generation_state['generated_ids'], next_token_id], dim=1)
+        generation_state['attention_mask'] = torch.cat(
+            [generation_state['attention_mask'], generation_state['unfinished_sequences'].unsqueeze(-1)], dim=1
+        )
+        
+        # Update unfinished sequences
+        if generation_state['eos_token_id'] is not None:
+            newly_finished = ((next_token_id.squeeze(-1) == generation_state['eos_token_id']) & 
+                            (generation_state['unfinished_sequences'] == 1))
+            generation_state['unfinished_sequences'].mul_((~newly_finished).long())
+        
+        return next_token_id
     
     def _get_cached_vision_embeddings(
         self, pixel_values: Optional[torch.Tensor], device: torch.device
@@ -245,8 +291,6 @@ class LatentWrapper(nn.Module):
         2. Replace <|latent|> token embeddings with hidden state from previous token
         3. Second pass produces logits/loss reusing cached image embeddings
         """
-        batch_size, seq_len = input_ids.shape
-        
         # Extract latent spans
         spans = self._extract_latent_spans(input_ids)
         
@@ -276,17 +320,17 @@ class LatentWrapper(nn.Module):
     def _extract_latent_spans(self, input_ids: torch.Tensor) -> list[list[tuple[int, int]]]:
         """Extract latent spans for each batch item."""
         spans = []
-        for b in range(input_ids.shape[0]):
-            ids = input_ids[b].tolist()
+        for batch_idx in range(input_ids.shape[0]):
+            ids = input_ids[batch_idx].tolist()
             sample_spans = []
-            cur = 0
+            current_pos = 0
             
             while True:
                 try:
-                    start = ids.index(self.start_id, cur)
+                    start = ids.index(self.start_id, current_pos)
                     end = ids.index(self.end_id, start + 1)
                     sample_spans.append((start, end))
-                    cur = end + 1
+                    current_pos = end + 1
                 except ValueError:
                     break
             
@@ -317,10 +361,13 @@ class LatentWrapper(nn.Module):
         attention_mask: Optional[torch.Tensor], 
         image_embeds: Optional[torch.Tensor]
     ) -> torch.Tensor:
-        """First pass to obtain hidden states with vision-text monitoring."""
+        """First pass to obtain hidden states with optional vision-text monitoring."""
         with torch.inference_mode():
             # Track image context token positions before multimodal preparation
-            img_token_positions = self._get_image_token_positions(input_ids) if hasattr(self.base_model.model, 'img_context_token_id') else None
+            img_token_positions = None
+            if (self.enable_norm_logging and 
+                hasattr(self.base_model.model, 'img_context_token_id')):
+                img_token_positions = self._get_image_token_positions(input_ids)
             
             first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
                 input_ids=input_ids,
@@ -334,9 +381,11 @@ class LatentWrapper(nn.Module):
                 output_hidden_states=True,
             )
             
-            # Monitor hidden state norms for vision vs text tokens
+            # Monitor hidden state norms for vision vs text tokens if enabled
             hidden_states = first_out.hidden_states[-1]
-            if img_token_positions is not None and image_embeds is not None:
+            if (self.enable_norm_logging and 
+                img_token_positions is not None and 
+                image_embeds is not None):
                 self._log_vision_text_norms(hidden_states, img_token_positions)
         
         return hidden_states
@@ -350,16 +399,16 @@ class LatentWrapper(nn.Module):
         """Build modified input embeddings with latent token replacement."""
         inputs_embeds = self.embedding(input_ids).clone()
         
-        for b, pairs in enumerate(spans):
-            for start, end in pairs:
+        for batch_idx, span_pairs in enumerate(spans):
+            for start, end in span_pairs:
                 # Skip if no token before start (need previous token for injection)
                 if start == 0:
                     continue
                 
                 # Replace latent tokens with hidden state from previous token
                 span_length = end - start
-                inputs_embeds[b, start:end] = (
-                    last_hidden[b, start - 1]
+                inputs_embeds[batch_idx, start:end] = (
+                    last_hidden[batch_idx, start - 1]
                     .unsqueeze(0)
                     .repeat(span_length, 1)
                 )
@@ -387,56 +436,69 @@ class LatentWrapper(nn.Module):
                 
                 # Separate vision and text token norms
                 if batch_img_positions.any():
-                    vision_norms = batch_norms[batch_img_positions]
-                    text_norms = batch_norms[~batch_img_positions]
-                    
-                    # Calculate statistics
-                    vision_mean = vision_norms.mean().item()
-                    vision_std = vision_norms.std().item() if len(vision_norms) > 1 else 0.0
-                    text_mean = text_norms.mean().item()
-                    text_std = text_norms.std().item() if len(text_norms) > 1 else 0.0
-                    
-                    # Log statistics
-                    ratio = vision_mean / text_mean if text_mean != 0 else 0.0
-                    logger.info(
-                        f"Hidden state norms - Batch {batch_idx}: "
-                        f"Vision tokens: {len(vision_norms)} tokens, "
-                        f"mean={vision_mean:.4f}, std={vision_std:.4f} | "
-                        f"Text tokens: {len(text_norms)} tokens, "
-                        f"mean={text_mean:.4f}, std={text_std:.4f} | "
-                        f"Ratio (vision/text): {ratio:.4f}"
-                    )
-
-                    # Push to Weights & Biases (one log per batch to avoid spam)
-                    try:
-                        import wandb  # type: ignore
-                        if wandb.run is not None:
-                            wandb.log({
-                                "model/vision_norm_mean": vision_mean,
-                                "model/text_norm_mean": text_mean,
-                                "model/vision_text_ratio": ratio,
-                            })
-                    except ImportError:
-                        pass
+                    self._log_vision_and_text_norms(batch_norms, batch_img_positions, batch_idx)
                 else:
-                    # No vision tokens in this batch
-                    text_mean = batch_norms.mean().item()
-                    text_std = batch_norms.std().item() if len(batch_norms) > 1 else 0.0
-                    logger.info(f"Hidden state norms - Batch {batch_idx}: "
-                              f"No vision tokens, Text only: {len(batch_norms)} tokens, "
-                              f"mean={text_mean:.4f}, std={text_std:.4f}")
-                    try:
-                        import wandb  # type: ignore
-                        if wandb.run is not None:
-                            wandb.log({
-                                "model/text_only_norm_mean": text_mean,
-                                "model/text_only_norm_std": text_std,
-                            })
-                    except ImportError:
-                        pass
+                    self._log_text_only_norms(batch_norms, batch_idx)
                               
         except Exception as e:
             logger.warning(f"Failed to log vision-text norms: {e}")
+    
+    def _log_vision_and_text_norms(
+        self, 
+        batch_norms: torch.Tensor, 
+        batch_img_positions: torch.Tensor, 
+        batch_idx: int
+    ) -> None:
+        """Log norms for batches with both vision and text tokens."""
+        vision_norms = batch_norms[batch_img_positions]
+        text_norms = batch_norms[~batch_img_positions]
+        
+        # Calculate statistics
+        vision_mean = vision_norms.mean().item()
+        vision_std = vision_norms.std().item() if len(vision_norms) > 1 else 0.0
+        text_mean = text_norms.mean().item()
+        text_std = text_norms.std().item() if len(text_norms) > 1 else 0.0
+        ratio = vision_mean / text_mean if text_mean != 0 else 0.0
+        
+        # Log statistics
+        logger.info(
+            f"Hidden state norms - Batch {batch_idx}: "
+            f"Vision tokens: {len(vision_norms)} tokens, "
+            f"mean={vision_mean:.4f}, std={vision_std:.4f} | "
+            f"Text tokens: {len(text_norms)} tokens, "
+            f"mean={text_mean:.4f}, std={text_std:.4f} | "
+            f"Ratio (vision/text): {ratio:.4f}"
+        )
+
+        # Push to Weights & Biases if available
+        self._log_to_wandb({
+            "model/vision_norm_mean": vision_mean,
+            "model/text_norm_mean": text_mean,
+            "model/vision_text_ratio": ratio,
+        })
+    
+    def _log_text_only_norms(self, batch_norms: torch.Tensor, batch_idx: int) -> None:
+        """Log norms for text-only batches."""
+        text_mean = batch_norms.mean().item()
+        text_std = batch_norms.std().item() if len(batch_norms) > 1 else 0.0
+        
+        logger.info(f"Hidden state norms - Batch {batch_idx}: "
+                  f"No vision tokens, Text only: {len(batch_norms)} tokens, "
+                  f"mean={text_mean:.4f}, std={text_std:.4f}")
+        
+        self._log_to_wandb({
+            "model/text_only_norm_mean": text_mean,
+            "model/text_only_norm_std": text_std,
+        })
+    
+    def _log_to_wandb(self, metrics: dict) -> None:
+        """Log metrics to Weights & Biases if available."""
+        try:
+            import wandb  # type: ignore
+            if wandb.run is not None:
+                wandb.log(metrics)
+        except ImportError:
+            pass
     
     def _second_pass_forward(
         self, 

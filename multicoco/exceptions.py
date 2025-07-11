@@ -5,6 +5,8 @@ Defines specific exception types to provide better error handling and more
 informative error messages throughout the codebase.
 """
 
+from typing import Optional
+
 
 class MultiCoCoError(Exception):
     """
@@ -13,7 +15,6 @@ class MultiCoCoError(Exception):
     All custom exceptions in the MultiCoCo package should inherit from this
     base class to provide consistent error handling and identification.
     """
-    pass
 
 
 class ConfigurationError(MultiCoCoError):
@@ -23,7 +24,6 @@ class ConfigurationError(MultiCoCoError):
     This exception is used for issues with YAML configuration files,
     invalid parameter combinations, or missing required configuration values.
     """
-    pass
 
 
 class ModelInitializationError(MultiCoCoError):
@@ -33,7 +33,6 @@ class ModelInitializationError(MultiCoCoError):
     This exception covers errors during model loading, tokenizer setup,
     checkpoint loading, or any other model-related initialization issues.
     """
-    pass
 
 
 class DatasetError(MultiCoCoError):
@@ -43,7 +42,6 @@ class DatasetError(MultiCoCoError):
     Provides a common base for all dataset and data processing related
     exceptions to enable targeted error handling.
     """
-    pass
 
 
 class DataLoadingError(DatasetError):
@@ -54,7 +52,6 @@ class DataLoadingError(DatasetError):
     evaluation datasets, including file not found, parsing errors,
     or invalid data format issues.
     """
-    pass
 
 
 class ImageProcessingError(DatasetError):
@@ -64,7 +61,6 @@ class ImageProcessingError(DatasetError):
     This exception covers errors during image loading, preprocessing,
     resizing, or any other image processing operations.
     """
-    pass
 
 
 class GenerationError(MultiCoCoError):
@@ -74,7 +70,6 @@ class GenerationError(MultiCoCoError):
     This exception is used for errors during model inference,
     text generation, or response processing.
     """
-    pass
 
 
 class EvaluationError(MultiCoCoError):
@@ -84,7 +79,6 @@ class EvaluationError(MultiCoCoError):
     This exception covers errors during model evaluation, metric
     computation, or evaluation result processing.
     """
-    pass
 
 
 class AnswerExtractionError(EvaluationError):
@@ -94,7 +88,6 @@ class AnswerExtractionError(EvaluationError):
     This exception is used when the answer extraction utilities cannot
     parse or extract a valid answer choice from model-generated text.
     """
-    pass
 
 
 class DtypeMismatchError(MultiCoCoError):
@@ -106,16 +99,19 @@ class DtypeMismatchError(MultiCoCoError):
     input processing or model inference.
     """
     
-    def __init__(self, expected_dtype: str, actual_dtype: str):
+    def __init__(self, expected_dtype: str, actual_dtype: str, message: Optional[str] = None):
         """
         Initialize the exception with dtype information.
         
         Args:
             expected_dtype: The expected tensor dtype
             actual_dtype: The actual tensor dtype that was encountered
+            message: Optional custom error message
         """
         self.expected_dtype = expected_dtype
         self.actual_dtype = actual_dtype
-        super().__init__(
-            f"Dtype mismatch: expected {expected_dtype}, got {actual_dtype}"
-        ) 
+        
+        if message is None:
+            message = f"Dtype mismatch: expected {expected_dtype}, got {actual_dtype}"
+        
+        super().__init__(message) 

@@ -5,17 +5,17 @@ Provides utility functions for extracting answer choices from generated text
 using various patterns and heuristics.
 """
 
-import re
 import logging
-from typing import List, Tuple
+import re
+from typing import List, Pattern, Tuple
 
 from .constants import CHOICE_MAPPINGS, VALID_CHOICE_NUMBERS
 from .exceptions import AnswerExtractionError
 
 logger = logging.getLogger(__name__)
 
-# Compiled regex patterns for performance
-EXTRACTION_PATTERNS = [
+# Compiled regex patterns for performance (in order of specificity)
+EXTRACTION_PATTERNS: List[Tuple[Pattern[str], str]] = [
     (re.compile(r'(\d+)\s*:\s*[a-zA-Z]'), "number_colon"),
     (re.compile(r'^(\d+)(?:\s|$)'), "leading_number"),
     (re.compile(r'(?:answer is|choice is|option is)\s*(\d+)', re.IGNORECASE), "answer_format"),
@@ -67,23 +67,21 @@ def extract_answer_choice(generated_text: str, is_cot: bool = False) -> str:
     except Exception as e:
         raise AnswerExtractionError(
             f"Failed to extract answer from '{generated_text}': {e}"
-        )
+        ) from e
 
 
-def _extract_with_pattern(pattern: re.Pattern, text: str, 
-                         pattern_name: str) -> str:
+def _extract_with_pattern(pattern: Pattern[str], text: str, pattern_name: str) -> str:
     """Extract answer using a compiled regex pattern."""
     if pattern_name == "any_digit":
         # For any_digit, find all matches and return first valid one
-        matches = pattern.findall(text)
-        for match in matches:
-            if match in VALID_CHOICE_NUMBERS:
-                return match
-        return ""
-    else:
-        # For other patterns, get first match
-        match = pattern.search(text)
-        return match.group(1) if match else ""
+        return next(
+            (match for match in pattern.findall(text) if match in VALID_CHOICE_NUMBERS),
+            ""
+        )
+    
+    # For other patterns, get first match
+    match = pattern.search(text)
+    return match.group(1) if match else ""
 
 
 def _extract_word_mappings(text: str) -> str:

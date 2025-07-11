@@ -41,21 +41,18 @@ def suppress_internvl_messages():
     import builtins
     original_print = builtins.print
     
+    # Filter out specific InternVL messages
+    suppress_phrases = [
+        'dynamic ViT batch size:',
+        'warning: The size of tensor a',
+        'input_embeds[selected].shape=',
+        'vit_embeds.shape='
+    ]
+    
     def filtered_print(*args, **kwargs):
         message = ' '.join(str(arg) for arg in args)
-        
-        # Filter out specific InternVL messages
-        suppress_phrases = [
-            'dynamic ViT batch size:',
-            'warning: The size of tensor a',
-            'input_embeds[selected].shape=',
-            'vit_embeds.shape='
-        ]
-        
-        if any(phrase in message for phrase in suppress_phrases):
-            return
-        
-        original_print(*args, **kwargs)
+        if not any(phrase in message for phrase in suppress_phrases):
+            original_print(*args, **kwargs)
     
     builtins.print = filtered_print
     try:
@@ -99,25 +96,47 @@ class MultiCoCo(nn.Module):
         special_tokens = special_tokens or []
         
         try:
-            # Initialize all components
-            self.model = self._create_model(
-                model_id, config_id, torch_dtype, trust_remote_code, low_cpu_mem_usage
-            )
-            self.tokenizer = self._create_tokenizer(
-                tokenizer_id or model_id, special_tokens
-            )
-            self.image_processor = self._create_image_processor(
-                image_processor_id or model_id
+            # Initialize all components in one go
+            self.model, self.tokenizer, self.image_processor = self._initialize_components(
+                model_id, config_id, tokenizer_id, image_processor_id,
+                special_tokens, torch_dtype, trust_remote_code, low_cpu_mem_usage
             )
             self._setup_special_tokens()
             
         except Exception as e:
             raise ModelInitializationError(
                 f"Failed to initialize MultiCoCo model: {e}"
-            )
+            ) from e
         
-        param_count = self._count_parameters()
+        param_count = sum(p.numel() for p in self.model.parameters())
         logger.info(f"MultiCoCo model initialized with {param_count} parameters")
+
+    def _initialize_components(
+        self, 
+        model_id: str, 
+        config_id: Optional[str], 
+        tokenizer_id: Optional[str],
+        image_processor_id: Optional[str],
+        special_tokens: List[str],
+        torch_dtype: str,
+        trust_remote_code: bool, 
+        low_cpu_mem_usage: bool
+    ) -> tuple[nn.Module, AutoTokenizer, AutoImageProcessor]:
+        """Initialize all model components."""
+        # Create model
+        model = self._create_model(
+            model_id, config_id, torch_dtype, trust_remote_code, low_cpu_mem_usage
+        )
+        
+        # Create tokenizer
+        tokenizer = self._create_tokenizer(tokenizer_id or model_id, special_tokens)
+        
+        # Create image processor
+        image_processor = AutoImageProcessor.from_pretrained(
+            image_processor_id or model_id, trust_remote_code=True, use_fast=True
+        )
+        
+        return model, tokenizer, image_processor
 
     def _create_model(
         self, 
@@ -128,28 +147,13 @@ class MultiCoCo(nn.Module):
         low_cpu_mem_usage: bool
     ) -> nn.Module:
         """Create and configure the base model."""
-        conf_id = config_id or model_id
-        
         # Load and configure model config
         config = AutoConfig.from_pretrained(
-            conf_id, trust_remote_code=trust_remote_code
+            config_id or model_id, trust_remote_code=trust_remote_code
         )
         config.attn_implementation = "sdpa"  # Use optimized attention
 
         # Convert string dtype to torch dtype
-        dtype = self._get_torch_dtype(torch_dtype)
-
-        # Load the model
-        return AutoModelForCausalLM.from_pretrained(
-            model_id,
-            config=config,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=low_cpu_mem_usage,
-            trust_remote_code=trust_remote_code,
-        )
-
-    def _get_torch_dtype(self, torch_dtype: str) -> torch.dtype:
-        """Convert string dtype to torch dtype."""
         dtype_map = {
             "bfloat16": torch.bfloat16,
             "float16": torch.float16,
@@ -159,7 +163,16 @@ class MultiCoCo(nn.Module):
         if torch_dtype not in dtype_map:
             raise ModelInitializationError(f"Unsupported dtype: {torch_dtype}")
         
-        return dtype_map[torch_dtype]
+        dtype = dtype_map[torch_dtype]
+
+        # Load the model
+        return AutoModelForCausalLM.from_pretrained(
+            model_id,
+            config=config,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+            trust_remote_code=trust_remote_code,
+        )
 
     def _create_tokenizer(
         self, tokenizer_id: str, special_tokens: List[str]
@@ -177,16 +190,18 @@ class MultiCoCo(nn.Module):
         # Add special tokens if provided
         if special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-            self._resize_token_embeddings_for_tokenizer(tokenizer)
+            self._resize_token_embeddings(tokenizer)
             logger.info(f"Added {len(special_tokens)} special tokens: {special_tokens}")
         
         return tokenizer
 
-    def _create_image_processor(self, processor_id: str) -> AutoImageProcessor:
-        """Create image processor."""
-        return AutoImageProcessor.from_pretrained(
-            processor_id, trust_remote_code=True, use_fast=True
-        )
+    def _resize_token_embeddings(self, tokenizer: AutoTokenizer) -> None:
+        """Resize token embeddings after adding special tokens."""
+        # Handle different model architectures
+        if hasattr(self.model, 'language_model'):
+            self.model.language_model.resize_token_embeddings(len(tokenizer))
+        else:
+            self.model.resize_token_embeddings(len(tokenizer))
 
     def _setup_special_tokens(self) -> None:
         """Set up special token IDs for the model."""
@@ -201,18 +216,6 @@ class MultiCoCo(nn.Module):
 
         # Keep reference to eos id for convenience
         self.eos_token_id = self.tokenizer.eos_token_id
-
-    def _resize_token_embeddings_for_tokenizer(self, tokenizer: AutoTokenizer) -> None:
-        """Resize token embeddings after adding special tokens."""
-        # Handle different model architectures
-        if hasattr(self.model, 'language_model'):
-            self.model.language_model.resize_token_embeddings(len(tokenizer))
-        else:
-            self.model.resize_token_embeddings(len(tokenizer))
-
-    def _count_parameters(self) -> int:
-        """Count the number of model parameters."""
-        return sum(p.numel() for p in self.model.parameters())
 
     def get_input_embeddings(self) -> nn.Module:
         """Get input embedding layer."""
