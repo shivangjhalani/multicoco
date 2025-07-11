@@ -195,6 +195,7 @@ class LoggingConfig:
     console_output: bool = True
     verbose: bool = False
     run_name: Optional[str] = None
+    project: str = "multicoco"
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -449,7 +450,8 @@ class MultiCoCoConfig:
             use_wandb=config_dict.get('use_wandb', True),
             console_output=config_dict.get('console_output', True),
             verbose=config_dict.get('verbose', False),
-            run_name=training_config.name
+            run_name=training_config.name,
+            project=config_dict.get('project', 'multicoco')
         )
     
     def get_wandb_report_to(self) -> List[str]:

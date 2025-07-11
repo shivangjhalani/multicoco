@@ -447,6 +447,15 @@ class CoCoTrainer(Trainer):
         super().log(logs, **kwargs)
         self._update_progress_bar_with_metrics(logs)
 
+        # Forward logs to Weights & Biases if enabled
+        if getattr(self.args, 'report_to', None) and "wandb" in self.args.report_to:
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None:
+                    wandb.log(logs)
+            except ImportError:
+                pass
+
     def _update_progress_bar_with_metrics(self, logs: Dict[str, float]) -> None:
         """Update progress bar with training metrics."""
         # This would update any active progress bars with metrics

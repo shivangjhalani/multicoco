@@ -75,6 +75,9 @@ class MultiCoCoRunner:
         self.trainer: Optional[CoCoTrainer] = None
         self.train_dataset: Optional[SupervisedDataset] = None
         self.eval_dataset: Optional[SupervisedDataset] = None
+
+        # Weights & Biases run handle
+        self.wandb_run: Optional[Any] = None
         
         self._initialize()
         
@@ -98,6 +101,9 @@ class MultiCoCoRunner:
             logger.info(f"CUDA available with {device_count} devices")
         else:
             logger.warning("CUDA not available, using CPU")
+
+        # Initialize Weights & Biases if enabled
+        self._setup_wandb()
 
     def _set_random_seeds(self, seed: int) -> None:
         """Set random seeds for reproducibility."""
@@ -140,6 +146,39 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
+
+    def _setup_wandb(self) -> None:
+        """Initialize Weights & Biases logging if configured and available."""
+        if not self.config.logging.use_wandb:
+            return
+
+        # Only initialize on main process
+        local_rank = int(os.environ.get("LOCAL_RANK", -1))
+        if local_rank not in [-1, 0]:
+            return
+
+        try:
+            import wandb  # type: ignore
+            from dataclasses import asdict, is_dataclass  # local import to avoid unnecessary dependency when disabled
+
+            run_name = (
+                self.config.logging.run_name
+                or self.config.training.name
+                or f"run_{random.randint(0, 1_000_000)}"
+            )
+            project = getattr(self.config.logging, "project", "multicoco")
+
+            self.wandb_run = wandb.init(project=project, name=run_name, reinit=True)
+
+            # Record full config for reproducibility
+            cfg_dict = asdict(self.config) if is_dataclass(self.config) else {}
+            self.wandb_run.config.update(cfg_dict, allow_val_change=True)
+
+            logger.info(f"Initialized wandb run: project={project}, name={run_name}")
+
+        except ImportError:
+            logger.warning("wandb package not found; skipping wandb integration")
+            self.config.logging.use_wandb = False
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -526,6 +565,19 @@ class MultiCoCoRunner:
             logger.info(f"  Accuracy: {accuracy:.4f}")
             logger.info(f"  Loss: {loss:.4f}")
             
+            # Log to Weights & Biases if available
+            if self.config.logging.use_wandb:
+                try:
+                    import wandb  # type: ignore
+                    if wandb.run is not None:
+                        wandb_log = {"eval/accuracy": accuracy, "eval/loss": loss}
+                        if 'eval_coconut_stage' in metrics:
+                            wandb_log['eval/coconut_stage'] = metrics.get('eval_coconut_stage', 0)
+                            wandb_log['eval/max_latent_stage'] = metrics.get('eval_max_latent_stage', 0)
+                        wandb.log(wandb_log)
+                except ImportError:
+                    pass
+                
             # Log CoCoNut specific metrics if available
             if 'eval_coconut_stage' in metrics:
                 stage = metrics['eval_coconut_stage']
@@ -552,7 +604,17 @@ class MultiCoCoRunner:
             if mode not in mode_handlers:
                 raise ConfigurationError(f"Invalid training mode: {mode}")
             
-            return mode_handlers[mode]()
+            results = mode_handlers[mode]()
+
+            # Finish wandb run if started
+            if self.wandb_run is not None:
+                try:
+                    import wandb  # type: ignore
+                    wandb.finish()
+                except Exception:
+                    pass
+
+            return results
 
         except (ConfigurationError, ModelInitializationError, 
                 DataLoadingError, EvaluationError) as e:
