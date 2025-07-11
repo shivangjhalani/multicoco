@@ -141,20 +141,20 @@ class CoCoTrainer(Trainer):
         steps_per_epoch: int
     ) -> Dict[str, float]:
         """Train a single epoch and return metrics."""
-        epoch_start_time = time.time()
-        logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
-        
-        # Run training for this epoch
-        self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
-        
-        # Save checkpoint and evaluate after epoch
-        checkpoint_dir = self._save_epoch_checkpoint(epoch)
-        eval_metrics = self._evaluate_after_epoch(epoch)
-        
+            epoch_start_time = time.time()
+            logger.info(f"\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}")
+            
+            # Run training for this epoch
+            self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+            
+            # Save checkpoint and evaluate after epoch
+            checkpoint_dir = self._save_epoch_checkpoint(epoch)
+            eval_metrics = self._evaluate_after_epoch(epoch)
+            
         # Log epoch summary
-        epoch_time = time.time() - epoch_start_time
-        self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
-        
+            epoch_time = time.time() - epoch_start_time
+            self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
+            
         return eval_metrics
 
     def _handle_checkpoint_resumption(
@@ -232,27 +232,27 @@ class CoCoTrainer(Trainer):
 
     def _train_coconut_stage_with_logging(self, stage: int, params: Dict[str, Any]) -> None:
         """Train a single CoCoNut stage with proper logging."""
-        logger.info(f"\n{'='*60}")
-        logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
-        logger.info(f"{'='*60}")
-        
-        # Apply curriculum to dataset
-        if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
-            self.train_dataset.apply_progressive_curriculum(
-                scheduled_stage=stage,
+            logger.info(f"\n{'='*60}")
+            logger.info(f"STAGE {stage}: Training with {stage} latent tokens")
+            logger.info(f"{'='*60}")
+            
+            # Apply curriculum to dataset
+            if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
+                self.train_dataset.apply_progressive_curriculum(
+                    scheduled_stage=stage,
                 c_thought=params['c_thought'],
                 max_latent_stage=params['max_latent_stage'],
                 uniform_prob=params['uniform_prob'],
                 pad_latent_to_max=params['pad_latent_to_max']
-            )
-        
-        # Reset optimizer if requested
+                )
+            
+            # Reset optimizer if requested
         if params['reset_optimizer'] and stage > 0:
-            self.optimizer = None
-            self.lr_scheduler = None
-            logger.info("Reset optimizer for new stage")
-        
-        # Train for this stage
+                self.optimizer = None
+                self.lr_scheduler = None
+                logger.info("Reset optimizer for new stage")
+            
+            # Train for this stage
         self._train_coconut_stage(stage, params['epochs_per_stage'])
 
     def _train_coconut_stage(self, stage: int, epochs_per_stage: int) -> None:
@@ -281,24 +281,24 @@ class CoCoTrainer(Trainer):
         steps_per_epoch: int
     ) -> Dict[str, float]:
         """Train a single epoch in CoCoNut mode."""
-        epoch_start_time = time.time()
+            epoch_start_time = time.time()
         logger.info(f"Stage {stage}, Epoch {stage_epoch + 1}")
-        
-        # Run training for this epoch
-        self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
-        
-        # Save checkpoint and evaluate
-        checkpoint_dir = self._save_epoch_checkpoint(stage_epoch)
-        eval_metrics = self._evaluate_after_epoch(stage_epoch)
-        
-        # Log coconut-specific epoch summary
-        epoch_time = time.time() - epoch_start_time
-        self._log_coconut_epoch_summary(
-            stage_epoch, stage, stage_epoch, eval_metrics, checkpoint_dir, epoch_time
-        )
-        
-        gc.collect()
-        torch.cuda.empty_cache()
+            
+            # Run training for this epoch
+            self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
+            
+            # Save checkpoint and evaluate
+            checkpoint_dir = self._save_epoch_checkpoint(stage_epoch)
+            eval_metrics = self._evaluate_after_epoch(stage_epoch)
+            
+            # Log coconut-specific epoch summary
+            epoch_time = time.time() - epoch_start_time
+            self._log_coconut_epoch_summary(
+                stage_epoch, stage, stage_epoch, eval_metrics, checkpoint_dir, epoch_time
+            )
+            
+            gc.collect()
+            torch.cuda.empty_cache()
         
         return eval_metrics
 
@@ -368,8 +368,8 @@ class CoCoTrainer(Trainer):
             if loss is not None:
                 epoch_loss += loss.item()
                 step_count += 1
-                
-                # Update progress bar
+            
+            # Update progress bar
                 avg_loss = epoch_loss / step_count
                 pbar.set_postfix({'loss': f'{avg_loss:.4f}'})
                 
@@ -379,7 +379,7 @@ class CoCoTrainer(Trainer):
             # Update global step counter
             if step % self.args.gradient_accumulation_steps == 0:
                 self.total_train_steps += 1
-        
+
         pbar.close()
         
         # Log epoch summary
@@ -399,16 +399,16 @@ class CoCoTrainer(Trainer):
         if (step % self.args.gradient_accumulation_steps == 0 and
             getattr(self.args, "report_to", None) and 
             "wandb" in self.args.report_to):
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None:
-                    wandb.log({
-                        "train/batch_loss": loss.item(),
-                        "train/step": self.total_train_steps,
-                    })
-            except ImportError:
-                pass
-
+                    try:
+                        import wandb  # type: ignore
+                        if wandb.run is not None:
+                            wandb.log({
+                                "train/batch_loss": loss.item(),
+                                "train/step": self.total_train_steps,
+                            })
+                    except ImportError:
+                        pass
+        
     def _log_epoch_training_summary(self, epoch: int, epoch_loss: float, step_count: int) -> None:
         """Log epoch training summary."""
         if step_count > 0:
@@ -420,16 +420,16 @@ class CoCoTrainer(Trainer):
 
     def _log_epoch_to_wandb(self, avg_loss: float, epoch: int) -> None:
         """Log epoch metrics to wandb."""
-        if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None:
-                    wandb.log({
-                        "train/epoch_loss": avg_loss,
-                        "epoch": epoch + 1,
-                    })
-            except ImportError:
-                pass
+            if getattr(self.args, "report_to", None) and "wandb" in self.args.report_to:
+                try:
+                    import wandb  # type: ignore
+                    if wandb.run is not None:
+                        wandb.log({
+                            "train/epoch_loss": avg_loss,
+                            "epoch": epoch + 1,
+                        })
+                except ImportError:
+                    pass
 
     def _save_epoch_checkpoint(self, epoch: int) -> str:
         """Save checkpoint after epoch completion."""
@@ -632,8 +632,8 @@ class CoCoTrainer(Trainer):
                     progress_bar.set_postfix({
                         'processed': f"{len(predictions)}/{total_samples * self.args.per_device_eval_batch_size}"
                     })
-                    
-                except Exception as e:
+
+        except Exception as e:
                     logger.warning(f"Failed to generate prediction for sample {batch_idx}: {e}")
                     # Add empty predictions to maintain alignment
                     batch_size = len(batch.get('input_ids', []))
@@ -649,15 +649,15 @@ class CoCoTrainer(Trainer):
         )
         
         # Compute metrics on main process
-        if self.is_world_process_zero():
+            if self.is_world_process_zero():
             metrics = self._compute_evaluation_metrics(
                 all_predictions, all_labels, all_questions, metric_key_prefix
             )
             
             # Log sample predictions for debugging
             self._log_sample_predictions(all_predictions, all_labels, all_questions)
-            
-            return metrics
+        
+        return metrics
         else:
             return {}
 
@@ -689,7 +689,7 @@ class CoCoTrainer(Trainer):
                 # Generate prediction
                 prediction = self._generate_single_prediction(sample, max_new_tokens)
                 batch_predictions.append(prediction)
-                
+                    
             except Exception as e:
                 logger.warning(f"Failed to generate prediction for sample {i}: {e}")
                 batch_predictions.append("")
@@ -707,37 +707,56 @@ class CoCoTrainer(Trainer):
             pixel_values = sample.get('pixel_values')
             input_ids = sample.get('input_ids')
             attention_mask = sample.get('attention_mask')
+            questions = sample.get('questions', [''])
             
-            if input_ids is None:
+            if input_ids is None or not questions:
                 return ""
             
-            # Generate using the model
-            with torch.no_grad():
-                generated_ids = self.model.generate(
+            # Get the question text
+            question = questions[0] if isinstance(questions, list) else questions
+            
+            # Use InternVL's chat method instead of raw generate
+            if hasattr(self.model.model, 'chat') and pixel_values is not None:
+                # Use the chat method with proper image and text inputs
+                response = self.model.model.chat(
+                    tokenizer=self.tokenizer,
                     pixel_values=pixel_values,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=False,
-                    temperature=None,
-                    top_p=None,
-                    pad_token_id=self.tokenizer.eos_token_id,
+                    question=question,
+                    generation_config=dict(
+                        max_new_tokens=max_new_tokens,
+                        do_sample=False,
+                    )
                 )
-            
-            # Extract generated tokens (remove input tokens)
-            input_length = input_ids.shape[1]
-            generated_tokens = generated_ids[:, input_length:]
-            
-            # Decode the generated text
-            generated_text = self.tokenizer.decode(
-                generated_tokens[0], 
-                skip_special_tokens=True
-            ).strip()
-            
-            # Extract answer choice from generated text
-            answer_choice = extract_answer_choice(generated_text)
-            
-            return answer_choice
+                
+                # Extract answer choice from response
+                answer_choice = extract_answer_choice(response)
+                return answer_choice
+                
+            else:
+                # Fallback to standard generation if chat method not available
+                with torch.no_grad():
+                    generated_ids = self.model.generate(
+                        pixel_values=pixel_values,
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=False,
+                        pad_token_id=self.tokenizer.eos_token_id,
+                    )
+                
+                # Extract generated tokens (remove input tokens)
+                input_length = input_ids.shape[1]
+                generated_tokens = generated_ids[:, input_length:]
+                
+                # Decode the generated text
+                generated_text = self.tokenizer.decode(
+                    generated_tokens[0], 
+                    skip_special_tokens=True
+                ).strip()
+                
+                # Extract answer choice from generated text
+                answer_choice = extract_answer_choice(generated_text)
+                return answer_choice
             
         except Exception as e:
             import traceback
@@ -746,7 +765,7 @@ class CoCoTrainer(Trainer):
             return ""
 
     def _gather_evaluation_results(
-        self, 
+        self,
         predictions: List[str], 
         labels: List[str], 
         questions: List[str]
