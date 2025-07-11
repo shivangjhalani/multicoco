@@ -277,7 +277,7 @@ class MultiCoCoConfig:
         merged_dict = {**base_dict, **config_dict}
         
         # Handle nested dictionaries
-        for key in ['eval_config', 'coconut', 'generation']:
+        for key in ['eval_config', 'coconut']:
             if (key in base_dict and key in config_dict and 
                 isinstance(base_dict[key], dict) and 
                 isinstance(config_dict[key], dict)):

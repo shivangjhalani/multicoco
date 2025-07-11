@@ -36,11 +36,8 @@ from transformers.training_args import TrainingArguments
 from .answer_extraction import extract_answer_choice
 from .constants import (
     DEFAULT_MAX_NEW_TOKENS,
-    EVAL_LOG_SEPARATOR,
     IMAGE_TOKEN,
     LOSS_IGNORE_INDEX,
-    SAMPLE_LOG_SEPARATOR,
-    VALID_CHOICE_NUMBERS,
 )
 from .exceptions import AnswerExtractionError, EvaluationError
 
@@ -486,9 +483,7 @@ class CoCoTrainer(Trainer):
     ) -> None:
         """Log comprehensive epoch summary."""
         summary_lines = [
-            f"\n{EVAL_LOG_SEPARATOR}",
-            f"EPOCH {epoch + 1} SUMMARY",
-            f"{EVAL_LOG_SEPARATOR}",
+            f"\nEPOCH {epoch + 1} SUMMARY",
             f"Checkpoint: {checkpoint_dir}",
             f"Epoch time: {epoch_time:.2f}s",
         ]
@@ -499,8 +494,8 @@ class CoCoTrainer(Trainer):
                 *[f"  {k}: {v:.4f}" for k, v in eval_metrics.items()],
             ])
         
-        summary_lines.append(f"{EVAL_LOG_SEPARATOR}\n")
-        
+        # Reduced verbose separator logs
+
         for line in summary_lines:
             logger.info(line)
 
@@ -515,9 +510,7 @@ class CoCoTrainer(Trainer):
     ) -> None:
         """Log CoCoNut-specific epoch summary."""
         summary_lines = [
-            f"\n{EVAL_LOG_SEPARATOR}",
-            f"COCONUT STAGE {current_stage} - EPOCH {stage_epoch + 1} SUMMARY",
-            f"{EVAL_LOG_SEPARATOR}",
+            f"\nCOCONUT STAGE {current_stage} - EPOCH {stage_epoch + 1} SUMMARY",
             f"Global epoch: {epoch + 1}",
             f"Stage: {current_stage}",
             f"Stage epoch: {stage_epoch + 1}",
@@ -531,8 +524,8 @@ class CoCoTrainer(Trainer):
                 *[f"  {k}: {v:.4f}" for k, v in eval_metrics.items()],
             ])
         
-        summary_lines.append(f"{EVAL_LOG_SEPARATOR}\n")
-        
+        # Removed separator log
+
         for line in summary_lines:
             logger.info(line)
 
@@ -843,9 +836,7 @@ class CoCoTrainer(Trainer):
             
         num_to_log = min(num_samples, len(predictions))
         
-        logger.info(f"\n{SAMPLE_LOG_SEPARATOR}")
-        logger.info("SAMPLE PREDICTIONS")
-        logger.info(f"{SAMPLE_LOG_SEPARATOR}")
+        # Removed verbose sample separators
         
         for i in range(num_to_log):
             question = questions[i] if i < len(questions) else "N/A"
@@ -859,7 +850,7 @@ class CoCoTrainer(Trainer):
             logger.info(f"  Correct: {prediction.lower().strip() == label.lower().strip()}")
             logger.info("")
         
-        logger.info(f"{SAMPLE_LOG_SEPARATOR}")
+        # Removed verbose sample separators
 
     @property
     def tokenizer(self):

@@ -61,9 +61,7 @@ from multicoco.utils import TqdmLoggingHandler
 
 logger = logging.getLogger(__name__)
 
-# Third-party formatters required for the logging system.
-from pythonjsonlogger import jsonlogger  # type: ignore
-import colorlog  # type: ignore
+# Simplified logging: external colorlog/jsonlogger removed
 
 
 class MultiCoCoRunner:
@@ -139,63 +137,16 @@ class MultiCoCoRunner:
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
 
-        # Console handler with color formatting
+        # Console handler (simple formatter)
         if log_cfg.console_output:
-            self._setup_console_handler(root_logger)
+            console_handler = TqdmLoggingHandler()
+            console_formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            console_handler.setFormatter(console_formatter)
+            root_logger.addHandler(console_handler)
 
-        # File handler with JSON formatting
-        self._setup_file_handler(root_logger, log_cfg)
-
-        # Suppress overly-verbose library loggers unless explicitly requested
-        if not log_cfg.verbose:
-            logging.getLogger("transformers").setLevel(logging.WARNING)
-            logging.getLogger("torch").setLevel(logging.WARNING)
-
-    def _setup_console_handler(self, root_logger: logging.Logger) -> None:
-        """Setup colored console logging handler."""
-        console_handler = TqdmLoggingHandler()
-        fmt_str = "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        console_formatter = colorlog.ColoredFormatter(
-            fmt_str,
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green", 
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "bold_red",
-            },
-        )
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
-
-    def _setup_file_handler(self, root_logger: logging.Logger, log_cfg) -> None:
-        """Setup JSON file logging with rotation."""
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        file_path = os.path.join(
-            log_cfg.log_dir,
-            f"multicoco_{log_cfg.run_name or 'run'}_{timestamp}.log",
-        )
-        
-        # Main rotating handler with JSON format
-        rotating_handler = RotatingFileHandler(
-            file_path,
-            maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5,
-        )
-        file_formatter = jsonlogger.JsonFormatter(
-            "%(asctime)s %(name)s %(levelname)s %(message)s %(module)s %(funcName)s %(lineno)d",
-        )
-        rotating_handler.setFormatter(file_formatter)
-        root_logger.addHandler(rotating_handler)
-
-        # Summary handler for key events
-        summary_path = os.path.join(log_cfg.log_dir, "summary.log")
-        summary_handler = logging.FileHandler(summary_path, mode="a")
-        summary_handler.setLevel(logging.INFO)
-        summary_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        )
-        root_logger.addHandler(summary_handler)
+    # Removed _setup_console_handler and _setup_file_handler (no longer needed)
 
     def _setup_wandb(self) -> None:
         """Initialize Weights & Biases logging if configured and available."""
