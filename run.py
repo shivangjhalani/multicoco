@@ -66,38 +66,6 @@ from pythonjsonlogger import jsonlogger  # type: ignore
 import colorlog  # type: ignore
 
 
-# ===================== Added helpers for organised logging =====================
-class StreamToLogger:
-    """Redirect write calls (e.g. from print) to a logger instance."""
-    def __init__(self, logger: logging.Logger, level: int = logging.INFO) -> None:
-        self.logger = logger
-        self.level = level
-        self._buffer: str = ""
-
-    def write(self, message: str) -> None:  # type: ignore
-        message = message.rstrip()
-        if message:  # Ignore empty writes (\n)
-            self.logger.log(self.level, message)
-
-    def flush(self) -> None:  # noqa: D401  (No-op flush to satisfy IO interface)
-        pass
-
-
-class KeywordFilter(logging.Filter):
-    """Filter records that contain at least one of the provided keywords (case-insensitive)."""
-    def __init__(self, keywords: list[str]):
-        super().__init__()
-        self.keywords = tuple(k.lower() for k in keywords)
-
-    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
-        try:
-            msg = record.getMessage().lower()
-        except Exception:
-            return False
-        return any(k in msg for k in self.keywords)
-# ==============================================================================
-
-
 class MultiCoCoRunner:
     """
     Main runner class for MultiCoCo training and evaluation.
@@ -175,12 +143,8 @@ class MultiCoCoRunner:
         if log_cfg.console_output:
             self._setup_console_handler(root_logger)
 
-        # File handler with uniform formatting
+        # File handler with JSON formatting
         self._setup_file_handler(root_logger, log_cfg)
-
-        # Redirect stdout/stderr to logging so that plain prints are captured
-        sys.stdout = StreamToLogger(root_logger, logging.INFO)  # type: ignore
-        sys.stderr = StreamToLogger(root_logger, logging.ERROR)  # type: ignore
 
         # Suppress overly-verbose library loggers unless explicitly requested
         if not log_cfg.verbose:
@@ -205,56 +169,32 @@ class MultiCoCoRunner:
         root_logger.addHandler(console_handler)
 
     def _setup_file_handler(self, root_logger: logging.Logger, log_cfg) -> None:
-        """Setup rotating file handlers for general, training, and evaluation logs."""
+        """Setup JSON file logging with rotation."""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        
-        # --- Common formatter (uniform across all files) ---
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-        )
-
-        # --- General / stdout log ---
-        general_path = os.path.join(
+        file_path = os.path.join(
             log_cfg.log_dir,
-            f"general_{log_cfg.run_name or 'run'}_{timestamp}.log",
+            f"multicoco_{log_cfg.run_name or 'run'}_{timestamp}.log",
         )
-        general_handler = RotatingFileHandler(
-            general_path,
+        
+        # Main rotating handler with JSON format
+        rotating_handler = RotatingFileHandler(
+            file_path,
             maxBytes=10 * 1024 * 1024,  # 10 MB
             backupCount=5,
         )
-        general_handler.setFormatter(file_formatter)
-        root_logger.addHandler(general_handler)
-
-        # --- Training-specific log ---
-        train_path = os.path.join(log_cfg.log_dir, f"training_{timestamp}.log")
-        train_handler = RotatingFileHandler(
-            train_path,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=3,
+        file_formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s %(module)s %(funcName)s %(lineno)d",
         )
-        train_handler.setLevel(logging.INFO)
-        train_handler.setFormatter(file_formatter)
-        train_handler.addFilter(KeywordFilter(["train", "training"]))
-        root_logger.addHandler(train_handler)
+        rotating_handler.setFormatter(file_formatter)
+        root_logger.addHandler(rotating_handler)
 
-        # --- Evaluation-specific log ---
-        eval_path = os.path.join(log_cfg.log_dir, f"evaluation_{timestamp}.log")
-        eval_handler = RotatingFileHandler(
-            eval_path,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=3,
-        )
-        eval_handler.setLevel(logging.INFO)
-        eval_handler.setFormatter(file_formatter)
-        eval_handler.addFilter(KeywordFilter(["eval", "evaluation"]))
-        root_logger.addHandler(eval_handler)
-
-        # --- Summary handler for high-level INFO events (still useful) ---
+        # Summary handler for key events
         summary_path = os.path.join(log_cfg.log_dir, "summary.log")
         summary_handler = logging.FileHandler(summary_path, mode="a")
         summary_handler.setLevel(logging.INFO)
-        summary_handler.setFormatter(file_formatter)
+        summary_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
         root_logger.addHandler(summary_handler)
 
     def _setup_wandb(self) -> None:
