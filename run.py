@@ -243,14 +243,8 @@ class MultiCoCoRunner:
                    f"FP16: {self.config.training.fp16}")
         logger.info(f"Mode: {training_mode}, CoCoNut: {coconut_config.enabled}")
         
-        # Log to WandB if enabled
-        if wandb.run is not None:
-            wandb.log({
-                "model/source": source_info,
-                "model/dtype": self.config.model.torch_dtype,
-                "training/mode": str(training_mode),
-                "coconut/enabled": coconut_config.enabled
-            })
+        # Note: Model metadata is already logged as hyperparameters in wandb.init()
+        # No need to log static config values as metrics here
 
     def _load_checkpoint_weights(self, checkpoint_path: str) -> None:
         """Load checkpoint weights into the base model."""
