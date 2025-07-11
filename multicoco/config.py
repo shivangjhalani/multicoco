@@ -184,6 +184,10 @@ class TrainingConfig:
         
         # Create output directory
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        # --- Enforce: Never load best model at end in eval-only mode ---
+        if hasattr(self, 'mode') and getattr(self, 'mode', None) == TrainingMode.EVAL_ONLY:
+            self.load_best_model_at_end = False
 
 
 @dataclass
