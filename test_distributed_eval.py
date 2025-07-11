@@ -11,6 +11,34 @@ import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 
 
+def init_distributed():
+    """Initialize distributed training."""
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        rank = int(os.environ['RANK'])
+        world_size = int(os.environ['WORLD_SIZE'])
+        local_rank = int(os.environ.get('LOCAL_RANK', 0))
+        
+        # Initialize the process group
+        dist.init_process_group(
+            backend='nccl' if torch.cuda.is_available() else 'gloo',
+            rank=rank,
+            world_size=world_size
+        )
+        
+        # Set device
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
+            device = torch.device(f'cuda:{local_rank}')
+        else:
+            device = torch.device('cpu')
+        
+        print(f"Initialized distributed training: rank={rank}, world_size={world_size}, device={device}")
+        return rank, world_size, device
+    else:
+        print("No distributed environment detected")
+        return 0, 1, torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 class SimpleTestDataset(Dataset):
     """Simple test dataset to verify distributed sampling."""
     
@@ -34,13 +62,8 @@ class SimpleTestDataset(Dataset):
 def test_distributed_sampling():
     """Test that DistributedSampler properly splits data across processes."""
     
-    # Initialize distributed if not already done
-    if not dist.is_initialized():
-        print("Distributed training not initialized. This test requires torchrun.")
-        return
-    
-    rank = dist.get_rank()
-    world_size = dist.get_world_size()
+    # Initialize distributed training
+    rank, world_size, device = init_distributed()
     
     print(f"Process {rank}/{world_size}: Starting distributed sampling test")
     
@@ -48,13 +71,17 @@ def test_distributed_sampling():
     dataset = SimpleTestDataset(size=20)
     
     # Create distributed sampler
-    sampler = DistributedSampler(
-        dataset,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=False,
-        drop_last=False
-    )
+    if world_size > 1:
+        sampler = DistributedSampler(
+            dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=False,
+            drop_last=False
+        )
+    else:
+        from torch.utils.data import SequentialSampler
+        sampler = SequentialSampler(dataset)
     
     # Create dataloader
     dataloader = DataLoader(
@@ -84,45 +111,53 @@ def test_distributed_sampling():
     
     print(f"Process {rank}: Processed {len(processed_ids)} samples with IDs: {processed_ids}")
     
-    # Gather results from all processes
-    gathered_ids = [None for _ in range(world_size)]
-    gathered_samples = [None for _ in range(world_size)]
-    
-    dist.all_gather_object(gathered_ids, processed_ids)
-    dist.all_gather_object(gathered_samples, processed_samples)
-    
-    if rank == 0:
-        print("\n" + "="*50)
-        print("DISTRIBUTED SAMPLING TEST RESULTS")
-        print("="*50)
+    if world_size > 1:
+        # Gather results from all processes
+        gathered_ids = [None for _ in range(world_size)]
+        gathered_samples = [None for _ in range(world_size)]
         
-        all_ids = []
-        all_samples = []
+        dist.all_gather_object(gathered_ids, processed_ids)
+        dist.all_gather_object(gathered_samples, processed_samples)
         
-        for r in range(world_size):
-            print(f"Process {r} processed IDs: {gathered_ids[r]}")
-            print(f"Process {r} processed samples: {gathered_samples[r]}")
+        if rank == 0:
+            print("\n" + "="*50)
+            print("DISTRIBUTED SAMPLING TEST RESULTS")
+            print("="*50)
             
-            if gathered_ids[r] is not None:
-                all_ids.extend(gathered_ids[r])
-            if gathered_samples[r] is not None:
-                all_samples.extend(gathered_samples[r])
-        
-        print(f"\nCombined results:")
-        print(f"Total samples processed: {len(all_samples)}")
-        print(f"Total unique IDs: {len(set(all_ids))}")
-        print(f"All processed IDs: {sorted(all_ids)}")
-        
-        # Verify correctness
+            all_ids = []
+            all_samples = []
+            
+            for r in range(world_size):
+                print(f"Process {r} processed IDs: {gathered_ids[r]}")
+                print(f"Process {r} processed samples: {gathered_samples[r]}")
+                
+                if gathered_ids[r] is not None:
+                    all_ids.extend(gathered_ids[r])
+                if gathered_samples[r] is not None:
+                    all_samples.extend(gathered_samples[r])
+            
+            print(f"\nCombined results:")
+            print(f"Total samples processed: {len(all_samples)}")
+            print(f"Total unique IDs: {len(set(all_ids))}")
+            print(f"All processed IDs: {sorted(all_ids)}")
+            
+            # Verify correctness
+            expected_ids = list(range(20))
+            if sorted(all_ids) == expected_ids:
+                print("✅ SUCCESS: All samples processed exactly once!")
+            else:
+                print("❌ FAILURE: Sample duplication or missing samples detected!")
+                print(f"Expected: {expected_ids}")
+                print(f"Got: {sorted(all_ids)}")
+            
+            print("="*50)
+    else:
+        print(f"Single process mode: processed {len(processed_ids)} samples")
         expected_ids = list(range(20))
-        if sorted(all_ids) == expected_ids:
-            print("✅ SUCCESS: All samples processed exactly once!")
+        if sorted(processed_ids) == expected_ids:
+            print("✅ SUCCESS: All samples processed!")
         else:
-            print("❌ FAILURE: Sample duplication or missing samples detected!")
-            print(f"Expected: {expected_ids}")
-            print(f"Got: {sorted(all_ids)}")
-        
-        print("="*50)
+            print("❌ FAILURE: Some samples missing!")
 
 
 if __name__ == "__main__":
