@@ -12,19 +12,21 @@ import os
 import sys
 from typing import Dict, Any, Optional
 import random
-from datetime import datetime
 
+# ** Core libraries
 import torch
 import torch.utils.checkpoint as cp  # type: ignore
 from functools import partial
 import numpy as np
-from transformers import AutoModelForCausalLM, TrainingArguments
+from transformers import TrainingArguments, AutoModelForCausalLM
 
 if not getattr(cp.checkpoint, "__patched_use_reentrant", False):
     cp.checkpoint = partial(cp.checkpoint, use_reentrant=False)  # type: ignore[arg-type]
     cp.checkpoint.__patched_use_reentrant = True  # type: ignore[attr-defined]
+# ** Local imports
 from multicoco.config import (
     MultiCoCoConfig,
+    MultiCoCoConfig as _MC,
     TrainingMode
 )
 from multicoco.model import MultiCoCo
@@ -80,7 +82,6 @@ class MultiCoCoRunner:
         self._setup_logging()
         
         logger.info(f"MultiCoCoRunner initialized for {'training' if self.config.training.mode != TrainingMode.EVAL_ONLY else 'evaluation'}")
-        logger.info(f"Using seed: {self.config.training.seed}")
 
     def _setup_environment(self) -> None:
         """Set up the execution environment."""
@@ -113,13 +114,6 @@ class MultiCoCoRunner:
             
         log_config = self.config.logging
         os.makedirs(log_config.log_dir, exist_ok=True)
-        
-        # Create a unique log file name with timestamp and run name
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_name = log_config.run_name or "run"
-        log_file_name = f"{timestamp}_multicoco_{run_name}.log"
-        log_file_path = os.path.join(log_config.log_dir, log_file_name)
-
         log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         
         # Get the root logger
@@ -131,7 +125,7 @@ class MultiCoCoRunner:
             root_logger.handlers.clear()
 
         # Create file handler
-        file_handler = logging.FileHandler(log_file_path, mode='w')
+        file_handler = logging.FileHandler(os.path.join(log_config.log_dir, 'multicoco.log'), mode='w')
         file_handler.setFormatter(logging.Formatter(log_format))
         root_logger.addHandler(file_handler)
 
@@ -146,8 +140,6 @@ class MultiCoCoRunner:
         if not log_config.verbose:
             logging.getLogger("transformers").setLevel(logging.WARNING)
             logging.getLogger("torch").setLevel(logging.WARNING)
-
-        logger.info(f"Logging configured. Log file: {log_file_path}")
 
     def initialize_model(self) -> None:
         """Initialize the model from configuration with proper phase separation."""
@@ -685,8 +677,12 @@ def main() -> None:
         parser = create_parser()
         args = parser.parse_args()
         
-        # Load configuration with base config inheritance
-        config = MultiCoCoConfig.load_with_base(args.config_path)
+        # Load configuration
+        # Load config using from_dict to support flat YAML format
+        import yaml
+        with open(args.config_path, 'r') as f:
+            yaml_config = yaml.safe_load(f)
+        config = MultiCoCoConfig.from_dict(yaml_config)
         
         # Apply command line overrides
         config = apply_cli_overrides(config, args)

@@ -14,15 +14,17 @@ from typing import Optional, List, Tuple, Dict, Any, Union
 import random
 import gc
 import time
-from datetime import datetime
 
+# ** Core libraries
 import torch
 import torch.distributed as dist
 from tqdm import tqdm
+from PIL import Image
 import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
 
+# ** Transformers components
 from transformers import Trainer
 from transformers.trainer_pt_utils import (
     find_batch_size,
@@ -32,9 +34,16 @@ from transformers.trainer_pt_utils import (
     nested_detach
 )
 from transformers.trainer_utils import get_last_checkpoint
+from transformers.integrations.deepspeed import deepspeed_init
+from transformers.trainer_pt_utils import LabelSmoother
 from transformers.trainer_utils import EvalPrediction
 from transformers.trainer_utils import TrainOutput
+from transformers.training_args import TrainingArguments
+
+# ** Local imports
 from .constants import (
+    VALID_CHOICE_NUMBERS,
+    CHOICE_MAPPINGS,
     LOSS_IGNORE_INDEX,
     DEFAULT_MAX_NEW_TOKENS,
     IMAGE_TOKEN,
@@ -44,9 +53,9 @@ from .constants import (
 )
 from .exceptions import (
     EvaluationError,
+    AnswerExtractionError,
     GenerationError
 )
-from .answer_extraction import extract_answer_choice
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +91,7 @@ class CoCoTrainer(Trainer):
             *args: Arguments passed to parent Trainer
             **kwargs: Keyword arguments passed to parent Trainer
         """
+        # Remove processor argument as it's handled by parent class
         if 'processor' in kwargs:
             kwargs.pop('processor')
             
@@ -90,9 +100,6 @@ class CoCoTrainer(Trainer):
         # Initialize trainer state
         self.best_val_acc = 0.0
         self.total_train_steps = 0
-        
-        # Checkpoint tracking for smart management
-        self.checkpoint_history = []  # List of (checkpoint_path, accuracy, epoch)
         
         logger.info("CoCoTrainer initialized.")
 
@@ -167,12 +174,11 @@ class CoCoTrainer(Trainer):
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
             
-            # Run evaluation after epoch first to get accuracy for checkpoint management
-            eval_metrics = self._evaluate_after_epoch(epoch)
-            eval_accuracy = eval_metrics.get('eval_accuracy', 0.0)
+            # Save checkpoint after epoch
+            checkpoint_dir = self._save_epoch_checkpoint(epoch)
             
-            # Save checkpoint after epoch with accuracy info
-            checkpoint_dir = self._save_epoch_checkpoint(epoch, eval_accuracy)
+            # Run evaluation after epoch
+            eval_metrics = self._evaluate_after_epoch(epoch)
             
             # Log epoch summary
             epoch_time = time.time() - epoch_start_time
@@ -303,14 +309,13 @@ class CoCoTrainer(Trainer):
             # Run training for this epoch
             self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
             
-            # Run evaluation after epoch first to get accuracy for checkpoint management
+            # Save checkpoint after epoch
+            checkpoint_dir = self._save_epoch_checkpoint(epoch)
+            
+            # Run evaluation after epoch
             eval_metrics = self._evaluate_after_epoch(epoch)
             eval_metrics['eval_coconut_stage'] = current_stage
             eval_metrics['eval_max_latent_stage'] = max_latent_stage
-            eval_accuracy = eval_metrics.get('eval_accuracy', 0.0)
-            
-            # Save checkpoint after epoch with accuracy info
-            checkpoint_dir = self._save_epoch_checkpoint(epoch, eval_accuracy)
             
             # Log epoch summary
             epoch_time = time.time() - epoch_start_time
@@ -463,8 +468,8 @@ class CoCoTrainer(Trainer):
         avg_loss = epoch_loss / max(step_count, 1)
         logger.info(f"  Training completed - Average loss: {avg_loss:.4f}")
 
-    def _save_epoch_checkpoint(self, epoch: int, eval_accuracy: float = 0.0) -> str:
-        """Save checkpoint after epoch with smart checkpoint management."""
+    def _save_epoch_checkpoint(self, epoch: int) -> str:
+        """Save checkpoint after epoch."""
         checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-epoch-{epoch + 1}")
         
         # Save model state
@@ -480,48 +485,12 @@ class CoCoTrainer(Trainer):
         training_info = {
             "epoch": epoch + 1,
             "total_train_steps": self.total_train_steps,
-            "best_val_acc": self.best_val_acc,
-            "eval_accuracy": eval_accuracy
+            "best_val_acc": self.best_val_acc
         }
         torch.save(training_info, os.path.join(checkpoint_dir, "training_info.pt"))
         
-        # Track checkpoint for smart management
-        self.checkpoint_history.append((checkpoint_dir, eval_accuracy, epoch + 1))
-        
-        # Apply checkpoint management
-        self._manage_checkpoints()
-        
         logger.info(f"  Checkpoint saved: {checkpoint_dir}")
         return checkpoint_dir
-
-    def _manage_checkpoints(self) -> None:
-        """Manage checkpoints based on configuration settings."""
-        max_checkpoints = getattr(self.args, 'max_checkpoints_to_keep', 3)
-        keep_best = getattr(self.args, 'keep_best_checkpoints', True)
-        
-        if len(self.checkpoint_history) <= max_checkpoints:
-            return
-        
-        if keep_best:
-            # Sort by accuracy (descending) and keep the best ones
-            self.checkpoint_history.sort(key=lambda x: x[1], reverse=True)
-            checkpoints_to_remove = self.checkpoint_history[max_checkpoints:]
-            self.checkpoint_history = self.checkpoint_history[:max_checkpoints]
-        else:
-            # Keep the most recent ones
-            self.checkpoint_history.sort(key=lambda x: x[2])  # Sort by epoch
-            checkpoints_to_remove = self.checkpoint_history[:-max_checkpoints]
-            self.checkpoint_history = self.checkpoint_history[-max_checkpoints:]
-        
-        # Remove old checkpoints
-        for checkpoint_path, accuracy, epoch in checkpoints_to_remove:
-            try:
-                if os.path.exists(checkpoint_path):
-                    import shutil
-                    shutil.rmtree(checkpoint_path)
-                    logger.info(f"  Removed checkpoint: {checkpoint_path} (accuracy: {accuracy:.4f})")
-            except Exception as e:
-                logger.warning(f"  Failed to remove checkpoint {checkpoint_path}: {e}")
 
     def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
         """Run evaluation after epoch."""
@@ -914,13 +883,12 @@ class CoCoTrainer(Trainer):
         os.makedirs(log_dir, exist_ok=True)
         
         # Determine evaluation type
-        eval_type = self._get_eval_type_name(self.args.eval_config)
+        eval_config = self.args.eval_config
+        is_cot = eval_config.get('cot', False)
+        is_coconut = eval_config.get('coconut', False)
+        eval_type = "coconut" if is_coconut else "cot" if is_cot else "vanilla"
         
-        # Create a unique log file name with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file_name = f"{timestamp}_evaluation_{eval_type}.log"
-        
-        return os.path.join(log_dir, log_file_name)
+        return os.path.join(log_dir, f'evaluation_{eval_type}.log')
 
     def _write_evaluation_header(self, log_file) -> None:
         """Write evaluation header to log file."""
@@ -1158,7 +1126,9 @@ class CoCoTrainer(Trainer):
         """Clean up generated response by removing thought tokens."""
         eval_config = self.args.eval_config
         
+        # Remove thought tokens that might have been generated
         if eval_config.get('coconut', False):
+            # Remove latent special tokens that may appear in generation
             from multicoco.constants import LATENT_TOKEN, START_LATENT_TOKEN, END_LATENT_TOKEN
             thought_tokens = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
             for token in thought_tokens:
@@ -1184,11 +1154,11 @@ class CoCoTrainer(Trainer):
             log_file.write(f"  Question: {question}\n")
             log_file.write(f"  Ground Truth Answer: {ground_truth}\n")
             log_file.write(f"  Generated Answer: {prediction}\n")
-            log_file.write(f"  Extracted Answer: {extract_answer_choice(prediction, is_cot)}\n")
+            log_file.write(f"  Extracted Answer: {self.extract_answer_choice(prediction, is_cot)}\n")
             # Get tokenizer with proper handling of deprecation warning
             tokenizer = self.processing_class if hasattr(self, 'processing_class') and self.processing_class is not None else self.tokenizer
             log_file.write(f"  Tokens Generated: {len(tokenizer.tokenize(prediction))}\n")
-            log_file.write(f"  Correct: {'Yes' if extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
+            log_file.write(f"  Correct: {'Yes' if self.extract_answer_choice(prediction, is_cot) == ground_truth.strip() else 'No'}\n")
             log_file.write(SAMPLE_LOG_SEPARATOR + "\n\n")
 
         except Exception as e:
@@ -1208,7 +1178,7 @@ class CoCoTrainer(Trainer):
         total = len(labels)
         
         for pred, label in zip(predictions, labels):
-            extracted_answer = extract_answer_choice(pred, is_cot)
+            extracted_answer = self.extract_answer_choice(pred, is_cot)
             if extracted_answer == label.strip():
                 correct += 1
         
