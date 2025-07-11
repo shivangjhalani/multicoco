@@ -422,24 +422,26 @@ class CoCoTrainer(Trainer):
         """Create generation configuration from training arguments."""
         # Get generation kwargs from training arguments
         generation_kwargs = getattr(self.args, 'generation_kwargs', {})
-        
+
         # Get tokenizer/processing_class with deprecation handling
         tokenizer = getattr(self, 'processing_class', None) or getattr(self, 'tokenizer', None)
-        
+
         # Set defaults if not provided
         config = {
             'max_new_tokens': generation_kwargs.get('max_new_tokens', DEFAULT_MAX_NEW_TOKENS),
             'do_sample': generation_kwargs.get('do_sample', True),
-            'temperature': generation_kwargs.get('temperature', 0.7),
-            'top_p': generation_kwargs.get('top_p', 0.9),
-            'top_k': generation_kwargs.get('top_k', 50),
             'num_beams': generation_kwargs.get('num_beams', 1),
             'pad_token_id': tokenizer.pad_token_id if tokenizer else None,
             'eos_token_id': tokenizer.eos_token_id if tokenizer else None,
         }
-        
-        return config
 
+        # Add sampling parameters only if do_sample is True
+        if config['do_sample']:
+            config['temperature'] = generation_kwargs.get('temperature', 0.7)
+            config['top_p'] = generation_kwargs.get('top_p', 0.9)
+            config['top_k'] = generation_kwargs.get('top_k', 50)
+
+        return config
     def log(self, logs: Dict[str, float], **kwargs) -> None:
         """Override log method to update progress bar with metrics."""
         super().log(logs, **kwargs)
