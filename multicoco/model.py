@@ -221,6 +221,11 @@ class MultiCoCo(nn.Module):
         """Get input embedding layer."""
         return self.model.get_input_embeddings()
 
+    @property
+    def device(self):
+        """Return the device of the model's parameters."""
+        return next(self.parameters()).device
+
     def _ensure_dtype_consistency(self, **kwargs) -> Dict[str, Any]:
         """Ensure all input tensors match the model's dtype."""
         try:
