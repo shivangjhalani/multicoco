@@ -142,18 +142,6 @@ class SupervisedDataset(Dataset):
             
         return result
     
-    def get_image_path(self, index: int) -> Optional[str]:
-        """Get the full path to the image file for a given index."""
-        if index >= len(self.data):
-            return None
-        
-        item = self.data[index]
-        image_file = item.get('image')
-        if not image_file:
-            return None
-            
-        return os.path.join(self.data_dir, image_file)
-
     def _validate_item(self, item: Dict, index: int) -> None:
         """Validate that item has required fields."""
         required_fields = ['image', 'question']
