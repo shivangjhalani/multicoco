@@ -10,9 +10,15 @@ seed: 42
 batch_size: 8
 eval_batch_size: 16
 gradient_accumulation_steps: 2
-learning_rate: 1.0e-5
+eval_accumulation_steps: 1
+learning_rate: 1.0e-5  # Safe for fine-tuning large models
+weight_decay: 0.01  # Prevents overfitting
+warmup_steps: 500  # 10% of total steps for stability
 limit_for_testing: false
 resume_from_checkpoint: true
+load_best_model_at_end: true
+metric_for_best_model: "accuracy"
+greater_is_better: true
 
 # Generation Configuration
 generation:
@@ -21,13 +27,16 @@ generation:
   num_beams: 1
   temperature: 0.7
   top_p: 0.9
+  top_k: 50  # Standard constraint from LLM literature
 
 # Model Configuration
-bf16: true
-fp16: false
+bf16: true  # Mixed-precision speed on Ampere+ GPUs
+fp16: false  # Avoid if causes instability in vision components
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
 torch_compile: false
 use_flash_attention_2: true
+gradient_checkpointing: true  # Memory efficiency
+dataloader_num_workers: 4
 
 # Data Configuration
 data_dir: "data/"
@@ -39,6 +48,8 @@ console_output: true
 log_dir: "logs/"
 log_level: "INFO"
 verbose: false
+use_wandb: true
+run_name: null  # Will be set by specific configs
 
 # Checkpoint Management
 keep_best_checkpoints: true

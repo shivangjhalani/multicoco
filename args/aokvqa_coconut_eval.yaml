@@ -3,17 +3,19 @@
 # Training Configuration
 mode: "eval_only"
 name: "aokvqa-coconut-evaluation"
-eval_accumulation_steps: 4
-eval_batch_size: 8
+run_name: "aokvqa-coconut-evaluation"
+eval_accumulation_steps: 2  # Reduced from 4 for faster eval
+eval_batch_size: 16  # Increased from 8
 limit_for_testing: true
 
 # Generation Configuration
 generation:
-  do_sample: true
-  max_new_tokens: 256
-  num_beams: 1
-  temperature: 0.8
-  top_p: 0.9
+  do_sample: false  # Deterministic for fair comparison
+  max_new_tokens: 256  # Allow latent reasoning space
+  num_beams: 3  # Beam search improves latent accuracy
+  temperature: 0.0  # Greedy decoding
+  top_p: 1.0
+  top_k: 50
 
 # Model Configuration
 load_model_path: "checkpoints/aokvqa_coconut"
@@ -29,4 +31,4 @@ eval_config:
   coconut: true
   cot: false
   detailed_logging: true
-  eval_latent_tokens: 6 
+  eval_latent_tokens: 4  # Optimized: test mid-range compression 

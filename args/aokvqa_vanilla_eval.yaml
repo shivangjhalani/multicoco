@@ -3,18 +3,20 @@
 # Training Configuration
 mode: "eval_only"
 name: "aokvqa-vanilla-eval"
+run_name: "aokvqa-vanilla-eval"
 dataloader_num_workers: 0
 eval_accumulation_steps: 1
-eval_batch_size: 16
+eval_batch_size: 32  # Increased for speed (was 16)
 limit_for_testing: true
 
 # Generation Configuration
 generation:
-  do_sample: false
-  max_new_tokens: 128
-  num_beams: 3
-  temperature: 0.0
-  top_p: 1.0
+  do_sample: false  # Deterministic for reproducibility
+  max_new_tokens: 128  # Sufficient for answers
+  num_beams: 3  # Beam search improves VQA accuracy
+  temperature: 0.0  # Greedy decoding
+  top_p: 1.0  # Full distribution for beams
+  top_k: 50  # Standard constraint
 
 # Evaluation Configuration
 eval_config:

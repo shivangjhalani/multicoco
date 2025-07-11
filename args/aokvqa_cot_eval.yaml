@@ -3,15 +3,19 @@
 # Training Configuration
 mode: "eval_only"
 name: "aokvqa-cot-eval"
+run_name: "aokvqa-cot-eval"
+eval_batch_size: 32  # Increased for speed
+eval_accumulation_steps: 2
 limit_for_testing: true
 
 # Generation Configuration
 generation:
-  do_sample: true
-  max_new_tokens: 256
-  num_beams: 1
-  temperature: 1.0
-  top_p: 0.9
+  do_sample: false  # Deterministic evaluation
+  max_new_tokens: 256  # Allow full CoT reasoning
+  num_beams: 3  # Beam search for better accuracy
+  temperature: 0.0  # Greedy for reproducibility
+  top_p: 1.0
+  top_k: 50
 
 # Model Configuration
 load_model_path: "checkpoints/aokvqa_cot"
