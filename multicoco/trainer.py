@@ -225,7 +225,7 @@ class CoCoTrainer(Trainer):
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
         return self.perform_evaluation(eval_dataset, metric_key_prefix)
 
-    def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval') -> Dict[str, float]:
+    def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
         eval_dataset = eval_dataset or self.eval_dataset
         if eval_dataset is None:
             raise EvaluationError('No evaluation dataset provided')
@@ -259,8 +259,9 @@ class CoCoTrainer(Trainer):
             metrics = self._compute_evaluation_metrics(all_preds, all_labels, metric_key_prefix)
             logger.info(f'{metric_key_prefix.upper()} METRICS: {metrics}')
             
-            correctness = np.array(all_preds) == np.array(all_labels)
-            self._log_per_sample_details(all_questions, all_labels, all_gen_texts, all_ext_ans, all_gen_tokens, correctness)
+            if log_per_sample:
+                correctness = np.array(all_preds) == np.array(all_labels)
+                self._log_per_sample_details(all_questions, all_labels, all_gen_texts, all_ext_ans, all_gen_tokens, correctness)
             
             if "wandb" in self.args.report_to:
                 try:

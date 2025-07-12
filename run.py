@@ -520,7 +520,7 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None:
             raise ModelInitializationError('Trainer or dataset not initialized')
         logger.info('Starting evaluation...')
-        metrics = self.trainer.perform_evaluation(log_per_sample=self.config.evaluation.log_per_sample)
+        metrics = self.trainer.perform_evaluation()
         self._log_evaluation_results(metrics)  # Keep for summary, but simplify
         return metrics
 
