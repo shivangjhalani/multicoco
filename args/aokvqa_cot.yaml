@@ -10,7 +10,7 @@ eval_batch_size: 64
 eval_accumulation_steps: 2
 num_epochs: 8
 weight_decay: 0.01
-warmup_steps: 50
+warmup_steps: 500
 max_grad_norm: 1.0
 lr_scheduler_type: "cosine"
 load_best_model_at_end: true
