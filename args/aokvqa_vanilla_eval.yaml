@@ -6,8 +6,8 @@ name: "aokvqa-vanilla-eval"
 run_name: "aokvqa-vanilla-eval"
 dataloader_num_workers: 0
 eval_accumulation_steps: 1
-eval_batch_size: 16
-limit_for_testing: true
+eval_batch_size: 32
+limit_for_testing: false
 
 # Generation Configuration
 generation:
