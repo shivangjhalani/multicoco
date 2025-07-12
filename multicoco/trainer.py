@@ -18,6 +18,8 @@ from .answer_extraction import extract_answer_choice
 from .constants import DEFAULT_MAX_NEW_TOKENS
 from .exceptions import EvaluationError
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 logger = logging.getLogger(__name__)
 
 
