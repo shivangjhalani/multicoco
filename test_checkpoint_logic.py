@@ -49,6 +49,55 @@ def test_checkpoint_resume_scenarios():
         if checkpoint == "epoch-2":
             print(f"  ❌ PROBLEM: If num_epochs=3, range(3,3) is empty - no training!")
 
+def test_missing_methods():
+    """Test for missing checkpoint loading methods."""
+    print("\n=== Testing Missing Methods ===")
+    print("❌ CRITICAL: _load_from_checkpoint() method is called but never defined!")
+    print("   This will cause AttributeError when resuming from checkpoint")
+    print("   Location: _load_epoch_checkpoint() calls self._load_from_checkpoint()")
+
+def test_checkpoint_consistency_issues():
+    """Test checkpoint naming and numbering consistency."""
+    print("\n=== Testing Checkpoint Consistency Issues ===")
+    
+    print("\n1. Checkpoint naming inconsistency:")
+    print("   - Training saves as: 'epoch-{epoch}' where epoch is 0-indexed")
+    print("   - Display shows: 'Epoch {epoch + 1}' (1-indexed)")
+    print("   - Resume extracts: epoch_num from filename, returns epoch_num + 1")
+    
+    print("\n2. Duplicate _log_epoch_summary methods:")
+    print("   ❌ The class has TWO _log_epoch_summary methods!")
+    print("   - First one (line ~230): includes wandb logging")
+    print("   - Second one (line ~253): basic logging only")
+    print("   - Second one overwrites the first, losing wandb functionality")
+    
+    print("\n3. Missing error handling:")
+    print("   ❌ _load_epoch_checkpoint has generic exception handling")
+    print("   - Catches any exception and returns 0")
+    print("   - Should handle specific errors and provide better feedback")
+
+def test_resume_edge_cases():
+    """Test edge cases in resume logic."""
+    print("\n=== Testing Resume Edge Cases ===")
+    
+    print("\n1. Resume from final epoch:")
+    num_epochs = 3
+    final_checkpoint = f"epoch-{num_epochs - 1}"  # epoch-2
+    extracted_epoch = int(final_checkpoint.split('-')[1])  # 2
+    next_epoch = extracted_epoch + 1  # 3
+    print(f"   Final epoch checkpoint: {final_checkpoint}")
+    print(f"   Next epoch to start: {next_epoch}")
+    print(f"   Training range: range({next_epoch}, {num_epochs}) = {list(range(next_epoch, num_epochs))}")
+    print("   ❌ RESULT: Empty range - no training will occur!")
+    
+    print("\n2. Non-existent checkpoint:")
+    print("   ❌ If checkpoint path doesn't exist, falls back to epoch 0")
+    print("   - No validation of checkpoint directory structure")
+    print("   - No verification that model files exist in checkpoint")
+
 if __name__ == "__main__":
     test_checkpoint_numbering_consistency()
     test_checkpoint_resume_scenarios()
+    test_missing_methods()
+    test_checkpoint_consistency_issues()
+    test_resume_edge_cases()
