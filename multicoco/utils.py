@@ -15,7 +15,7 @@ from typing import Dict, Any
 
 from tqdm import tqdm
 
-__all__ = ["TqdmLoggingHandler", "log_structured_eval"]
+__all__ = ["TqdmLoggingHandler"]
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -49,21 +49,4 @@ class TqdmLoggingHandler(logging.Handler):
             self.handleError(record)
 
 
-def log_structured_eval(details: Dict[str, Any], format='console', file_path=None):
-    logger = logging.getLogger(__name__)
-    if format == 'console':
-        logger.info(
-            f"Question: {details['question'][:50]}...\n"
-            f"Ground Truth: {details['ground_truth']}\n"
-            f"Generated: {details['generated_answer'][:50]}...\n"
-            f"Extracted: {details['extracted_answer']}\n"
-            f"Tokens: {str(details['generated_tokens'][:10])}... (len={len(details['generated_tokens'])})\n"
-            f"Correct: {details['correct']}"
-        )
-    elif format == 'file':
-        with open(file_path, 'a') as f:
-            f.write(f"{json.dumps(details)}\n")
-    elif format == 'json':
-        with open(file_path, 'a') as f:
-            json.dump(details, f)
-            f.write('\n')
+

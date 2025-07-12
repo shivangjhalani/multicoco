@@ -173,12 +173,9 @@ class LoggingConfig:
     log_dir: str = DEFAULT_LOG_DIR
     log_level: str = "INFO"
     use_wandb: bool = True
-    console_output: bool = True
-    verbose: bool = False
+    log_to_file: bool = True
     run_name: Optional[str] = None
     project: str = "multicoco"
-    eval_log_format: str = 'console'  # Options: 'console', 'file', 'json'
-    eval_log_file: Optional[str] = 'eval_logs.json'  # Relative to log_dir
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -431,12 +428,9 @@ class MultiCoCoConfig:
             log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
             log_level=config_dict.get('log_level', 'INFO'),
             use_wandb=config_dict.get('use_wandb', True),
-            console_output=config_dict.get('console_output', True),
-            verbose=config_dict.get('verbose', False),
+            log_to_file=logging_dict.get('log_to_file', True),
             run_name=training_config.name,
-            project=config_dict.get('project', 'multicoco'),
-            eval_log_format=logging_dict.get('eval_log_format', 'console'),
-            eval_log_file=logging_dict.get('eval_log_file', 'eval_logs.json')
+            project=config_dict.get('project', 'multicoco')
         )
     
     def get_wandb_report_to(self) -> List[str]:

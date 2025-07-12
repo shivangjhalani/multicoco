@@ -80,6 +80,8 @@ class MultiCoCoRunner:
         self.train_dataset: Optional[SupervisedDataset] = None
         self.eval_dataset: Optional[SupervisedDataset] = None
         self.wandb_run: Optional[Any] = None
+        self.run_log_dir: Optional[str] = None
+        self.tqdm_file_stream: Optional[Any] = None
         
         self._initialize()
         
@@ -120,31 +122,50 @@ class MultiCoCoRunner:
             logger.warning("CUDA not available, using CPU")
 
     def _setup_logging(self) -> None:
-        """Configure structured logging with console and file output."""
+        """Configure structured, file-based logging for each run."""
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
-        # Only enable full logging on the main process to avoid log spam.
-        if local_rank not in [-1, 0]:
+        if local_rank > 0:  # Only configure handlers on the main process
             logging.getLogger().setLevel(logging.CRITICAL)
             return
 
         log_cfg = self.config.logging
-        os.makedirs(log_cfg.log_dir, exist_ok=True)
+        if not log_cfg.log_to_file:
+            return
 
-        # Setup root logger
+        # Create a unique directory for this run
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        run_name = log_cfg.run_name or "run"
+        self.run_log_dir = os.path.join(log_cfg.log_dir, f"{run_name}_{timestamp}")
+        os.makedirs(self.run_log_dir, exist_ok=True)
+
+        # --- Configure Root Logger (for stdout) ---
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_cfg.log_level))
-        
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
 
-        # Console handler (simple formatter)
-        if log_cfg.console_output:
-            console_handler = TqdmLoggingHandler()
-            console_formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            console_handler.setFormatter(console_formatter)
-            root_logger.addHandler(console_handler)
+        # Handler for run.log
+        run_log_path = os.path.join(self.run_log_dir, "run.log")
+        run_handler = logging.FileHandler(run_log_path)
+        run_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        run_handler.setFormatter(run_formatter)
+        root_logger.addHandler(run_handler)
+        
+        # This stream will be used to direct tqdm output to the log file
+        self.tqdm_file_stream = open(run_log_path, 'a')
+
+        # --- Configure Evaluation Logger (for structured JSON output) ---
+        eval_logger = logging.getLogger('evaluation_details')
+        eval_logger.setLevel(logging.INFO)
+        eval_logger.propagate = False # Prevent eval logs from appearing in run.log
+
+        # Handler for evaluation_details.jsonl
+        eval_log_path = os.path.join(self.run_log_dir, "evaluation_details.jsonl")
+        eval_handler = logging.FileHandler(eval_log_path)
+        eval_handler.setFormatter(logging.Formatter('%(message)s')) # Only log the JSON string
+        eval_logger.addHandler(eval_handler)
+
+        logger.info(f"Logging initialized. All output will be saved to: {self.run_log_dir}")
 
     # Removed _setup_console_handler and _setup_file_handler (no longer needed)
 
@@ -420,6 +441,7 @@ class MultiCoCoRunner:
                     self.model.tokenizer if self.model else None, 
                     self.model.image_processor if self.model else None
                 ),
+                tqdm_file_stream=self.tqdm_file_stream
             )
             
             # Set CoCoNut-specific parameters if needed

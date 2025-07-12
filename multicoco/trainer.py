@@ -41,7 +41,6 @@ from .constants import (
     LOSS_IGNORE_INDEX,
 )
 from .exceptions import AnswerExtractionError, EvaluationError
-from .utils import log_structured_eval
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class CoCoTrainer(Trainer):
     handling for multimodal inputs, and epoch-based training with progress bars.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, tqdm_file_stream=None, **kwargs):
         """Initialize the CoCoTrainer."""
         # Remove processor argument as it's handled by parent class
         kwargs.pop('processor', None)
@@ -64,6 +63,7 @@ class CoCoTrainer(Trainer):
         # Initialize trainer state
         self.best_val_acc = 0.0
         self.total_train_steps = 0
+        self.tqdm_file_stream = tqdm_file_stream
         
         logger.info("CoCoTrainer initialized.")
 
@@ -138,7 +138,7 @@ class CoCoTrainer(Trainer):
         self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
         
         # Evaluate after epoch
-        eval_metrics = self.perform_evaluation(log_per_sample=self.args.logging.verbose)
+        eval_metrics = self.evaluate()
 
         # Save checkpoint with metrics
         checkpoint_dir = self._save_checkpoint_with_metrics(epoch, eval_metrics)
@@ -280,7 +280,7 @@ class CoCoTrainer(Trainer):
         self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
         
         # Evaluate and save checkpoint
-        eval_metrics = self.perform_evaluation(log_per_sample=self.args.logging.verbose)
+        eval_metrics = self.evaluate()
         checkpoint_dir = self._save_checkpoint_with_metrics(stage_epoch, eval_metrics)
         
         # Log coconut-specific epoch summary
@@ -383,7 +383,8 @@ class CoCoTrainer(Trainer):
             train_dataloader, 
             desc=f"Epoch {epoch + 1}",
             total=len(train_dataloader),
-            disable=not self.is_world_process_zero()
+            disable=not self.is_world_process_zero(),
+            file=self.tqdm_file_stream
         )
 
     def _log_training_step(self, loss: torch.Tensor, step: int) -> None:
@@ -433,8 +434,6 @@ class CoCoTrainer(Trainer):
             logger.info(f'Checkpoint saved with metrics: {checkpoint_dir}')
         return checkpoint_dir
 
-    
-
     def _log_epoch_summary(
         self, 
         epoch: int, 
@@ -455,8 +454,6 @@ class CoCoTrainer(Trainer):
                 *[f"  {k}: {v:.4f}" for k, v in eval_metrics.items()],
             ])
         
-        # Reduced verbose separator logs
-
         for line in summary_lines:
             logger.info(line)
 
@@ -485,25 +482,26 @@ class CoCoTrainer(Trainer):
                 *[f"  {k}: {v:.4f}" for k, v in eval_metrics.items()],
             ])
         
-        # Removed separator log
-
         for line in summary_lines:
             logger.info(line)
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
-        return self.perform_evaluation(eval_dataset, metric_key_prefix, log_per_sample=self.args.logging.verbose)
+        """Run evaluation and log results."""
+        return self.perform_evaluation(eval_dataset, metric_key_prefix)
 
     def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
+        """Log per-sample evaluation details to a dedicated logger."""
+        eval_logger = logging.getLogger('evaluation_details')
         for i in range(len(questions)):
             details = {
                 'question': questions[i],
                 'ground_truth': labels[i],
                 'generated_answer': generated_texts[i],
                 'extracted_answer': extracted[i],
-                'generated_tokens': generated_tokens[i],  # List of token IDs
+                'generated_tokens': generated_tokens[i],
                 'correct': bool(correctness[i])
             }
-            log_structured_eval(details, format=self.args.logging.eval_log_format, file_path=os.path.join(self.args.logging.log_dir, self.args.logging.eval_log_file))
+            eval_logger.info(json.dumps(details))
 
     def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[List[int]]]:
         """Generate predictions for a batch of samples, returning extracted answers, full text, and token IDs."""
@@ -528,7 +526,6 @@ class CoCoTrainer(Trainer):
 
             input_length = input_ids.shape[1]
             
-            # Use model's chat method if available
             if hasattr(self.model.model, 'chat') and pixel_values is not None:
                 model_dtype = next(self.model.parameters()).dtype
                 if pixel_values.dtype != model_dtype:
@@ -540,15 +537,12 @@ class CoCoTrainer(Trainer):
                     question=sample['questions'][0],
                     generation_config=dict(max_new_tokens=max_new_tokens, do_sample=False, output_hidden_states=False, output_scores=False)
                 )
-                # This response is just text, we don't have tokens.
-                # We would need to re-tokenize to get the tokens, which is inefficient.
-                # For now, we will return empty tokens for this case.
                 extracted_answer = extract_answer_choice(response)
                 batch_predictions.append(extracted_answer)
                 batch_generated_texts.append(response)
-                batch_generated_tokens.append([]) # Cannot get tokens from chat method easily
+                batch_generated_tokens.append([])
 
-            else: # Fallback to generate
+            else:
                 generated_ids = self.model.generate(
                     pixel_values=pixel_values,
                     input_ids=input_ids,
@@ -570,7 +564,14 @@ class CoCoTrainer(Trainer):
 
         return batch_predictions, batch_generated_texts, batch_generated_tokens
 
-    def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
+    def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval') -> Dict[str, float]:
+        """
+        Core evaluation loop.
+        
+        This function handles the full evaluation process, including generating
+        predictions, gathering results from all processes, computing metrics,
+        and logging detailed per-sample results.
+        """
         try:
             eval_dataset = eval_dataset or self.eval_dataset
             if eval_dataset is None:
@@ -578,32 +579,22 @@ class CoCoTrainer(Trainer):
             self.model.eval()
             eval_dataloader = self.get_eval_dataloader(eval_dataset)
             
-            predictions = []
-            labels = []
-            questions = []
-            generated_texts = []  # Full generated text
-            generated_tokens = []  # Token IDs of generated part
-            extracted_answers = []  # Extracted choice
+            predictions, labels, questions, generated_texts, generated_tokens, extracted_answers = [], [], [], [], [], []
             max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
             
-            progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero())
+            progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero(), file=self.tqdm_file_stream)
             with torch.no_grad():
                 for batch in progress_bar:
-                    batch_predictions, batch_generated_texts, batch_generated_tokens = self._generate_batch_predictions_with_details(batch, max_new_tokens)
-                    batch_labels = batch.get('answers', [])
-                    batch_questions = batch.get('questions', [])
-                    
-                    # The extracted answer is now the main prediction
-                    predictions.extend(batch_predictions)
-                    labels.extend(batch_labels)
-                    questions.extend(batch_questions)
-                    generated_texts.extend(batch_generated_texts)
-                    generated_tokens.extend(batch_generated_tokens)
-                    extracted_answers.extend(batch_predictions) # Redundant but keeps structure clear
+                    batch_preds, batch_gen_texts, batch_gen_tokens = self._generate_batch_predictions_with_details(batch, max_new_tokens)
+                    predictions.extend(batch_preds)
+                    labels.extend(batch.get('answers', []))
+                    questions.extend(batch.get('questions', []))
+                    generated_texts.extend(batch_gen_texts)
+                    generated_tokens.extend(batch_gen_tokens)
+                    extracted_answers.extend(batch_preds)
             
             progress_bar.close()
             
-            # The gather function needs to be updated to handle the new lists
             all_results = self._gather_evaluation_results(
                 predictions, labels, questions, generated_texts, generated_tokens, extracted_answers
             )
@@ -612,13 +603,11 @@ class CoCoTrainer(Trainer):
             if self.is_world_process_zero():
                 metrics = self._compute_evaluation_metrics(all_predictions, all_labels, all_questions, metric_key_prefix)
                 
-                # Unified logging
                 logger.info(f'{metric_key_prefix.upper()} METRICS: {metrics}')
-                if log_per_sample:
-                    correctness = np.array(all_predictions) == np.array(all_labels)
-                    self._log_per_sample_details(all_questions, all_labels, all_generated_texts, all_extracted, all_generated_tokens, correctness)
                 
-                # Optional: Log to WandB if enabled
+                correctness = np.array(all_predictions) == np.array(all_labels)
+                self._log_per_sample_details(all_questions, all_labels, all_generated_texts, all_extracted, all_generated_tokens, correctness)
+                
                 if 'wandb' in getattr(self.args, 'report_to', []):
                     try:
                         import wandb
@@ -632,8 +621,6 @@ class CoCoTrainer(Trainer):
         except Exception as e:
             raise EvaluationError(f'Evaluation failed: {e}') from e
 
-    
-
     def _gather_evaluation_results(
         self,
         predictions: List[str], 
@@ -645,27 +632,17 @@ class CoCoTrainer(Trainer):
     ) -> Tuple[List[str], List[str], List[str], List[str], List[List[int]], List[str]]:
         """Gather evaluation results from all processes in distributed setting."""
         if dist.is_initialized() and dist.get_world_size() > 1:
-            # In a distributed setting, we need to gather results from all processes.
-            # The easiest way is to convert lists of strings to tensors of integers (tokenized)
-            # and then gather them. However, for simplicity here, we'll gather python objects.
-            # This can be slow for large datasets.
-            
-            # Create a list of objects to gather
             local_results = list(zip(predictions, labels, questions, generated_texts, generated_tokens, extracted_answers))
             
-            # Gather lists of objects from all processes
             gathered_results = [None] * dist.get_world_size()
             dist.all_gather_object(gathered_results, local_results)
             
-            # Flatten the list of lists
             all_results = [item for sublist in gathered_results for item in sublist]
             
-            # Unzip the results
             all_predictions, all_labels, all_questions, all_generated_texts, all_generated_tokens, all_extracted = zip(*all_results)
             
             return list(all_predictions), list(all_labels), list(all_questions), list(all_generated_texts), list(all_generated_tokens), list(all_extracted)
 
-        # If not distributed, just return the local results
         return predictions, labels, questions, generated_texts, generated_tokens, extracted_answers
 
     def _compute_evaluation_metrics(
@@ -679,12 +656,10 @@ class CoCoTrainer(Trainer):
         if not predictions or not labels:
             return {f"{metric_key_prefix}_accuracy": 0.0}
         
-        # Ensure equal lengths
         min_length = min(len(predictions), len(labels))
         predictions = predictions[:min_length]
         labels = labels[:min_length]
         
-        # Compute accuracy
         correct = sum(
             1 for pred, label in zip(predictions, labels) 
             if pred.lower().strip() == label.lower().strip()
@@ -692,7 +667,6 @@ class CoCoTrainer(Trainer):
         
         accuracy = correct / len(labels) if labels else 0.0
         
-        # Create metrics dictionary
         metrics = {
             f"{metric_key_prefix}_accuracy": accuracy,
             f"{metric_key_prefix}_num_samples": len(labels),
@@ -702,8 +676,6 @@ class CoCoTrainer(Trainer):
         logger.info(f"Evaluation metrics: {metrics}")
         return metrics
 
-    
-
     @property
     def tokenizer(self):
         """Get tokenizer from model."""
@@ -712,4 +684,4 @@ class CoCoTrainer(Trainer):
         elif hasattr(self.model, 'module') and hasattr(self.model.module, 'tokenizer'):
             return self.model.module.tokenizer
         else:
-            raise AttributeError("Tokenizer not found in model") 
+            raise AttributeError("Tokenizer not found in model")

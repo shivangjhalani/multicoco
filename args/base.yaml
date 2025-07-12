@@ -44,14 +44,12 @@ eval_data_path: "data/aokvqa_validation.json"
 train_data_path: "data/aokvqa_train.json"
 
 # Logging Configuration
-console_output: true
 log_dir: "logs/"
 log_level: "INFO"
-verbose: false
 use_wandb: true
 run_name: null  # Will be set by specific configs
-eval_log_format: 'console'
-eval_log_file: 'eval_details.json'
+logging:
+  log_to_file: true
 
 # Checkpoint Management
 keep_best_checkpoints: true
