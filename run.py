@@ -197,7 +197,7 @@ class MultiCoCoRunner:
             
             # Convert boolean True to a reasonable test limit, False to None
             if isinstance(test_limit, bool):
-                test_limit = 100 if test_limit else None
+                test_limit = 20 if test_limit else None
             
             if self.config.training.mode != TrainingMode.EVAL_ONLY and data_config.train_data_path:
                 self.train_dataset = SupervisedDataset(data_path=data_config.train_data_path, data_dir=data_config.data_dir, test_limit=test_limit)

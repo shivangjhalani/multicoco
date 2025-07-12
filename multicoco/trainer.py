@@ -180,7 +180,7 @@ class CoCoTrainer(Trainer):
             return metrics
         return {}
 
-    def _gather_evaluation_results(self, predictions: List[str], labels: List[str], questions: List[str], generated_texts: List[str], generated_tokens: List[List[int]], extracted_answers: List[str]) -> Tuple[List[str], List[str], List[str], List[str], List[List[int]], List[str]]:
+    def _gather_evaluation_results(self, predictions: List[str], labels: List[str], questions: List[str], generated_texts: List[str], generated_tokens: List[int], extracted_answers: List[str]) -> Tuple[List[str], List[str], List[str], List[str], List[int], List[str]]:
         if dist.is_initialized() and dist.get_world_size() > 1:
             local_results = list(zip(predictions, labels, questions, generated_texts, generated_tokens, extracted_answers))
             gathered_results = [None] * dist.get_world_size()
@@ -203,7 +203,7 @@ class CoCoTrainer(Trainer):
             }
             eval_logger.info(json.dumps(details))
 
-    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[List[int]]]:
+    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int]]:
         device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         batch_size = find_batch_size(batch)
         batch_predictions, batch_generated_texts, batch_generated_tokens = [], [], []
@@ -213,13 +213,15 @@ class CoCoTrainer(Trainer):
             if input_ids is None:
                 batch_predictions.append('')
                 batch_generated_texts.append('')
-                batch_generated_tokens.append([])
+                batch_generated_tokens.append(0)
                 continue
             if hasattr(self.model.model, 'chat') and pixel_values is not None:
                 response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=pixel_values.to(dtype=next(self.model.parameters()).dtype), question=sample['questions'][0], generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False})
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
-                batch_generated_tokens.append([])
+                # Count tokens in the generated response
+                response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
+                batch_generated_tokens.append(len(response_tokens))
             else:
                 generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=sample.get('attention_mask'), max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
                 input_length = input_ids.shape[1]
@@ -228,7 +230,8 @@ class CoCoTrainer(Trainer):
                 gen_text = self.tokenizer.decode(gen_part[0], skip_special_tokens=True)
                 batch_predictions.append(extract_answer_choice(gen_text))
                 batch_generated_texts.append(full_text)
-                batch_generated_tokens.append(gen_part.tolist()[0])
+                # Store the count of generated tokens instead of the token list
+                batch_generated_tokens.append(len(gen_part.tolist()[0]))
         return batch_predictions, batch_generated_texts, batch_generated_tokens
 
     def _compute_evaluation_metrics(self, predictions: List[str], labels: List[str], prefix: str) -> Dict[str, float]:
