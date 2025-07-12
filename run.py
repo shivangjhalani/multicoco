@@ -121,7 +121,7 @@ class MultiCoCoRunner:
         else:
             logger.warning("CUDA not available, using CPU")
 
-    def _setup_logging(self) -> None:
+    """    def _setup_logging(self) -> None:
         """Configure structured, file-based logging for each run."""
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
         if local_rank > 0:  # Only configure handlers on the main process
@@ -129,48 +129,49 @@ class MultiCoCoRunner:
             return
 
         log_cfg = self.config.logging
-        if not log_cfg.log_to_file:
-            return
-
+        
         # Create a unique directory for this run
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         run_name = log_cfg.run_name or "run"
         self.run_log_dir = os.path.join(log_cfg.log_dir, f"{run_name}_{timestamp}")
         os.makedirs(self.run_log_dir, exist_ok=True)
 
-        # --- Configure Root Logger (for stdout) ---
+        # --- Configure Root Logger ---
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_cfg.log_level))
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
 
-        # Handler for run.log
-        run_log_path = os.path.join(self.run_log_dir, "run.log")
-        run_handler = logging.FileHandler(run_log_path)
-        run_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        run_handler.setFormatter(run_formatter)
-        root_logger.addHandler(run_handler)
+        # --- File Handler for run.log ---
+        if log_cfg.log_to_file:
+            run_log_path = os.path.join(self.run_log_dir, "run.log")
+            run_handler = logging.FileHandler(run_log_path)
+            run_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+            run_handler.setFormatter(run_formatter)
+            root_logger.addHandler(run_handler)
+            self.tqdm_file_stream = open(run_log_path, 'a')
+        else:
+            self.tqdm_file_stream = None
 
-        # Handler for stdout
-        stdout_handler = TqdmLoggingHandler()
-        stdout_handler.setFormatter(logging.Formatter("%(message)s"))
-        root_logger.addHandler(stdout_handler)
-        
-        # This stream will be used to direct tqdm output to the log file
-        self.tqdm_file_stream = open(run_log_path, 'a')
+        # --- Console Handler for stdout ---
+        if log_cfg.console_output:
+            console_handler = TqdmLoggingHandler()
+            console_formatter = logging.Formatter("%(message)s")
+            console_handler.setFormatter(console_formatter)
+            root_logger.addHandler(console_handler)
 
-        # --- Configure Evaluation Logger (for structured JSON output) ---
+        # --- Configure Evaluation Logger ---
         eval_logger = logging.getLogger('evaluation_details')
         eval_logger.setLevel(logging.INFO)
-        eval_logger.propagate = False # Prevent eval logs from appearing in run.log
+        eval_logger.propagate = False
 
-        # Handler for evaluation_details.jsonl
-        eval_log_path = os.path.join(self.run_log_dir, "evaluation_details.jsonl")
-        eval_handler = logging.FileHandler(eval_log_path)
-        eval_handler.setFormatter(logging.Formatter('%(message)s')) # Only log the JSON string
-        eval_logger.addHandler(eval_handler)
+        if log_cfg.log_to_file:
+            eval_log_path = os.path.join(self.run_log_dir, "evaluation_details.jsonl")
+            eval_handler = logging.FileHandler(eval_log_path)
+            eval_handler.setFormatter(logging.Formatter('%(message)s'))
+            eval_logger.addHandler(eval_handler)
 
-        logger.info(f"Logging initialized. All output will be saved to: {self.run_log_dir}")
+        logger.info(f"Logging initialized. All output will be saved to: {self.run_log_dir}")""
 
     # Removed _setup_console_handler and _setup_file_handler (no longer needed)
 
@@ -525,7 +526,7 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None:
             raise ModelInitializationError('Trainer or dataset not initialized')
         logger.info('Starting evaluation...')
-        metrics = self.trainer.perform_evaluation()
+        metrics = self.trainer.perform_evaluation(log_per_sample=self.config.evaluation.log_per_sample)
         self._log_evaluation_results(metrics)  # Keep for summary, but simplify
         return metrics
 
