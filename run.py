@@ -5,16 +5,13 @@ import random
 import sys
 import time
 from typing import Any, Dict, List, Optional
-
 import numpy as np
 import torch
 import torch.distributed as dist
 import torch.utils.checkpoint as checkpoint_module
 from transformers import AutoModelForCausalLM, TrainingArguments
 from transformers import logging as transformers_logging
-
 transformers_logging.set_verbosity_error()
-
 from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_LOG_DIR, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR, IMAGE_TOKEN
 from multicoco.data import SupervisedDataset, collate_fn
@@ -22,11 +19,10 @@ from multicoco.exceptions import ConfigurationError, DataLoadingError, Evaluatio
 from multicoco.latent_wrapper import LatentWrapper
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
-
 logger = logging.getLogger(__name__)
 
-
 class MultiCoCoRunner:
+
     def __init__(self, config: MultiCoCoConfig):
         self.config = config
         self.model: Optional[MultiCoCo] = None
@@ -80,32 +76,21 @@ class MultiCoCoRunner:
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             root_logger.addHandler(handler)
-        
-        # Setup evaluation details logger with JSON-only format
         self._setup_evaluation_logger()
         logger.info(f'Logging initialized. Output saved to: {self.run_log_dir}')
 
     def _setup_evaluation_logger(self) -> None:
-        """Setup evaluation logger with JSON-only format for clean evaluation logs"""
         eval_logger = logging.getLogger('evaluation_details')
         eval_logger.setLevel(logging.INFO)
-        eval_logger.propagate = False  # Don't propagate to root logger to avoid duplicates
-        
-        # Clear any existing handlers
+        eval_logger.propagate = False
         if eval_logger.hasHandlers():
             eval_logger.handlers.clear()
-        
-        # Create JSON-only formatter (no timestamp)
         json_formatter = logging.Formatter('%(message)s')
-        
-        # If we're in eval-only mode, create evaluation.log
-        # Otherwise we'll create epoch-specific logs during training
         if self.config.training.mode == TrainingMode.EVAL_ONLY:
             eval_log_path = os.path.join(self.run_log_dir, 'evaluation.log')
             eval_handler = logging.FileHandler(eval_log_path)
             eval_handler.setFormatter(json_formatter)
             eval_logger.addHandler(eval_handler)
-        
         self.eval_logger = eval_logger
         self.json_formatter = json_formatter
 
@@ -120,8 +105,6 @@ class MultiCoCoRunner:
             from dataclasses import asdict
             run_name = self.config.logging.run_name or self.config.training.name or f'run_{random.randint(0, 1000000)}'
             project = self.config.logging.project or 'multicoco'
-            
-            # Initialize wandb with tags based on training mode
             tags = []
             if self.config.training.mode:
                 tags.append(str(self.config.training.mode.value))
@@ -131,21 +114,10 @@ class MultiCoCoRunner:
                 tags.append(f'max_stage_{self.config.coconut.max_latent_stage}')
             else:
                 tags.append('cot')
-                
-            self.wandb_run = wandb.init(
-                project=project, 
-                name=run_name, 
-                tags=tags,
-                reinit=True
-            )
-            
-            # Log comprehensive configuration 
+            self.wandb_run = wandb.init(project=project, name=run_name, tags=tags, reinit=True)
             cfg_dict = asdict(self.config)
             self.wandb_run.config.update(cfg_dict, allow_val_change=True)
-            
-            # Initialize generation samples table for later use
-            self.generation_table = wandb.Table(columns=["epoch", "question", "generated_text", "ground_truth", "prediction", "correct"])
-            
+            self.generation_table = wandb.Table(columns=['epoch', 'question', 'generated_text', 'ground_truth', 'prediction', 'correct'])
             logger.info(f'Initialized wandb run: project={project}, name={run_name}, tags={tags}')
         except ImportError:
             logger.warning('wandb not found; skipping integration')
@@ -192,7 +164,7 @@ class MultiCoCoRunner:
 
     def _has_latent_tokens(self, special_tokens: list) -> bool:
         latent_tokens = ['<|latent|>', '<|start_latent|>', '<|end_latent|>']
-        return any(tok in special_tokens for tok in latent_tokens)
+        return any((tok in special_tokens for tok in latent_tokens))
 
     def _needs_latent_wrapper(self, coconut_config, training_mode) -> bool:
         return coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN
@@ -244,11 +216,8 @@ class MultiCoCoRunner:
         try:
             data_config = self.config.data
             test_limit = data_config.limit_for_testing
-            
-            # Convert boolean True to a reasonable test limit, False to None
             if isinstance(test_limit, bool):
                 test_limit = 20 if test_limit else None
-            
             if self.config.training.mode != TrainingMode.EVAL_ONLY and data_config.train_data_path:
                 self.train_dataset = SupervisedDataset(data_path=data_config.train_data_path, data_dir=data_config.data_dir, test_limit=test_limit)
                 logger.info(f'Training dataset: {len(self.train_dataset)} samples')
@@ -280,36 +249,7 @@ class MultiCoCoRunner:
 
     def _create_training_arguments(self) -> TrainingArguments:
         training_config = self.config.training
-        common_args = {
-            'output_dir': training_config.output_dir,
-            'num_train_epochs': training_config.num_epochs,
-            'per_device_train_batch_size': training_config.batch_size,
-            'per_device_eval_batch_size': training_config.eval_batch_size,
-            'gradient_accumulation_steps': training_config.gradient_accumulation_steps,
-            'eval_accumulation_steps': training_config.eval_accumulation_steps,
-            'learning_rate': training_config.learning_rate,
-            'warmup_steps': training_config.warmup_steps,
-            'logging_steps': training_config.logging_steps,
-            'save_steps': training_config.save_steps,
-            'eval_steps': training_config.eval_steps,
-            'save_strategy': 'epoch',
-            'eval_strategy': 'epoch',
-            'save_total_limit': training_config.save_total_limit,
-            'load_best_model_at_end': training_config.load_best_model_at_end,
-            'metric_for_best_model': training_config.metric_for_best_model,
-            'greater_is_better': training_config.greater_is_better,
-            'bf16': training_config.bf16,
-            'fp16': training_config.fp16,
-            'remove_unused_columns': training_config.remove_unused_columns,
-            'dataloader_pin_memory': training_config.dataloader_pin_memory,
-            'dataloader_num_workers': training_config.dataloader_num_workers,
-            'gradient_checkpointing': training_config.gradient_checkpointing,
-            'gradient_checkpointing_kwargs': training_config.gradient_checkpointing_kwargs,
-            'weight_decay': training_config.weight_decay,
-            'seed': training_config.seed,
-            'data_seed': training_config.data_seed,
-            'report_to': self.config.get_wandb_report_to(),
-        }
+        common_args = {'output_dir': training_config.output_dir, 'num_train_epochs': training_config.num_epochs, 'per_device_train_batch_size': training_config.batch_size, 'per_device_eval_batch_size': training_config.eval_batch_size, 'gradient_accumulation_steps': training_config.gradient_accumulation_steps, 'eval_accumulation_steps': training_config.eval_accumulation_steps, 'learning_rate': training_config.learning_rate, 'warmup_steps': training_config.warmup_steps, 'logging_steps': training_config.logging_steps, 'save_steps': training_config.save_steps, 'eval_steps': training_config.eval_steps, 'save_strategy': 'epoch', 'eval_strategy': 'epoch', 'save_total_limit': training_config.save_total_limit, 'load_best_model_at_end': training_config.load_best_model_at_end, 'metric_for_best_model': training_config.metric_for_best_model, 'greater_is_better': training_config.greater_is_better, 'bf16': training_config.bf16, 'fp16': training_config.fp16, 'remove_unused_columns': training_config.remove_unused_columns, 'dataloader_pin_memory': training_config.dataloader_pin_memory, 'dataloader_num_workers': training_config.dataloader_num_workers, 'gradient_checkpointing': training_config.gradient_checkpointing, 'gradient_checkpointing_kwargs': training_config.gradient_checkpointing_kwargs, 'weight_decay': training_config.weight_decay, 'seed': training_config.seed, 'data_seed': training_config.data_seed, 'report_to': self.config.get_wandb_report_to()}
         return TrainingArguments(**common_args)
 
     def run_training(self) -> None:
@@ -318,14 +258,8 @@ class MultiCoCoRunner:
         if self.train_dataset is None or len(self.train_dataset) == 0:
             raise DataLoadingError('Training dataset is empty or not loaded')
         logger.info('Starting training...')
-        
-        # Log model configuration to wandb
         self._log_model_config_to_wandb()
-        
-        # Start training
         self.trainer.train()
-        
-        # Log final performance summary
         if hasattr(self.trainer, '_log_performance_summary'):
             self.trainer._log_performance_summary()
 
@@ -333,13 +267,8 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
             raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
-        
-        # Run evaluation with comprehensive logging
         metrics = self.trainer.perform_evaluation(log_per_sample=self.config.evaluation.log_per_sample)
-        
-        # Enhanced evaluation result logging
         self._log_evaluation_results(metrics)
-        
         return metrics
 
     def run(self) -> Dict[str, float]:
@@ -374,26 +303,12 @@ class MultiCoCoRunner:
 
     def _run_coconut_mode(self) -> Dict[str, float]:
         logger.info('Starting CoCoNut multi-stage training...')
-        
-        # Initialize trainer once before the training loop
         self.create_trainer()
-        
-        # Log CoCoNut configuration to wandb
         if hasattr(self, 'wandb_run') and self.wandb_run is not None:
-            coconut_config = {
-                'coconut/max_latent_stage': self.config.coconut.max_latent_stage,
-                'coconut/epochs_per_stage': self.config.coconut.epochs_per_stage,
-                'coconut/c_thought': self.config.coconut.c_thought,
-                'coconut/total_stages': self.config.coconut.max_latent_stage + 1,
-                'coconut/uniform_prob': self.config.coconut.uniform_prob,
-            }
+            coconut_config = {'coconut/max_latent_stage': self.config.coconut.max_latent_stage, 'coconut/epochs_per_stage': self.config.coconut.epochs_per_stage, 'coconut/c_thought': self.config.coconut.c_thought, 'coconut/total_stages': self.config.coconut.max_latent_stage + 1, 'coconut/uniform_prob': self.config.coconut.uniform_prob}
             self.wandb_run.log(coconut_config)
             logger.info(f'Logged CoCoNut configuration to wandb: {coconut_config}')
-        
-        # Single call to train(); the trainer will handle epoch loops and stage logic internally
         self.trainer.train()
-        
-        # Final evaluation
         logger.info('Running final CoCoNut evaluation...')
         return self.trainer.perform_evaluation(log_per_sample=True)
 
@@ -409,8 +324,6 @@ class MultiCoCoRunner:
             for key, value in metrics.items():
                 logger.info(f'  {key}: {value:.4f}')
             logger.info('=' * 50)
-            
-            # Log evaluation metrics to wandb
             if hasattr(self, 'wandb_run') and self.wandb_run is not None:
                 wandb_metrics = {}
                 for key, value in metrics.items():
@@ -418,115 +331,68 @@ class MultiCoCoRunner:
                 self.wandb_run.log(wandb_metrics)
                 logger.info(f'Logged evaluation metrics to wandb: {wandb_metrics}')
 
-    def _log_training_metrics(self, epoch: int, step: int, loss: float, learning_rate: float = None) -> None:
-        """Log comprehensive training metrics to wandb similar to coconut"""
+    def _log_training_metrics(self, epoch: int, step: int, loss: float, learning_rate: float=None) -> None:
         if hasattr(self, 'wandb_run') and self.wandb_run is not None:
-            metrics = {
-                'train/epoch': epoch,
-                'train/step': step,
-                'train/loss': loss,
-            }
+            metrics = {'train/epoch': epoch, 'train/step': step, 'train/loss': loss}
             if learning_rate is not None:
                 metrics['train/learning_rate'] = learning_rate
-            
             self.wandb_run.log(metrics)
 
     def _log_coconut_stage_metrics(self, stage: int, epoch: int, stage_progress: float) -> None:
-        """Log CoCoNut specific stage progression metrics"""
         if hasattr(self, 'wandb_run') and self.wandb_run is not None:
-            stage_metrics = {
-                'coconut/current_stage': stage,
-                'coconut/stage_epoch': epoch,
-                'coconut/stage_progress': stage_progress,
-                'coconut/latent_replacement_ratio': stage / max(1, self.config.coconut.max_latent_stage)
-            }
+            stage_metrics = {'coconut/current_stage': stage, 'coconut/stage_epoch': epoch, 'coconut/stage_progress': stage_progress, 'coconut/latent_replacement_ratio': stage / max(1, self.config.coconut.max_latent_stage)}
             self.wandb_run.log(stage_metrics)
-            
-    def _log_generation_samples(self, questions: List[str], generated_texts: List[str], 
-                               ground_truth: List[str], predictions: List[str], 
-                               max_samples: int = 10) -> None:
-        """Log generation samples to wandb for qualitative analysis"""
+
+    def _log_generation_samples(self, questions: List[str], generated_texts: List[str], ground_truth: List[str], predictions: List[str], max_samples: int=10) -> None:
         if not hasattr(self, 'wandb_run') or self.wandb_run is None:
             return
-            
         try:
             import wandb
-            
-            # Create a table with sample generations
-            columns = ["Question", "Generated Text", "Ground Truth", "Prediction", "Correct"]
+            columns = ['Question', 'Generated Text', 'Ground Truth', 'Prediction', 'Correct']
             data = []
-            
             for i in range(min(len(questions), max_samples)):
                 is_correct = predictions[i] == ground_truth[i] if i < len(predictions) and i < len(ground_truth) else False
-                data.append([
-                    questions[i][:200] + "..." if len(questions[i]) > 200 else questions[i],
-                    generated_texts[i][:500] + "..." if len(generated_texts[i]) > 500 else generated_texts[i], 
-                    ground_truth[i] if i < len(ground_truth) else "N/A",
-                    predictions[i] if i < len(predictions) else "N/A", 
-                    "✓" if is_correct else "✗"
-                ])
-                
+                data.append([questions[i][:200] + '...' if len(questions[i]) > 200 else questions[i], generated_texts[i][:500] + '...' if len(generated_texts[i]) > 500 else generated_texts[i], ground_truth[i] if i < len(ground_truth) else 'N/A', predictions[i] if i < len(predictions) else 'N/A', '✓' if is_correct else '✗'])
             generation_table = wandb.Table(columns=columns, data=data)
-            self.wandb_run.log({"eval/generation_samples": generation_table})
-            logger.info(f"Logged {len(data)} generation samples to wandb")
-            
+            self.wandb_run.log({'eval/generation_samples': generation_table})
+            logger.info(f'Logged {len(data)} generation samples to wandb')
         except Exception as e:
-            logger.warning(f"Failed to log generation samples to wandb: {e}")
+            logger.warning(f'Failed to log generation samples to wandb: {e}')
 
     def _log_model_config_to_wandb(self) -> None:
-        """Log model configuration and training setup to wandb"""
         if not hasattr(self, 'wandb_run') or self.wandb_run is None:
             return
-            
         try:
             from dataclasses import asdict
-            
-            # Log comprehensive config
             config_dict = asdict(self.config)
             self.wandb_run.config.update(config_dict, allow_val_change=True)
-            
-            # Log model specific info
             if hasattr(self.model, 'config'):
-                model_config = {
-                    'model_type': getattr(self.model.config, 'model_type', 'unknown'),
-                    'hidden_size': getattr(self.model.config, 'hidden_size', 'unknown'),
-                    'num_attention_heads': getattr(self.model.config, 'num_attention_heads', 'unknown'),
-                    'num_hidden_layers': getattr(self.model.config, 'num_hidden_layers', 'unknown'),
-                }
+                model_config = {'model_type': getattr(self.model.config, 'model_type', 'unknown'), 'hidden_size': getattr(self.model.config, 'hidden_size', 'unknown'), 'num_attention_heads': getattr(self.model.config, 'num_attention_heads', 'unknown'), 'num_hidden_layers': getattr(self.model.config, 'num_hidden_layers', 'unknown')}
                 self.wandb_run.config.update({'model_details': model_config}, allow_val_change=True)
-                
-            logger.info("Logged comprehensive configuration to wandb")
-            
+            logger.info('Logged comprehensive configuration to wandb')
         except Exception as e:
-            logger.warning(f"Failed to log model config to wandb: {e}")
+            logger.warning(f'Failed to log model config to wandb: {e}')
 
     def setup_epoch_evaluation_logger(self, epoch: int) -> None:
-        """Setup epoch-specific evaluation logger for training mode"""
         if self.config.training.mode == TrainingMode.EVAL_ONLY:
-            return  # Use main evaluation.log for eval-only mode
-            
+            return
         eval_logger = logging.getLogger('evaluation_details')
-        
-        # Clear existing handlers to avoid duplicates
         if eval_logger.hasHandlers():
             eval_logger.handlers.clear()
-            
-        # Create epoch-specific log file
         eval_log_path = os.path.join(self.run_log_dir, f'evaluation_epoch_{epoch + 1}.log')
         eval_handler = logging.FileHandler(eval_log_path)
         eval_handler.setFormatter(self.json_formatter)
         eval_logger.addHandler(eval_handler)
 
     def cleanup(self) -> None:
-        """Cleanup resources and finish wandb run"""
         if hasattr(self, 'wandb_run') and self.wandb_run is not None:
             try:
                 import wandb
-                logger.info("Finishing wandb run...")
+                logger.info('Finishing wandb run...')
                 self.wandb_run.finish()
             except ImportError:
                 pass
-        logger.info("MultiCoCo runner cleanup complete")
+        logger.info('MultiCoCo runner cleanup complete')
 
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='MultiCoCo: Two-phase training for multimodal models.')
@@ -535,7 +401,6 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--output-dir', type=str, help='Override output directory')
     parser.add_argument('--model-name', type=str, help='Override model name')
     return parser
-
 
 def apply_cli_overrides(config: MultiCoCoConfig, args: argparse.Namespace) -> MultiCoCoConfig:
     if args.eval_only:
@@ -546,11 +411,9 @@ def apply_cli_overrides(config: MultiCoCoConfig, args: argparse.Namespace) -> Mu
         config.model.model_name = args.model_name
     return config
 
-
 def _load_config(config_path: str) -> MultiCoCoConfig:
     base_cfg_path = os.path.join(os.path.dirname(config_path), 'base.yaml')
     return MultiCoCoConfig.load_with_base(config_path=config_path, base_config_path=base_cfg_path)
-
 
 def main() -> None:
     try:
@@ -578,7 +441,5 @@ def main() -> None:
     finally:
         if dist.is_initialized():
             dist.destroy_process_group()
-
-
 if __name__ == '__main__':
     main()

@@ -3,19 +3,16 @@ import logging
 import os
 import random
 from typing import Any, Dict, List, Optional, Tuple, Union
-
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
-
 from .constants import DEFAULT_MAX_LENGTH, END_LATENT_TOKEN, LATENT_TOKEN, LOSS_IGNORE_INDEX, START_LATENT_TOKEN
 from .exceptions import DataLoadingError, DatasetError, ImageProcessingError
-
 logger = logging.getLogger(__name__)
 
-
 class SupervisedDataset(Dataset):
-    def __init__(self, data_path: str, data_dir: str, test_limit: Optional[int] = None) -> None:
+
+    def __init__(self, data_path: str, data_dir: str, test_limit: Optional[int]=None) -> None:
         super().__init__()
         self._validate_paths(data_path, data_dir)
         self.data = self._load_data(data_path, test_limit)
@@ -42,7 +39,7 @@ class SupervisedDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data)
 
-    def apply_progressive_curriculum(self, scheduled_stage: int, c_thought: int, max_latent_stage: int, uniform_prob: float = 0.0, pad_latent_to_max: bool = False, no_cot: bool = False) -> None:
+    def apply_progressive_curriculum(self, scheduled_stage: int, c_thought: int, max_latent_stage: int, uniform_prob: float=0.0, pad_latent_to_max: bool=False, no_cot: bool=False) -> None:
         logger.info(f'Applying progressive curriculum for stage {scheduled_stage}')
         self.data = create_progressive_latent_dataset(scheduled_stage=scheduled_stage, base_dataset=self._original_data, c_thought=c_thought, max_latent_stage=max_latent_stage, uniform_prob=uniform_prob, pad_latent_to_max=pad_latent_to_max, no_cot=no_cot)
         logger.info(f'Dataset updated with {len(self.data)} curriculum samples')
@@ -67,14 +64,12 @@ class SupervisedDataset(Dataset):
             raise DatasetError(f'Sample {index} missing fields: {missing_fields}')
 
     def _load_image(self, image_file: str) -> Image.Image:
-        # The image_file is an absolute path, so we can use it directly.
         image_path = image_file
         try:
             return Image.open(image_path).convert('RGB')
         except Exception as e:
             logger.warning(f'Failed to load image {image_path}: {e}')
             return Image.new('RGB', (224, 224), color=(0, 0, 0))
-
 
 def collate_fn(batch: List[Dict[str, Any]], tokenizer: Any, image_processor: Any) -> Dict[str, torch.Tensor]:
     if not batch:
@@ -91,7 +86,6 @@ def collate_fn(batch: List[Dict[str, Any]], tokenizer: Any, image_processor: Any
     except Exception as e:
         raise DatasetError(f'Failed to collate batch: {e}') from e
 
-
 def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[str], answers: List[str]) -> Tuple[List[str], List[str]]:
     full_texts = []
     prompts = []
@@ -101,8 +95,7 @@ def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[st
         full_text = f'{prompt}{assistant_part}'
         full_texts.append(full_text)
         prompts.append(prompt)
-    return full_texts, prompts
-
+    return (full_texts, prompts)
 
 def _build_assistant_response(item: Dict[str, Any], answer: str) -> str:
     if (reasoning_text := item.get('reasoning', '')):
@@ -112,14 +105,12 @@ def _build_assistant_response(item: Dict[str, Any], answer: str) -> str:
         return f'{reasoning_combined} The answer is {answer}'
     return answer
 
-
 def _process_images(images: List[Image.Image], image_processor: Any) -> torch.Tensor:
     try:
         processed = image_processor(images, return_tensors='pt')
         return processed['pixel_values']
     except Exception as e:
         raise ImageProcessingError(f'Error during image processing: {e}') from e
-
 
 def _create_training_labels(input_ids: torch.Tensor, prompts: List[str], tokenizer: Any) -> torch.Tensor:
     labels = input_ids.clone()
@@ -129,8 +120,7 @@ def _create_training_labels(input_ids: torch.Tensor, prompts: List[str], tokeniz
         labels[i, :prompt_length] = LOSS_IGNORE_INDEX
     return labels
 
-
-def create_progressive_latent_dataset(scheduled_stage: int, base_dataset: List[Dict], c_thought: int, max_latent_stage: int, uniform_prob: float = 0.0, pad_latent_to_max: bool = False, no_cot: bool = False) -> List[Dict]:
+def create_progressive_latent_dataset(scheduled_stage: int, base_dataset: List[Dict], c_thought: int, max_latent_stage: int, uniform_prob: float=0.0, pad_latent_to_max: bool=False, no_cot: bool=False) -> List[Dict]:
     logger.info(f'Creating progressive latent dataset for stage {scheduled_stage}')
     processed_samples = []
     for sample in base_dataset:
@@ -139,35 +129,25 @@ def create_progressive_latent_dataset(scheduled_stage: int, base_dataset: List[D
         n_skip_steps, n_latent_tokens = _calculate_curriculum_params(stage_to_train, max_latent_stage, steps, pad_latent_to_max, no_cot)
         total_latent_tokens = n_latent_tokens * c_thought
         reasoning_text = _build_reasoning_text(total_latent_tokens, steps, n_skip_steps)
-        processed_sample = {
-            'question': sample['question'],
-            'reasoning': reasoning_text,
-            'answer': sample['answer'],
-            'stage': stage_to_train,
-            'n_latent_tokens': total_latent_tokens,
-            'n_skip_steps': n_skip_steps
-        }
+        processed_sample = {'question': sample['question'], 'reasoning': reasoning_text, 'answer': sample['answer'], 'stage': stage_to_train, 'n_latent_tokens': total_latent_tokens, 'n_skip_steps': n_skip_steps}
         processed_samples.append(processed_sample)
     return processed_samples
-
 
 def _parse_reasoning_steps(steps: Union[List[str], str]) -> List[str]:
     if isinstance(steps, str):
         return [step.strip() for step in steps.split('\n') if step.strip()]
     return steps
 
-
 def _calculate_curriculum_params(stage_to_train: int, max_latent_stage: int, steps: List[str], pad_latent_to_max: bool, no_cot: bool) -> Tuple[int, int]:
     if no_cot:
-        return 100, 0
+        return (100, 0)
     if stage_to_train > max_latent_stage:
         n_skip_steps = 10000
         n_latent_tokens = max_latent_stage if pad_latent_to_max else min(len(steps), max_latent_stage)
     else:
         n_skip_steps = stage_to_train
         n_latent_tokens = stage_to_train
-    return n_skip_steps, n_latent_tokens
-
+    return (n_skip_steps, n_latent_tokens)
 
 def _build_reasoning_text(total_latent_tokens: int, steps: List[str], n_skip_steps: int) -> str:
     reasoning_parts = []

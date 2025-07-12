@@ -1,16 +1,12 @@
 import contextlib
 import logging
 from typing import Any, Dict, List, Optional
-
 import torch
 from torch import nn
 from transformers import AutoConfig, AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
-
 from .constants import DEFAULT_DTYPE, DEFAULT_MODEL_NAME, IMAGE_TOKEN, IMG_CONTEXT_TOKEN
 from .exceptions import DtypeMismatchError, ModelInitializationError
-
 logger = logging.getLogger(__name__)
-
 
 @contextlib.contextmanager
 def suppress_internvl_messages():
@@ -19,8 +15,8 @@ def suppress_internvl_messages():
     suppress_phrases = ['dynamic ViT batch size:', 'warning: The size of tensor a', 'input_embeds[selected].shape=', 'vit_embeds.shape=']
 
     def filtered_print(*args, **kwargs):
-        message = ' '.join(str(arg) for arg in args)
-        if not any(phrase in message for phrase in suppress_phrases):
+        message = ' '.join((str(arg) for arg in args))
+        if not any((phrase in message for phrase in suppress_phrases)):
             original_print(*args, **kwargs)
     builtins.print = filtered_print
     try:
@@ -28,9 +24,9 @@ def suppress_internvl_messages():
     finally:
         builtins.print = original_print
 
-
 class MultiCoCo(nn.Module):
-    def __init__(self, model_id: str = DEFAULT_MODEL_NAME, config_id: Optional[str] = None, tokenizer_id: Optional[str] = None, image_processor_id: Optional[str] = None, special_tokens: Optional[List[str]] = None, torch_dtype: str = DEFAULT_DTYPE, trust_remote_code: bool = True, low_cpu_mem_usage: bool = True, **kwargs) -> None:
+
+    def __init__(self, model_id: str=DEFAULT_MODEL_NAME, config_id: Optional[str]=None, tokenizer_id: Optional[str]=None, image_processor_id: Optional[str]=None, special_tokens: Optional[List[str]]=None, torch_dtype: str=DEFAULT_DTYPE, trust_remote_code: bool=True, low_cpu_mem_usage: bool=True, **kwargs) -> None:
         super().__init__()
         special_tokens = special_tokens or []
         try:
@@ -38,14 +34,14 @@ class MultiCoCo(nn.Module):
             self._setup_special_tokens()
         except Exception as e:
             raise ModelInitializationError(f'Failed to initialize MultiCoCo model: {e}') from e
-        param_count = sum(p.numel() for p in self.model.parameters())
+        param_count = sum((p.numel() for p in self.model.parameters()))
         logger.info(f'MultiCoCo model initialized with {param_count} parameters')
 
     def _initialize_components(self, model_id: str, config_id: Optional[str], tokenizer_id: Optional[str], image_processor_id: Optional[str], special_tokens: List[str], torch_dtype: str, trust_remote_code: bool, low_cpu_mem_usage: bool) -> tuple[nn.Module, AutoTokenizer, AutoImageProcessor]:
         model = self._create_model(model_id, config_id, torch_dtype, trust_remote_code, low_cpu_mem_usage)
         tokenizer = self._create_tokenizer(tokenizer_id or model_id, special_tokens)
         image_processor = AutoImageProcessor.from_pretrained(image_processor_id or model_id, trust_remote_code=True, use_fast=True)
-        return model, tokenizer, image_processor
+        return (model, tokenizer, image_processor)
 
     def _create_model(self, model_id: str, config_id: Optional[str], torch_dtype: str, trust_remote_code: bool, low_cpu_mem_usage: bool) -> nn.Module:
         config = AutoConfig.from_pretrained(config_id or model_id, trust_remote_code=trust_remote_code)

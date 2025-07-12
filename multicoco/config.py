@@ -3,15 +3,12 @@ import random
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
-
 from .constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_C_THOUGHT, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_MAX_LATENT_STAGE, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR
-
 
 class TrainingMode(str, Enum):
     EVAL_ONLY = 'eval_only'
     COT_TRAIN = 'cot_train'
     COCONUT_TRAIN = 'coconut_train'
-
 
 @dataclass
 class EvaluationConfig:
@@ -28,7 +25,6 @@ class EvaluationConfig:
             return 'cot'
         return 'vanilla'
 
-
 @dataclass
 class CoCoNutConfig:
     enabled: bool = False
@@ -39,7 +35,6 @@ class CoCoNutConfig:
     uniform_prob: float = 0.0
     pad_latent_to_max: bool = False
     reset_optimizer: bool = True
-
 
 @dataclass
 class DataConfig:
@@ -56,7 +51,6 @@ class DataConfig:
         if self.eval_data_path:
             self.eval_data_path = os.path.abspath(self.eval_data_path)
 
-
 @dataclass
 class ModelConfig:
     model_name: str = DEFAULT_MODEL_NAME
@@ -70,7 +64,6 @@ class ModelConfig:
 
     def get_special_tokens(self, coconut_config: CoCoNutConfig) -> List[str]:
         return []
-
 
 @dataclass
 class TrainingConfig:
@@ -119,7 +112,6 @@ class TrainingConfig:
         if self.mode == TrainingMode.EVAL_ONLY:
             self.load_best_model_at_end = False
 
-
 @dataclass
 class LoggingConfig:
     log_dir: str = 'logs'
@@ -133,7 +125,6 @@ class LoggingConfig:
 
     def __post_init__(self):
         os.makedirs(self.log_dir, exist_ok=True)
-
 
 @dataclass
 class MultiCoCoConfig:
@@ -175,21 +166,21 @@ class MultiCoCoConfig:
 
     def _validate_data_requirements(self) -> None:
         is_training = self.training.mode != TrainingMode.EVAL_ONLY
-        if is_training and not self.data.train_data_path:
+        if is_training and (not self.data.train_data_path):
             raise ValueError('Training data path required for training modes')
-        if self.training.mode == TrainingMode.EVAL_ONLY and not self.data.eval_data_path:
+        if self.training.mode == TrainingMode.EVAL_ONLY and (not self.data.eval_data_path):
             raise ValueError('Evaluation data path required for eval_only mode')
-        if self.coconut.enabled and not any([self.evaluation.coconut, self.evaluation.cot]):
+        if self.coconut.enabled and (not any([self.evaluation.coconut, self.evaluation.cot])):
             raise ValueError('CoCoNut enabled but no compatible evaluation configured')
 
     def _validate_file_existence(self) -> None:
-        if self.data.train_data_path and not os.path.exists(self.data.train_data_path):
+        if self.data.train_data_path and (not os.path.exists(self.data.train_data_path)):
             raise FileNotFoundError(f'Training data not found: {self.data.train_data_path}')
-        if self.data.eval_data_path and not os.path.exists(self.data.eval_data_path):
+        if self.data.eval_data_path and (not os.path.exists(self.data.eval_data_path)):
             raise FileNotFoundError(f'Evaluation data not found: {self.data.eval_data_path}')
 
     @classmethod
-    def load_with_base(cls, config_path: str, base_config_path: str = 'args/base.yaml') -> 'MultiCoCoConfig':
+    def load_with_base(cls, config_path: str, base_config_path: str='args/base.yaml') -> 'MultiCoCoConfig':
         import yaml
         base_dict = cls._load_yaml_file(base_config_path) if os.path.exists(base_config_path) else {}
         config_dict = cls._load_yaml_file(config_path)
@@ -213,13 +204,7 @@ class MultiCoCoConfig:
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'MultiCoCoConfig':
         torch_dtype = cls._determine_torch_dtype(config_dict)
-        config_builders = {
-            'model': lambda: cls._build_model_config(config_dict, torch_dtype),
-            'training': lambda: cls._build_training_config(config_dict),
-            'data': lambda: cls._build_data_config(config_dict),
-            'evaluation': lambda: cls._build_evaluation_config(config_dict),
-            'coconut': lambda: cls._build_coconut_config(config_dict)
-        }
+        config_builders = {'model': lambda: cls._build_model_config(config_dict, torch_dtype), 'training': lambda: cls._build_training_config(config_dict), 'data': lambda: cls._build_data_config(config_dict), 'evaluation': lambda: cls._build_evaluation_config(config_dict), 'coconut': lambda: cls._build_coconut_config(config_dict)}
         configs = {name: builder() for name, builder in config_builders.items()}
         configs['logging'] = cls._build_logging_config(config_dict, configs['training'])
         return cls(**configs)
@@ -234,71 +219,22 @@ class MultiCoCoConfig:
 
     @staticmethod
     def _build_model_config(config_dict: Dict[str, Any], torch_dtype: str) -> ModelConfig:
-        return ModelConfig(
-            model_name=config_dict.get('model_name', DEFAULT_MODEL_NAME),
-            torch_dtype=torch_dtype,
-            config_id=config_dict.get('config_id'),
-            tokenizer_id=config_dict.get('tokenizer_id'),
-            image_processor_id=config_dict.get('image_processor_id'),
-            trust_remote_code=config_dict.get('trust_remote_code', True),
-            low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True),
-            load_model_path=config_dict.get('load_model_path')
-        )
+        return ModelConfig(model_name=config_dict.get('model_name', DEFAULT_MODEL_NAME), torch_dtype=torch_dtype, config_id=config_dict.get('config_id'), tokenizer_id=config_dict.get('tokenizer_id'), image_processor_id=config_dict.get('image_processor_id'), trust_remote_code=config_dict.get('trust_remote_code', True), low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True), load_model_path=config_dict.get('load_model_path'))
 
     @staticmethod
     def _build_training_config(config_dict: Dict[str, Any]) -> TrainingConfig:
         name = config_dict.get('name') or config_dict.get('run_name')
-        return TrainingConfig(
-            output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR),
-            num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS),
-            batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE),
-            eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE),
-            learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)),
-            gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1),
-            eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1),
-            resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False),
-            mode=TrainingMode(config_dict.get('mode', 'cot_train')),
-            bf16=config_dict.get('bf16', True),
-            fp16=config_dict.get('fp16', False),
-            gradient_checkpointing=config_dict.get('gradient_checkpointing', True),
-            gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}),
-            warmup_steps=config_dict.get('warmup_steps', 500),
-            logging_steps=config_dict.get('logging_steps', 10),
-            save_steps=config_dict.get('save_steps', 1000),
-            eval_steps=config_dict.get('eval_steps', 1000),
-            save_total_limit=config_dict.get('save_total_limit', 2),
-            max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3),
-            keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True),
-            use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True),
-            load_best_model_at_end=config_dict.get('load_best_model_at_end', True),
-            metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'),
-            greater_is_better=config_dict.get('greater_is_better', False),
-            weight_decay=config_dict.get('weight_decay', 0.01),
-            seed=config_dict.get('seed'),
-            data_seed=config_dict.get('data_seed'),
-            name=name
-        )
+        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=config_dict.get('load_best_model_at_end', True), metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
 
     @staticmethod
     def _build_data_config(config_dict: Dict[str, Any]) -> DataConfig:
         eval_data_path = config_dict.get('eval_data_path') or config_dict.get('val_data_path')
-        return DataConfig(
-            data_dir=config_dict.get('data_dir', ''),
-            train_data_path=config_dict.get('train_data_path'),
-            eval_data_path=eval_data_path,
-            limit_for_testing=config_dict.get('limit_for_testing', False)
-        )
+        return DataConfig(data_dir=config_dict.get('data_dir', ''), train_data_path=config_dict.get('train_data_path'), eval_data_path=eval_data_path, limit_for_testing=config_dict.get('limit_for_testing', False))
 
     @staticmethod
     def _build_evaluation_config(config_dict: Dict[str, Any]) -> EvaluationConfig:
         eval_config_dict = config_dict.get('eval_config', {})
-        return EvaluationConfig(
-            vanilla=eval_config_dict.get('vanilla', True),
-            coconut=eval_config_dict.get('coconut', False),
-            cot=eval_config_dict.get('cot', False),
-            eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'),
-            log_per_sample=eval_config_dict.get('log_per_sample', False)
-        )
+        return EvaluationConfig(vanilla=eval_config_dict.get('vanilla', True), coconut=eval_config_dict.get('coconut', False), cot=eval_config_dict.get('cot', False), eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'), log_per_sample=eval_config_dict.get('log_per_sample', False))
 
     @staticmethod
     def _build_coconut_config(config_dict: Dict[str, Any]) -> CoCoNutConfig:
@@ -311,29 +247,12 @@ class MultiCoCoConfig:
 
         def get_coconut_value(key: str, default: Any) -> Any:
             return coconut_dict.get(key, config_dict.get(key, default))
-        return CoCoNutConfig(
-            enabled=coconut_enabled,
-            c_thought=get_coconut_value('c_thought', DEFAULT_C_THOUGHT),
-            max_latent_stage=get_coconut_value('max_latent_stage', DEFAULT_MAX_LATENT_STAGE),
-            epochs_per_stage=get_coconut_value('epochs_per_stage', 1),
-            uniform_prob=get_coconut_value('uniform_prob', 0.0),
-            pad_latent_to_max=get_coconut_value('pad_latent_to_max', False),
-            reset_optimizer=get_coconut_value('reset_optimizer', True)
-        )
+        return CoCoNutConfig(enabled=coconut_enabled, c_thought=get_coconut_value('c_thought', DEFAULT_C_THOUGHT), max_latent_stage=get_coconut_value('max_latent_stage', DEFAULT_MAX_LATENT_STAGE), epochs_per_stage=get_coconut_value('epochs_per_stage', 1), uniform_prob=get_coconut_value('uniform_prob', 0.0), pad_latent_to_max=get_coconut_value('pad_latent_to_max', False), reset_optimizer=get_coconut_value('reset_optimizer', True))
 
     @staticmethod
     def _build_logging_config(config_dict: Dict[str, Any], training_config: TrainingConfig) -> LoggingConfig:
         logging_dict = config_dict.get('logging', {})
-        return LoggingConfig(
-            log_dir=logging_dict.get('log_dir', 'logs'),
-            log_level=logging_dict.get('log_level', 'INFO'),
-            use_wandb=logging_dict.get('use_wandb', True),
-            log_to_file=logging_dict.get('log_to_file', True),
-            console_output=logging_dict.get('console_output', True),
-            verbose=logging_dict.get('verbose', False),
-            run_name=training_config.name or logging_dict.get('run_name'),
-            project=logging_dict.get('project', 'multicoco')
-        )
+        return LoggingConfig(log_dir=logging_dict.get('log_dir', 'logs'), log_level=logging_dict.get('log_level', 'INFO'), use_wandb=logging_dict.get('use_wandb', True), log_to_file=logging_dict.get('log_to_file', True), console_output=logging_dict.get('console_output', True), verbose=logging_dict.get('verbose', False), run_name=training_config.name or logging_dict.get('run_name'), project=logging_dict.get('project', 'multicoco'))
 
     def get_wandb_report_to(self) -> List[str]:
         return ['wandb'] if self.logging.use_wandb else []
