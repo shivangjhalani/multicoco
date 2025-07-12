@@ -400,6 +400,15 @@ class MultiCoCoRunner:
             # Create training arguments
             training_args = self._create_training_arguments()
             
+            # Add logging config to training_args for access in trainer
+            from types import SimpleNamespace
+            training_args.logging = SimpleNamespace(
+                verbose=self.config.logging.verbose,
+                eval_log_format=self.config.logging.eval_log_format,
+                eval_log_file=self.config.logging.eval_log_file,
+                log_dir=self.config.logging.log_dir
+            )
+
             # Create trainer
             self.trainer = CoCoTrainer(
                 model=self.model,
@@ -498,25 +507,12 @@ class MultiCoCoRunner:
 
     def run_evaluation(self) -> Dict[str, float]:
         """Run evaluation and return metrics."""
-        if self.trainer is None:
-            raise ModelInitializationError("Trainer must be initialized first")
-        if self.eval_dataset is None:
-            raise DataLoadingError("Evaluation dataset must be loaded")
-        
-        try:
-            logger.info("Starting evaluation...")
-            eval_results = self.trainer.evaluate()
-            
-            # Extract metrics
-            metrics = (eval_results.metrics if hasattr(eval_results, 'metrics') 
-                      else eval_results)
-            
-            if self.trainer.is_world_process_zero():
-                logger.info("Evaluation completed successfully")
-            return metrics
-            
-        except Exception as e:
-            raise EvaluationError(f"Evaluation failed: {e}") from e
+        if self.trainer is None or self.eval_dataset is None:
+            raise ModelInitializationError('Trainer or dataset not initialized')
+        logger.info('Starting evaluation...')
+        metrics = self.trainer.perform_evaluation(log_per_sample=self.config.logging.verbose)
+        self._log_evaluation_results(metrics)  # Keep for summary, but simplify
+        return metrics
 
     def run(self) -> Dict[str, float]:
         """Orchestrate the full pipeline based on training mode."""
@@ -585,41 +581,15 @@ class MultiCoCoRunner:
     def _log_evaluation_results(self, metrics: Dict[str, float]) -> None:
         """Log evaluation results in structured format."""
         if self.trainer and self.trainer.is_world_process_zero():
-            logger.info("\n" + "="*50)
-            logger.info("FINAL RESULTS")
-            logger.info("="*50)
-            
-            accuracy = metrics.get('eval_accuracy', 0.0)
-            loss = metrics.get('eval_loss', 0.0)
-            
-            logger.info(f"Evaluation Results:")
-            logger.info(f"  Accuracy: {accuracy:.4f}")
-            logger.info(f"  Loss: {loss:.4f}")
-            
-            # Log to Weights & Biases if available
-            self._log_results_to_wandb(metrics, accuracy, loss)
-                
-            # Log CoCoNut specific metrics if available
-            if 'eval_coconut_stage' in metrics:
-                stage = metrics['eval_coconut_stage']
-                max_stage = metrics['eval_max_latent_stage']
-                logger.info(f"  CoCoNut Stage: {stage}/{max_stage}")
-                
-            logger.info("="*50)
+            logger.info('\n' + '=' * 50)
+            logger.info('EVALUATION SUMMARY')
+            logger.info('=' * 50)
+            for key, value in metrics.items():
+                logger.info(f'  {key}: {value:.4f}')
+            logger.info('=' * 50)
+            # Per-sample details are already logged in perform_evaluation
 
-    def _log_results_to_wandb(self, metrics: Dict[str, float], accuracy: float, loss: float) -> None:
-        """Log evaluation results to wandb."""
-        if self.config.logging.use_wandb:
-            try:
-                import wandb  # type: ignore
-                if wandb.run is not None:
-                    wandb_log = {"eval/accuracy": accuracy, "eval/loss": loss}
-                    if 'eval_coconut_stage' in metrics:
-                        wandb_log['eval/coconut_stage'] = metrics.get('eval_coconut_stage', 0)
-                        wandb_log['eval/max_latent_stage'] = metrics.get('eval_max_latent_stage', 0)
-                    wandb.log(wandb_log)
-            except ImportError:
-                pass
+    
 
 
 def create_parser() -> argparse.ArgumentParser:

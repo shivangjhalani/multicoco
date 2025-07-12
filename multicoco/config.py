@@ -43,7 +43,8 @@ class EvaluationConfig:
     cot: bool = False
     coconut: bool = False
     eval_latent_tokens: Optional[int] = None
-    
+    log_per_sample: bool = False
+
     def get_eval_type(self) -> str:
         """Get the evaluation type as a string."""
         if self.coconut:
@@ -176,6 +177,8 @@ class LoggingConfig:
     verbose: bool = False
     run_name: Optional[str] = None
     project: str = "multicoco"
+    eval_log_format: str = 'console'  # Options: 'console', 'file', 'json'
+    eval_log_file: Optional[str] = 'eval_logs.json'  # Relative to log_dir
     
     def __post_init__(self):
         """Initialize logging configuration."""
@@ -387,6 +390,7 @@ class MultiCoCoConfig:
             coconut=config_dict.get('coconut', False),
             cot=config_dict.get('cot', False),
             eval_latent_tokens=config_dict.get('eval_latent_tokens'),
+            log_per_sample=config_dict.get('log_per_sample', False),
         )
     
     @staticmethod
@@ -422,6 +426,7 @@ class MultiCoCoConfig:
     def _build_logging_config(config_dict: Dict[str, Any], 
                               training_config: TrainingConfig) -> LoggingConfig:
         """Create logging configuration."""
+        logging_dict = config_dict.get('logging', {})
         return LoggingConfig(
             log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
             log_level=config_dict.get('log_level', 'INFO'),
@@ -429,7 +434,9 @@ class MultiCoCoConfig:
             console_output=config_dict.get('console_output', True),
             verbose=config_dict.get('verbose', False),
             run_name=training_config.name,
-            project=config_dict.get('project', 'multicoco')
+            project=config_dict.get('project', 'multicoco'),
+            eval_log_format=logging_dict.get('eval_log_format', 'console'),
+            eval_log_file=logging_dict.get('eval_log_file', 'eval_logs.json')
         )
     
     def get_wandb_report_to(self) -> List[str]:

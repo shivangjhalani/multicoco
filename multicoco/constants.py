@@ -85,5 +85,5 @@ TEST_DATASET_LIMIT = 20
 # ============================================================================
 
 DEFAULT_LOG_DIR = 'logs'
-DEFAULT_OUTPUT_DIR = 'logs'
-# Removed verbose logging separators EVAL_LOG_SEPARATOR and SAMPLE_LOG_SEPARATOR 
+DEFAULT_OUTPUT_DIR = 'checkpoints'
+DEFAULT_EVAL_LOG_FORMAT = 'console'

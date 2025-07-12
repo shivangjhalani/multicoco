@@ -10,6 +10,7 @@ import logging
 import os
 import random
 import time
+import json
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -40,6 +41,7 @@ from .constants import (
     LOSS_IGNORE_INDEX,
 )
 from .exceptions import AnswerExtractionError, EvaluationError
+from .utils import log_structured_eval
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +137,11 @@ class CoCoTrainer(Trainer):
         # Run training for this epoch
         self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
         
-        # Save checkpoint and evaluate after epoch
-        checkpoint_dir = self._save_epoch_checkpoint(epoch)
-        eval_metrics = self._evaluate_after_epoch(epoch)
+        # Evaluate after epoch
+        eval_metrics = self.perform_evaluation(log_per_sample=self.args.logging.verbose)
+
+        # Save checkpoint with metrics
+        checkpoint_dir = self._save_checkpoint_with_metrics(epoch, eval_metrics)
         
         # Log epoch summary
         epoch_time = time.time() - epoch_start_time
@@ -275,9 +279,9 @@ class CoCoTrainer(Trainer):
         # Run training for this epoch
         self._train_one_epoch(model, train_dataloader, stage_epoch, steps_per_epoch)
         
-        # Save checkpoint and evaluate
-        checkpoint_dir = self._save_epoch_checkpoint(stage_epoch)
-        eval_metrics = self._evaluate_after_epoch(stage_epoch)
+        # Evaluate and save checkpoint
+        eval_metrics = self.perform_evaluation(log_per_sample=self.args.logging.verbose)
+        checkpoint_dir = self._save_checkpoint_with_metrics(stage_epoch, eval_metrics)
         
         # Log coconut-specific epoch summary
         epoch_time = time.time() - epoch_start_time
@@ -419,41 +423,17 @@ class CoCoTrainer(Trainer):
             except ImportError:
                 pass
 
-    def _save_epoch_checkpoint(self, epoch: int) -> str:
-        """Save checkpoint after epoch completion."""
+    def _save_checkpoint_with_metrics(self, epoch: int, metrics: Dict[str, float]) -> str:
         checkpoint_dir = os.path.join(self.args.output_dir, f'epoch-{epoch}')
-        
-        # Save the checkpoint
         self.save_model(checkpoint_dir)
-        
-        # Save trainer state
         if self.is_world_process_zero():
-            state_path = os.path.join(checkpoint_dir, 'trainer_state.json')
-            self.state.save_to_json(state_path)
-        
-        logger.info(f"Checkpoint saved to: {checkpoint_dir}")
-
-        # Skipping checkpoint artifact upload to wandb to reduce noise
-
+            metrics_path = os.path.join(checkpoint_dir, 'metrics.json')
+            with open(metrics_path, 'w') as f:
+                json.dump(metrics, f, indent=4)
+            logger.info(f'Checkpoint saved with metrics: {checkpoint_dir}')
         return checkpoint_dir
 
-    def _evaluate_after_epoch(self, epoch: int) -> Dict[str, float]:
-        """Evaluate model after epoch completion."""
-        if self.eval_dataset is not None:
-            logger.info(f"Running evaluation after epoch {epoch + 1}")
-            eval_result = self.evaluate()
-            
-            # Track best validation accuracy
-            if 'eval_accuracy' in eval_result:
-                current_acc = eval_result['eval_accuracy']
-                if current_acc > self.best_val_acc:
-                    self.best_val_acc = current_acc
-                    logger.info(f"New best validation accuracy: {self.best_val_acc:.4f}")
-            
-            return eval_result
-        else:
-            logger.info("No evaluation dataset provided, skipping evaluation")
-            return {}
+    
 
     def _log_epoch_summary(
         self, 
@@ -510,265 +490,183 @@ class CoCoTrainer(Trainer):
         for line in summary_lines:
             logger.info(line)
 
-    def evaluate(
-        self,
-        eval_dataset=None,
-        ignore_keys: Optional[List[str]] = None,
-        metric_key_prefix: str = "eval",
-    ) -> Dict[str, float]:
-        """
-        Custom evaluation implementation for MultiCoCo models.
-        
-        Handles prediction generation and answer extraction for multiple 
-        choice questions, providing detailed evaluation metrics.
-        """
-        try:
-            # Use provided dataset or default to trainer's eval dataset
-            eval_dataset = eval_dataset or self.eval_dataset
-            if eval_dataset is None:
-                raise EvaluationError("No evaluation dataset provided")
-            
-            # Set model to evaluation mode
-            self.model.eval()
-            
-            # Get evaluation dataloader
-            eval_dataloader = self.get_eval_dataloader(eval_dataset)
-            
-            # Run evaluation loop
-            eval_results = self._evaluation_loop(eval_dataloader, metric_key_prefix)
-            
-            logger.info(f"Evaluation completed: {len(eval_results)} samples processed")
-            return eval_results
-            
-        except Exception as e:
-            raise EvaluationError(f"Evaluation loop failed: {e}") from e
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
+        return self.perform_evaluation(eval_dataset, metric_key_prefix, log_per_sample=self.args.logging.verbose)
 
-    def _evaluation_loop(
-        self, 
-        dataloader: DataLoader, 
-        metric_key_prefix: str = "eval"
-    ) -> Dict[str, float]:
-        """
-        Main evaluation loop that processes batches and computes metrics.
-        
-        Args:
-            dataloader: DataLoader for evaluation data
-            metric_key_prefix: Prefix for metric names
-            
-        Returns:
-            Dictionary containing evaluation metrics
-        """
-        # Initialize metrics tracking
-        predictions = []
-        labels = []
-        questions = []
-        
-        # Evaluation parameters
-        max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
-        
-        # Create progress bar
-        total_samples = len(dataloader) 
-        progress_bar = tqdm(
-            dataloader,
-            desc="Evaluating",
-            total=total_samples,
-            disable=not self.is_world_process_zero()
-        )
-        
-        # Process each batch
-        with torch.no_grad():
-            for batch_idx, batch in enumerate(progress_bar):
-                try:
-                    # Generate predictions for this batch
-                    batch_predictions = self._generate_batch_predictions(
-                        batch, max_new_tokens
-                    )
-                    
-                    # Extract batch information
-                    batch_labels = batch.get('answers', [])
-                    batch_questions = batch.get('questions', [])
-                    
-                    # Accumulate results
-                    predictions.extend(batch_predictions)
-                    labels.extend(batch_labels)
-                    questions.extend(batch_questions)
-                    
-                    # Update progress
-                    progress_bar.set_postfix({
-                        'processed': f"{len(predictions)}/{total_samples * self.args.per_device_eval_batch_size}"
-                    })
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to generate prediction for sample {batch_idx}: {e}")
-                    # Add empty predictions to maintain alignment
-                    batch_size = len(batch.get('input_ids', []))
-                    predictions.extend([""] * batch_size)
-                    labels.extend(batch.get('answers', [""] * batch_size))
-                    questions.extend(batch.get('questions', [""] * batch_size))
-        
-        progress_bar.close()
-        
-        # Gather predictions from all processes if using distributed training
-        all_predictions, all_labels, all_questions = self._gather_evaluation_results(
-            predictions, labels, questions
-        )
-        
-        # Compute metrics on main process
-        if self.is_world_process_zero():
-            metrics = self._compute_evaluation_metrics(
-                all_predictions, all_labels, all_questions, metric_key_prefix
-            )
-            
-            # Log sample predictions for debugging
-            self._log_sample_predictions(all_predictions, all_labels, all_questions)
-            
-            return metrics
-        else:
-            return {}
+    def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
+        for i in range(len(questions)):
+            details = {
+                'question': questions[i],
+                'ground_truth': labels[i],
+                'generated_answer': generated_texts[i],
+                'extracted_answer': extracted[i],
+                'generated_tokens': generated_tokens[i],  # List of token IDs
+                'correct': bool(correctness[i])
+            }
+            log_structured_eval(details, format=self.args.logging.eval_log_format, file_path=os.path.join(self.args.logging.log_dir, self.args.logging.eval_log_file))
 
-    def _generate_batch_predictions(
-        self, 
-        batch: Dict[str, Any], 
-        max_new_tokens: int
-    ) -> List[str]:
-        """Generate predictions for a batch of samples."""
+    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[List[int]]]:
+        """Generate predictions for a batch of samples, returning extracted answers, full text, and token IDs."""
+        device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_size = find_batch_size(batch)
+
         batch_predictions = []
-        
-        # Move batch to device
-        device_batch = {
-            k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v 
-            for k, v in batch.items()
-        }
-        
-        # Handle different batch sizes
-        batch_size = len(device_batch.get('input_ids', []))
-        
-        for i in range(batch_size):
-            try:
-                # Extract single sample
-                sample = {
-                    k: v[i:i+1] if isinstance(v, torch.Tensor) else [v[i]] if isinstance(v, list) else v
-                    for k, v in device_batch.items()
-                }
-                
-                # Generate prediction
-                prediction = self._generate_single_prediction(sample, max_new_tokens)
-                batch_predictions.append(prediction)
-                
-            except Exception as e:
-                logger.warning(f"Failed to generate prediction for sample {i}: {e}")
-                batch_predictions.append("")
-        
-        return batch_predictions
+        batch_generated_texts = []
+        batch_generated_tokens = []
 
-    def _generate_single_prediction(
-        self, 
-        sample: Dict[str, Any], 
-        max_new_tokens: int
-    ) -> str:
-        """Generate a single prediction."""
-        try:
-            # Prepare inputs for generation
+        for i in range(batch_size):
+            sample = {k: v[i:i+1] if isinstance(v, torch.Tensor) else [v[i]] if isinstance(v, list) else v for k, v in device_batch.items()}
+            
             pixel_values = sample.get('pixel_values')
             input_ids = sample.get('input_ids')
-            attention_mask = sample.get('attention_mask')
-            questions = sample.get('questions', [''])
             
-            if input_ids is None or not questions:
-                return ""
+            if input_ids is None:
+                batch_predictions.append("")
+                batch_generated_texts.append("")
+                batch_generated_tokens.append([])
+                continue
+
+            input_length = input_ids.shape[1]
             
-            # Get the question text
-            question = questions[0] if isinstance(questions, list) else questions
-            
-            # Use InternVL's chat method instead of raw generate
+            # Use model's chat method if available
             if hasattr(self.model.model, 'chat') and pixel_values is not None:
-                # Ensure pixel_values match model's dtype
                 model_dtype = next(self.model.parameters()).dtype
                 if pixel_values.dtype != model_dtype:
                     pixel_values = pixel_values.to(dtype=model_dtype)
                 
-                # Use the chat method with proper image and text inputs
                 response = self.model.model.chat(
                     tokenizer=self.tokenizer,
                     pixel_values=pixel_values,
-                    question=question,
-                    generation_config=dict(
-                        max_new_tokens=max_new_tokens,
-                        do_sample=False,
-                    )
+                    question=sample['questions'][0],
+                    generation_config=dict(max_new_tokens=max_new_tokens, do_sample=False, output_hidden_states=False, output_scores=False)
+                )
+                # This response is just text, we don't have tokens.
+                # We would need to re-tokenize to get the tokens, which is inefficient.
+                # For now, we will return empty tokens for this case.
+                extracted_answer = extract_answer_choice(response)
+                batch_predictions.append(extracted_answer)
+                batch_generated_texts.append(response)
+                batch_generated_tokens.append([]) # Cannot get tokens from chat method easily
+
+            else: # Fallback to generate
+                generated_ids = self.model.generate(
+                    pixel_values=pixel_values,
+                    input_ids=input_ids,
+                    attention_mask=sample.get('attention_mask'),
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=self.tokenizer.eos_token_id,
                 )
                 
-                # Extract answer choice from response
-                answer_choice = extract_answer_choice(response)
-                return answer_choice
+                generated_part = generated_ids[:, input_length:]
+                full_text = self.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+                generated_text = self.tokenizer.decode(generated_part[0], skip_special_tokens=True)
                 
-            else:
-                # Fallback to standard generation if chat method not available
-                with torch.no_grad():
-                    generated_ids = self.model.generate(
-                        pixel_values=pixel_values,
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        max_new_tokens=max_new_tokens,
-                        do_sample=False,
-                        pad_token_id=self.tokenizer.eos_token_id,
-                    )
+                extracted_answer = extract_answer_choice(generated_text)
                 
-                # Extract generated tokens (remove input tokens)
-                input_length = input_ids.shape[1]
-                generated_tokens = generated_ids[:, input_length:]
-                
-                # Decode the generated text
-                generated_text = self.tokenizer.decode(
-                    generated_tokens[0], 
-                    skip_special_tokens=True
-                ).strip()
-                
-                # Extract answer choice from generated text
-                answer_choice = extract_answer_choice(generated_text)
-                return answer_choice
+                batch_predictions.append(extracted_answer)
+                batch_generated_texts.append(full_text)
+                batch_generated_tokens.append(generated_part.tolist()[0])
+
+        return batch_predictions, batch_generated_texts, batch_generated_tokens
+
+    def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
+        try:
+            eval_dataset = eval_dataset or self.eval_dataset
+            if eval_dataset is None:
+                raise EvaluationError('No evaluation dataset provided')
+            self.model.eval()
+            eval_dataloader = self.get_eval_dataloader(eval_dataset)
             
+            predictions = []
+            labels = []
+            questions = []
+            generated_texts = []  # Full generated text
+            generated_tokens = []  # Token IDs of generated part
+            extracted_answers = []  # Extracted choice
+            max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
+            
+            progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero())
+            with torch.no_grad():
+                for batch in progress_bar:
+                    batch_predictions, batch_generated_texts, batch_generated_tokens = self._generate_batch_predictions_with_details(batch, max_new_tokens)
+                    batch_labels = batch.get('answers', [])
+                    batch_questions = batch.get('questions', [])
+                    
+                    # The extracted answer is now the main prediction
+                    predictions.extend(batch_predictions)
+                    labels.extend(batch_labels)
+                    questions.extend(batch_questions)
+                    generated_texts.extend(batch_generated_texts)
+                    generated_tokens.extend(batch_generated_tokens)
+                    extracted_answers.extend(batch_predictions) # Redundant but keeps structure clear
+            
+            progress_bar.close()
+            
+            # The gather function needs to be updated to handle the new lists
+            all_results = self._gather_evaluation_results(
+                predictions, labels, questions, generated_texts, generated_tokens, extracted_answers
+            )
+            all_predictions, all_labels, all_questions, all_generated_texts, all_generated_tokens, all_extracted = all_results
+
+            if self.is_world_process_zero():
+                metrics = self._compute_evaluation_metrics(all_predictions, all_labels, all_questions, metric_key_prefix)
+                
+                # Unified logging
+                logger.info(f'{metric_key_prefix.upper()} METRICS: {metrics}')
+                if log_per_sample:
+                    correctness = np.array(all_predictions) == np.array(all_labels)
+                    self._log_per_sample_details(all_questions, all_labels, all_generated_texts, all_extracted, all_generated_tokens, correctness)
+                
+                # Optional: Log to WandB if enabled
+                if 'wandb' in getattr(self.args, 'report_to', []):
+                    try:
+                        import wandb
+                        wandb.log(metrics)
+                    except ImportError:
+                        pass
+                
+                return metrics
+            else:
+                return {}
         except Exception as e:
-            import traceback
-            logger.warning(f"Error in prediction generation: {type(e).__name__}: {str(e)}")
-            logger.warning(f"Full traceback: {traceback.format_exc()}")
-            return ""
+            raise EvaluationError(f'Evaluation failed: {e}') from e
+
+    
 
     def _gather_evaluation_results(
         self,
         predictions: List[str], 
         labels: List[str], 
-        questions: List[str]
-    ) -> Tuple[List[str], List[str], List[str]]:
+        questions: List[str],
+        generated_texts: List[str],
+        generated_tokens: List[List[int]],
+        extracted_answers: List[str]
+    ) -> Tuple[List[str], List[str], List[str], List[str], List[List[int]], List[str]]:
         """Gather evaluation results from all processes in distributed setting."""
-        if not self.is_world_process_zero() and dist.is_initialized():
-            # For non-main processes, just return local results
-            local_rank = dist.get_rank()
-            logger.info(f"Process {local_rank}: Processed {len(predictions)} samples")
-            return predictions, labels, questions
-        
-        # Main process gathers all results
         if dist.is_initialized() and dist.get_world_size() > 1:
-            world_size = dist.get_world_size()
+            # In a distributed setting, we need to gather results from all processes.
+            # The easiest way is to convert lists of strings to tensors of integers (tokenized)
+            # and then gather them. However, for simplicity here, we'll gather python objects.
+            # This can be slow for large datasets.
             
-            # Check for length mismatches before gathering
-            if len(predictions) != len(labels) or len(predictions) != len(questions):
-                logger.error(
-                    f"Rank {dist.get_rank()} has mismatched lengths: "
-                    f"predictions={len(predictions)}, labels={len(labels)}, questions={len(questions)}"
-                )
+            # Create a list of objects to gather
+            local_results = list(zip(predictions, labels, questions, generated_texts, generated_tokens, extracted_answers))
             
-            # Gather from all processes - simplified approach
-            all_predictions = predictions  # Use local predictions for now
-            all_labels = labels
-            all_questions = questions
+            # Gather lists of objects from all processes
+            gathered_results = [None] * dist.get_world_size()
+            dist.all_gather_object(gathered_results, local_results)
             
-        else:
-            all_predictions = predictions
-            all_labels = labels  
-            all_questions = questions
-        
-        return all_predictions, all_labels, all_questions
+            # Flatten the list of lists
+            all_results = [item for sublist in gathered_results for item in sublist]
+            
+            # Unzip the results
+            all_predictions, all_labels, all_questions, all_generated_texts, all_generated_tokens, all_extracted = zip(*all_results)
+            
+            return list(all_predictions), list(all_labels), list(all_questions), list(all_generated_texts), list(all_generated_tokens), list(all_extracted)
+
+        # If not distributed, just return the local results
+        return predictions, labels, questions, generated_texts, generated_tokens, extracted_answers
 
     def _compute_evaluation_metrics(
         self, 
@@ -804,34 +702,7 @@ class CoCoTrainer(Trainer):
         logger.info(f"Evaluation metrics: {metrics}")
         return metrics
 
-    def _log_sample_predictions(
-        self, 
-        predictions: List[str], 
-        labels: List[str], 
-        questions: List[str],
-        num_samples: int = 5
-    ) -> None:
-        """Log sample predictions for debugging."""
-        if not predictions:
-            return
-            
-        num_to_log = min(num_samples, len(predictions))
-        
-        # Removed verbose sample separators
-        
-        for i in range(num_to_log):
-            question = questions[i] if i < len(questions) else "N/A"
-            prediction = predictions[i] if i < len(predictions) else "N/A"
-            label = labels[i] if i < len(labels) else "N/A"
-            
-            logger.info(f"Sample {i + 1}:")
-            logger.info(f"  Question: {question[:100]}...")
-            logger.info(f"  Predicted: '{prediction}'")
-            logger.info(f"  Actual: '{label}'")
-            logger.info(f"  Correct: {prediction.lower().strip() == label.lower().strip()}")
-            logger.info("")
-        
-        # Removed verbose sample separators
+    
 
     @property
     def tokenizer(self):

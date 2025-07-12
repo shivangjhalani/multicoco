@@ -50,6 +50,8 @@ log_level: "INFO"
 verbose: false
 use_wandb: true
 run_name: null  # Will be set by specific configs
+eval_log_format: 'console'
+eval_log_file: 'eval_details.json'
 
 # Checkpoint Management
 keep_best_checkpoints: true
