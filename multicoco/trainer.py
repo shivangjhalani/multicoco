@@ -125,16 +125,25 @@ class CoCoTrainer(Trainer):
         return start_epoch
 
     def _get_last_epoch_checkpoint(self, output_dir: str) -> Optional[str]:
+        """Get the latest epoch checkpoint from the specified output directory."""
         if not os.path.exists(output_dir):
+            logger.warning(f'Output directory does not exist: {output_dir}')
             return None
+            
         epoch_dirs = [d for d in os.listdir(output_dir) if d.startswith('epoch-')]
         if not epoch_dirs:
+            logger.warning(f'No epoch directories found in: {output_dir}')
             return None
+            
         epoch_nums = [int(d.split('-')[1]) for d in epoch_dirs if d.split('-')[1].isdigit()]
         if not epoch_nums:
+            logger.warning(f'No valid epoch numbers found in: {output_dir}')
             return None
+            
         latest_epoch = max(epoch_nums)
-        return os.path.join(output_dir, f'epoch-{latest_epoch}')
+        checkpoint_path = os.path.join(output_dir, f'epoch-{latest_epoch}')
+        logger.info(f'Found latest checkpoint: {checkpoint_path}')
+        return checkpoint_path
 
     def _load_epoch_checkpoint(self, checkpoint_path: str) -> int:
         """Load checkpoint and return the next epoch to start training from (0-indexed)."""

@@ -274,7 +274,9 @@ class MultiCoCoRunner:
             raise DataLoadingError('Training dataset is empty or not loaded')
         logger.info('Starting training...')
         self._log_model_config_to_wandb()
-        self.trainer.train()
+        # Pass resume_from_checkpoint parameter from config to trainer
+        resume_from_checkpoint = self.config.training.resume_from_checkpoint if self.config.training.resume_from_checkpoint else None
+        self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         if hasattr(self.trainer, '_log_performance_summary'):
             self.trainer._log_performance_summary()
 
@@ -324,7 +326,9 @@ class MultiCoCoRunner:
             coconut_config = {'coconut/max_latent_stage': self.config.coconut.max_latent_stage, 'coconut/epochs_per_stage': self.config.coconut.epochs_per_stage, 'coconut/c_thought': self.config.coconut.c_thought, 'coconut/total_stages': self.config.coconut.max_latent_stage + 1, 'coconut/uniform_prob': self.config.coconut.uniform_prob}
             self.wandb_run.log(coconut_config)
             logger.info(f'Logged CoCoNut configuration to wandb: {coconut_config}')
-        self.trainer.train()
+        # Pass resume_from_checkpoint parameter from config to trainer
+        resume_from_checkpoint = self.config.training.resume_from_checkpoint if self.config.training.resume_from_checkpoint else None
+        self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         logger.info('Running final CoCoNut evaluation...')
         return self.trainer.perform_evaluation(log_per_sample=True)
 

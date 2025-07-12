@@ -50,7 +50,7 @@ logging:
   log_dir: "logs/"
   log_level: "INFO"
   use_wandb: true
-  run_name: null
+  run_name: "aokvqa-cot-stage0"  # Set this to match your existing checkpoint directory
   log_to_file: true
 
 # Checkpoint Management
