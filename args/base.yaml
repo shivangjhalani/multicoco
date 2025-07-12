@@ -32,10 +32,10 @@ generation:
 bf16: true
 fp16: false
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
-torch_compile: false
+torch_compile: true
 use_flash_attention_2: true
 gradient_checkpointing: true
-dataloader_num_workers: 4
+dataloader_num_workers: 8
 
 # Data Configuration
 data_dir: "data/"
