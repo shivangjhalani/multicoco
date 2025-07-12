@@ -425,12 +425,12 @@ class MultiCoCoConfig:
         """Create logging configuration."""
         logging_dict = config_dict.get('logging', {})
         return LoggingConfig(
-            log_dir=config_dict.get('log_dir', DEFAULT_LOG_DIR),
-            log_level=config_dict.get('log_level', 'INFO'),
-            use_wandb=config_dict.get('use_wandb', True),
+            log_dir=logging_dict.get('log_dir', DEFAULT_LOG_DIR),
+            log_level=logging_dict.get('log_level', 'INFO'),
+            use_wandb=logging_dict.get('use_wandb', True),
             log_to_file=logging_dict.get('log_to_file', True),
-            run_name=training_config.name,
-            project=config_dict.get('project', 'multicoco')
+            run_name=training_config.name or logging_dict.get('run_name'),
+            project=logging_dict.get('project', 'multicoco')
         )
     
     def get_wandb_report_to(self) -> List[str]:

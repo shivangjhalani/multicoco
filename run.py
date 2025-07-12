@@ -418,19 +418,8 @@ class MultiCoCoRunner:
             raise ModelInitializationError("Model must be initialized first")
         
         try:
-            # Create training arguments
             training_args = self._create_training_arguments()
             
-            # Add logging config to training_args for access in trainer
-            from types import SimpleNamespace
-            training_args.logging = SimpleNamespace(
-                verbose=self.config.logging.verbose,
-                eval_log_format=self.config.logging.eval_log_format,
-                eval_log_file=self.config.logging.eval_log_file,
-                log_dir=self.config.logging.log_dir
-            )
-
-            # Create trainer
             self.trainer = CoCoTrainer(
                 model=self.model,
                 args=training_args,
@@ -444,7 +433,6 @@ class MultiCoCoRunner:
                 tqdm_file_stream=self.tqdm_file_stream
             )
             
-            # Set CoCoNut-specific parameters if needed
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
                 
