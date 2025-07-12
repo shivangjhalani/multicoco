@@ -83,7 +83,7 @@ class TrainingConfig:
     gradient_checkpointing: bool = True
     gradient_checkpointing_kwargs: Dict[str, Any] = field(default_factory=lambda: {'use_reentrant': False})
     learning_rate: float = DEFAULT_LEARNING_RATE
-    warmup_steps: int = 500
+    warmup_steps: int = 10
     logging_steps: int = 10
     save_steps: int = 1000
     eval_steps: int = 1000
