@@ -35,13 +35,23 @@ class CoCoTrainer(Trainer):
 
     def _train_standard(self, resume_from_checkpoint: Optional[Union[str, bool]]=None, **kwargs) -> TrainOutput:
         self._setup_epoch_training()
-        start_epoch = self._handle_checkpoint_resumption(resume_from_checkpoint)
+        
+        # Get checkpoint info but don't load optimizer/scheduler states yet
+        start_epoch, checkpoint_path = self._handle_checkpoint_resumption(resume_from_checkpoint)
+        
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
         self._log_training_setup(steps_per_epoch, total_steps)
         model = self._wrap_model(self.model_wrapped)
+        
+        # Create optimizer and scheduler first
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
+        
+        # Now load optimizer/scheduler states if resuming from checkpoint
+        if checkpoint_path:
+            self._load_optimizer_scheduler_states(checkpoint_path)
+        
         for epoch in range(start_epoch, int(self.args.num_train_epochs)):
             self._train_single_epoch(model, train_dataloader, epoch, steps_per_epoch)
             gc.collect()
@@ -52,14 +62,24 @@ class CoCoTrainer(Trainer):
     def _train_with_coconut_stages(self, resume_from_checkpoint: Optional[Union[str, bool]]=None, **kwargs) -> TrainOutput:
         logger.info('Starting CoCoNut multi-stage training with stage transitions')
         self._setup_epoch_training()
-        start_epoch = self._handle_checkpoint_resumption(resume_from_checkpoint)
+        
+        # Get checkpoint info but don't load optimizer/scheduler states yet
+        start_epoch, checkpoint_path = self._handle_checkpoint_resumption(resume_from_checkpoint)
+        
         self._last_stage = -1
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
         self._log_training_setup(steps_per_epoch, total_steps)
         model = self._wrap_model(self.model_wrapped)
+        
+        # Create optimizer and scheduler first
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
+        
+        # Now load optimizer/scheduler states if resuming from checkpoint
+        if checkpoint_path:
+            self._load_optimizer_scheduler_states(checkpoint_path)
+        
         for epoch in range(start_epoch, int(self.args.num_train_epochs)):
             current_stage = min(epoch // self.args.epochs_per_stage, self.args.max_latent_stage)
             if current_stage != self._last_stage:
@@ -103,8 +123,8 @@ class CoCoTrainer(Trainer):
         epoch_time = time.time() - epoch_start_time
         self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
 
-    def _handle_checkpoint_resumption(self, resume_from_checkpoint: Optional[Union[str, bool]]) -> int:
-        """Handle checkpoint resumption and return the starting epoch (0-indexed)."""
+    def _handle_checkpoint_resumption(self, resume_from_checkpoint: Optional[Union[str, bool]]) -> Tuple[int, Optional[str]]:
+        """Handle checkpoint resumption and return the starting epoch (0-indexed) and checkpoint path."""
         start_epoch = 0
         checkpoint_path = None
         
@@ -116,13 +136,12 @@ class CoCoTrainer(Trainer):
                 
             if checkpoint_path and os.path.exists(checkpoint_path):
                 logger.info(f'Resuming training from checkpoint: {checkpoint_path}')
-                start_epoch = self._load_epoch_checkpoint(checkpoint_path)
-                # Store the checkpoint path for the parent Trainer to use
-                self._resume_checkpoint_path = checkpoint_path
+                start_epoch = self._load_model_and_training_state(checkpoint_path)
             else:
                 logger.warning('`resume_from_checkpoint` is set but no checkpoint found. Starting from scratch.')
+                checkpoint_path = None
                 
-        return start_epoch
+        return start_epoch, checkpoint_path
 
     def _get_last_epoch_checkpoint(self, output_dir: str) -> Optional[str]:
         """Get the latest epoch checkpoint from the specified output directory."""
@@ -145,8 +164,8 @@ class CoCoTrainer(Trainer):
         logger.info(f'Found latest checkpoint: {checkpoint_path}')
         return checkpoint_path
 
-    def _load_epoch_checkpoint(self, checkpoint_path: str) -> int:
-        """Load checkpoint and return the next epoch to start training from (0-indexed)."""
+    def _load_model_and_training_state(self, checkpoint_path: str) -> int:
+        """Load model weights and training state, return next epoch to train (0-indexed)."""
         try:
             # Validate checkpoint directory exists and has required files
             if not os.path.exists(checkpoint_path):
@@ -162,27 +181,84 @@ class CoCoTrainer(Trainer):
             
             # Extract epoch number from checkpoint name (1-indexed)
             epoch_num = int(os.path.basename(checkpoint_path).split('-')[1])
-            logger.info(f'Loading checkpoint from epoch {epoch_num}: {checkpoint_path}')
+            logger.info(f'Loading model and training state from epoch {epoch_num}: {checkpoint_path}')
             
-            # Load the actual checkpoint using parent class method
-            # The transformers Trainer class will automatically load the checkpoint
-            # when we pass the checkpoint path to the train() method via resume_from_checkpoint
-            # For manual loading, we can use the model's load_state_dict if needed
-            logger.info('Checkpoint directory validated and ready for loading by parent Trainer class')
+            # Load model state dict
+            model_file = None
+            for f in model_files:
+                full_path = os.path.join(checkpoint_path, f)
+                if os.path.exists(full_path) and f in ['pytorch_model.bin', 'model.safetensors']:
+                    model_file = full_path
+                    break
+            
+            if model_file:
+                if model_file.endswith('.safetensors'):
+                    from safetensors.torch import load_file
+                    state_dict = load_file(model_file)
+                else:
+                    state_dict = torch.load(model_file, map_location='cpu')
+                
+                # Load state dict into the model
+                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+                if missing_keys:
+                    logger.warning(f'Missing keys when loading checkpoint: {missing_keys[:5]}...' if len(missing_keys) > 5 else missing_keys)
+                if unexpected_keys:
+                    logger.warning(f'Unexpected keys when loading checkpoint: {unexpected_keys[:5]}...' if len(unexpected_keys) > 5 else unexpected_keys)
+                
+                logger.info(f'Successfully loaded model weights from {model_file}')
+            else:
+                logger.error(f'No valid model file found in {checkpoint_path}')
+                return 0
+            
+            # Load training state
+            state_file = os.path.join(checkpoint_path, 'training_state.pt')
+            if os.path.exists(state_file):
+                try:
+                    training_state = torch.load(state_file, map_location='cpu')
+                    self.state.global_step = training_state.get('global_step', 0)
+                    self.total_train_steps = training_state.get('total_train_steps', 0)
+                    logger.info(f'Restored training state: global_step={self.state.global_step}, total_train_steps={self.total_train_steps}')
+                except Exception as e:
+                    logger.warning(f'Failed to load training state: {e}')
             
             # Return the epoch number as 0-indexed for training loop
-            # If we completed epoch N (1-indexed), next epoch to train is N (0-indexed)
             next_epoch = epoch_num
-            logger.info(f'Checkpoint loaded successfully. Next training epoch: {next_epoch} (0-indexed)')
+            logger.info(f'Model and training state loaded successfully. Next training epoch: {next_epoch} (0-indexed)')
             return next_epoch
             
         except ValueError as e:
             logger.error(f'Invalid checkpoint path format {checkpoint_path}: {e}')
             return 0
         except Exception as e:
-            logger.error(f'Failed to load checkpoint {checkpoint_path}: {e}')
+            logger.error(f'Failed to load model and training state {checkpoint_path}: {e}')
             logger.error(f'Exception type: {type(e).__name__}')
             return 0
+
+    def _load_optimizer_scheduler_states(self, checkpoint_path: str) -> None:
+        """Load optimizer and scheduler states from checkpoint."""
+        try:
+            # Load optimizer state if available
+            optimizer_file = os.path.join(checkpoint_path, 'optimizer.pt')
+            if os.path.exists(optimizer_file) and hasattr(self, 'optimizer') and self.optimizer is not None:
+                try:
+                    optimizer_state = torch.load(optimizer_file, map_location='cpu')
+                    self.optimizer.load_state_dict(optimizer_state)
+                    logger.info('Successfully loaded optimizer state')
+                except Exception as e:
+                    logger.warning(f'Failed to load optimizer state: {e}')
+            
+            # Load scheduler state if available
+            scheduler_file = os.path.join(checkpoint_path, 'scheduler.pt')
+            if os.path.exists(scheduler_file) and hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                try:
+                    scheduler_state = torch.load(scheduler_file, map_location='cpu')
+                    self.lr_scheduler.load_state_dict(scheduler_state)
+                    logger.info('Successfully loaded scheduler state')
+                except Exception as e:
+                    logger.warning(f'Failed to load scheduler state: {e}')
+                    
+        except Exception as e:
+            logger.warning(f'Failed to load optimizer/scheduler states from {checkpoint_path}: {e}')
 
     def _setup_epoch_training(self) -> None:
         self.state.global_step = 0
@@ -293,6 +369,29 @@ class CoCoTrainer(Trainer):
         checkpoint_dir = os.path.join(self.args.output_dir, f'epoch-{epoch + 1}')
         self.save_model(checkpoint_dir)
         if self.is_world_process_zero():
+            # Save optimizer state
+            if hasattr(self, 'optimizer') and self.optimizer is not None:
+                optimizer_path = os.path.join(checkpoint_dir, 'optimizer.pt')
+                torch.save(self.optimizer.state_dict(), optimizer_path)
+                logger.debug(f'Saved optimizer state to {optimizer_path}')
+            
+            # Save scheduler state
+            if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                scheduler_path = os.path.join(checkpoint_dir, 'scheduler.pt')
+                torch.save(self.lr_scheduler.state_dict(), scheduler_path)
+                logger.debug(f'Saved scheduler state to {scheduler_path}')
+            
+            # Save training state
+            training_state = {
+                'epoch': epoch + 1,  # 1-indexed for consistency
+                'global_step': self.state.global_step,
+                'total_train_steps': self.total_train_steps,
+            }
+            state_path = os.path.join(checkpoint_dir, 'training_state.pt')
+            torch.save(training_state, state_path)
+            logger.debug(f'Saved training state to {state_path}')
+            
+            # Save metrics
             metrics_path = os.path.join(checkpoint_dir, 'metrics.json')
             with open(metrics_path, 'w') as f:
                 json.dump(metrics, f, indent=4)

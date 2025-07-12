@@ -6,7 +6,7 @@ name: "aokvqa-cot-stage0"
 run_name: "aokvqa-cot-stage0"
 output_dir: "checkpoints/aokvqa_cot"
 batch_size: 16
-eval_batch_size: 32
+eval_batch_size: 64
 eval_accumulation_steps: 1
 num_epochs: 8
 weight_decay: 0.01
