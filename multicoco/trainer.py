@@ -253,7 +253,9 @@ class CoCoTrainer(Trainer):
             logger.info(line)
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
-        return self.perform_evaluation(eval_dataset, metric_key_prefix)
+        # Use config's log_per_sample setting for consistent behavior
+        log_per_sample = getattr(self.args, 'log_per_sample', False)
+        return self.perform_evaluation(eval_dataset, metric_key_prefix, log_per_sample=log_per_sample)
 
     def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
         eval_dataset = eval_dataset or self.eval_dataset

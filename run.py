@@ -235,6 +235,8 @@ class MultiCoCoRunner:
             self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.model.tokenizer, self.model.image_processor), runner=self)
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
+            # Set evaluation configuration
+            setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)
             logger.info('Trainer created successfully')
         except Exception as e:
             raise ModelInitializationError(f'Trainer creation failed: {e}') from e
@@ -267,7 +269,8 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
             raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
-        metrics = self.trainer.perform_evaluation(log_per_sample=self.config.evaluation.log_per_sample)
+        # Now both eval-only and training between epochs use the same evaluation path
+        metrics = self.trainer.perform_evaluation()
         self._log_evaluation_results(metrics)
         return metrics
 
