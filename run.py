@@ -355,9 +355,15 @@ def main() -> None:
         args = parser.parse_args()
         config = _load_config(args.config_path)
         config = apply_cli_overrides(config, args)
+        
+        # Set evaluation flags based on training mode
         if config.training.mode == TrainingMode.COT_TRAIN:
             config.evaluation.cot = True
             config.evaluation.vanilla = False
+        elif config.training.mode == TrainingMode.COCONUT_TRAIN:
+            config.evaluation.cot = False
+            config.evaluation.vanilla = True
+
         runner = MultiCoCoRunner(config)
         metrics = runner.run()
         print('\n' + '=' * 50)
