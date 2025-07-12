@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.utils.checkpoint as checkpoint_module
 from transformers import AutoModelForCausalLM, TrainingArguments
 from transformers import logging as transformers_logging
@@ -259,14 +260,14 @@ class MultiCoCoRunner:
     def run_training(self) -> None:
         if self.trainer is None:
             raise ModelInitializationError('Trainer must be initialized first')
-        if self.train_dataset is None:
-            raise DataLoadingError('Training dataset must be loaded')
+        if self.train_dataset is None or len(self.train_dataset) == 0:
+            raise DataLoadingError('Training dataset is empty or not loaded')
         logger.info('Starting training...')
         self.trainer.train()
 
     def run_evaluation(self) -> Dict[str, float]:
-        if self.trainer is None or self.eval_dataset is None:
-            raise ModelInitializationError('Trainer or dataset not initialized')
+        if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
+            raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
         metrics = self.trainer.perform_evaluation(log_per_sample=self.config.evaluation.log_per_sample)
         self._log_evaluation_results(metrics)
@@ -371,6 +372,9 @@ def main() -> None:
     except Exception as e:
         print(f'Error: {e}')
         sys.exit(1)
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
 
 if __name__ == '__main__':
