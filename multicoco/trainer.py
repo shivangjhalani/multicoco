@@ -403,7 +403,6 @@ class CoCoTrainer(Trainer):
                 
                 eval_table = wandb.Table(columns=columns, data=data)
                 wandb.log({f"{metric_prefix}/sample_generations": eval_table})
-                logger.info(f"Logged {len(data)} evaluation samples to wandb")
         except Exception as e:
             logger.warning(f"Failed to log evaluation samples to wandb: {e}")
 
@@ -485,7 +484,6 @@ class CoCoTrainer(Trainer):
             try:
                 import wandb
                 if wandb.run and self.is_world_process_zero():
-                    logger.info("Logging training data samples to wandb")
                     
                     # Extract sample data from batch
                     input_ids = batch.get('input_ids', [])
