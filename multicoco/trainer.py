@@ -86,6 +86,12 @@ class CoCoTrainer(Trainer):
         epoch_start_time = time.time()
         logger.info(f'\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}')
         self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+        
+        # Clean up memory before evaluation for better performance
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        
         if self.runner and hasattr(self.runner, 'setup_epoch_evaluation_logger'):
             self.runner.setup_epoch_evaluation_logger(epoch)
             logger.info(f'Running evaluation after epoch {epoch + 1}...')
@@ -254,7 +260,11 @@ class CoCoTrainer(Trainer):
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
         # Use config's log_per_sample setting for consistent behavior
+        # Reduce logging overhead during training by disabling per-sample logging
         log_per_sample = getattr(self.args, 'log_per_sample', False)
+        # Disable extensive logging during training for better performance
+        if hasattr(self, 'model') and self.model.training:
+            log_per_sample = False
         return self.perform_evaluation(eval_dataset, metric_key_prefix, log_per_sample=log_per_sample)
 
     def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
