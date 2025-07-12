@@ -403,30 +403,64 @@ class CoCoTrainer(Trainer):
     def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int]]:
         device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         batch_size = find_batch_size(batch)
+        
+        pixel_values = device_batch.get('pixel_values')
+        input_ids = device_batch.get('input_ids')
+        
+        # Handle empty batch or missing input_ids
+        if input_ids is None or batch_size == 0:
+            return ([''] * batch_size, [''] * batch_size, [0] * batch_size)
+        
         batch_predictions, batch_generated_texts, batch_generated_tokens = ([], [], [])
-        for i in range(batch_size):
-            sample = {k: v[i:i + 1] if isinstance(v, torch.Tensor) else [v[i]] for k, v in device_batch.items()}
-            pixel_values, input_ids = (sample.get('pixel_values'), sample.get('input_ids'))
-            if input_ids is None:
-                batch_predictions.append('')
-                batch_generated_texts.append('')
-                batch_generated_tokens.append(0)
-                continue
-            if hasattr(self.model.model, 'chat') and pixel_values is not None:
-                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=pixel_values.to(dtype=next(self.model.parameters()).dtype), question=sample['questions'][0], generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False})
+        
+        # Check if we can use the chat interface for the entire batch
+        if hasattr(self.model.model, 'chat') and pixel_values is not None:
+            # For chat interface, we need to process samples individually due to API constraints
+            for i in range(batch_size):
+                sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
+                question = device_batch['questions'][i] if 'questions' in device_batch else ""
+                
+                response = self.model.model.chat(
+                    tokenizer=self.tokenizer, 
+                    pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), 
+                    question=question, 
+                    generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False}
+                )
+                
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
                 response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
                 batch_generated_tokens.append(len(response_tokens))
-            else:
-                generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=sample.get('attention_mask'), max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
-                input_length = input_ids.shape[1]
-                gen_part = generated_ids[:, input_length:]
-                full_text = self.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-                gen_text = self.tokenizer.decode(gen_part[0], skip_special_tokens=True)
+        else:
+            # True batch processing using model.generate
+            attention_mask = device_batch.get('attention_mask')
+            
+            # Generate for the entire batch at once
+            generated_ids = self.model.generate(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+            
+            input_length = input_ids.shape[1]
+            
+            # Process all samples in the batch
+            for i in range(batch_size):
+                # Extract generated part (excluding input)
+                gen_part = generated_ids[i, input_length:]
+                
+                # Decode full text and generated text
+                full_text = self.tokenizer.decode(generated_ids[i], skip_special_tokens=True)
+                gen_text = self.tokenizer.decode(gen_part, skip_special_tokens=True)
+                
+                # Extract answer and count tokens
                 batch_predictions.append(extract_answer_choice(gen_text))
                 batch_generated_texts.append(full_text)
-                batch_generated_tokens.append(len(gen_part.tolist()[0]))
+                batch_generated_tokens.append(len(gen_part.tolist()))
+        
         return (batch_predictions, batch_generated_texts, batch_generated_tokens)
 
     def _compute_evaluation_metrics(self, predictions: List[str], labels: List[str], prefix: str) -> Dict[str, float]:
