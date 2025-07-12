@@ -43,7 +43,6 @@ class CoCoTrainer(Trainer):
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
-        print(len(train_dataloader), self.args.gradient_accumulation_steps, total_steps)
         self._log_training_setup(steps_per_epoch, total_steps)
         model = self._wrap_model(self.model_wrapped)
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
@@ -68,7 +67,6 @@ class CoCoTrainer(Trainer):
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
-        print(len(train_dataloader), self.args.gradient_accumulation_steps, total_steps)
         self._log_training_setup(steps_per_epoch, total_steps)
         model = self._wrap_model(self.model_wrapped)
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
@@ -176,9 +174,6 @@ class CoCoTrainer(Trainer):
                 
                 # Enhanced training step logging with more metrics
                 self._log_training_step(loss, step, epoch)
-                
-                # Log current learning rate details
-                logger.info(f"Current LR: {self.get_lr()} (full float: {self.optimizer.param_groups[0]['lr']})")
                 
                 # Log gradient norm if gradient clipping is applied
                 if hasattr(self.args, 'max_grad_norm') and self.args.max_grad_norm > 0:
