@@ -23,3 +23,4 @@ load_model_path: "checkpoints/aokvqa_cot"
 eval_config:
   coconut: false
   cot: true
+  log_per_sample: true

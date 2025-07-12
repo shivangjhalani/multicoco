@@ -31,3 +31,4 @@ eval_config:
   cot: false
   detailed_logging: true
   eval_latent_tokens: 4
+  log_per_sample: true

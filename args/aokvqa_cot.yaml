@@ -29,3 +29,4 @@ generation:
 eval_config:
   coconut: false
   cot: true
+  log_per_sample: true

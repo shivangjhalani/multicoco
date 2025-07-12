@@ -86,3 +86,4 @@ eval_config:
   cot: false
   coconut: false
   eval_latent_tokens: null
+  log_per_sample: true

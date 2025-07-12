@@ -44,3 +44,4 @@ coconut:
 eval_config:
   coconut: true
   cot: false
+  log_per_sample: true
