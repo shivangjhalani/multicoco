@@ -12,7 +12,7 @@ class AnswerChoice(Enum):
     B = '1'
     C = '2'
     D = '3'
-CHOICE_MAPPINGS: Dict[str, str] = {'a': AnswerChoice.A.value, 'first': AnswerChoice.A.value, 'zero': AnswerChoice.A.value, 'b': AnswerChoice.B.value, 'one': AnswerChoice.B.value, 'second': AnswerChoice.B.value, 'c': AnswerChoice.C.value, 'third': AnswerChoice.C.value, 'two': AnswerChoice.C.value, 'd': AnswerChoice.D.value, 'fourth': AnswerChoice.D.value, 'three': AnswerChoice.D.value}
+CHOICE_MAPPINGS: Dict[str, str] = {'a': AnswerChoice.A.value, 'first': AnswerChoice.A.value, 'zero': AnswerChoice.A.value, 'zeros': AnswerChoice.A.value, 'b': AnswerChoice.B.value, 'one': AnswerChoice.B.value, 'ones': AnswerChoice.B.value, 'second': AnswerChoice.B.value, 'c': AnswerChoice.C.value, 'third': AnswerChoice.C.value, 'two': AnswerChoice.C.value, 'twos': AnswerChoice.C.value, 'd': AnswerChoice.D.value, 'fourth': AnswerChoice.D.value, 'three': AnswerChoice.D.value, 'threes': AnswerChoice.D.value}
 VALID_CHOICE_NUMBERS: List[str] = [choice.value for choice in AnswerChoice]
 DEFAULT_DTYPE = 'bfloat16'
 DEFAULT_MODEL_NAME = 'OpenGVLab/InternVL3-1B-Pretrained'

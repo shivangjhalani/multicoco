@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM, TrainingArguments
 from transformers import logging as transformers_logging
 transformers_logging.set_verbosity_error()
 from multicoco.config import MultiCoCoConfig, TrainingMode
-from multicoco.constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_LOG_DIR, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR, IMAGE_TOKEN
+from multicoco.constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_LOG_DIR, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR, IMAGE_TOKEN, TEST_DATASET_LIMIT
 from multicoco.data import SupervisedDataset, collate_fn
 from multicoco.exceptions import ConfigurationError, DataLoadingError, EvaluationError, ModelInitializationError
 from multicoco.latent_wrapper import LatentWrapper
@@ -47,12 +47,20 @@ class MultiCoCoRunner:
         np.random.seed(seed)
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-        logger.info(f'Set random seed to {seed}')
+        # Enable deterministic operations for reproducibility
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        logger.info(f'Set random seed to {seed} with deterministic operations enabled')
 
     def _setup_cuda(self) -> None:
         if torch.cuda.is_available():
-            torch.backends.cudnn.benchmark = True
-            logger.info(f'CUDA available with {torch.cuda.device_count()} devices')
+            # Only enable cudnn.benchmark if deterministic operations are not enabled
+            # If a seed was set, we prioritize reproducibility over performance
+            if not getattr(torch.backends.cudnn, 'deterministic', False):
+                torch.backends.cudnn.benchmark = True
+                logger.info(f'CUDA available with {torch.cuda.device_count()} devices (performance optimized)')
+            else:
+                logger.info(f'CUDA available with {torch.cuda.device_count()} devices (deterministic mode)')
         else:
             logger.warning('CUDA not available, using CPU')
 
@@ -67,7 +75,13 @@ class MultiCoCoRunner:
         self.run_log_dir = os.path.join(log_cfg.log_dir, f'{run_name}_{timestamp}')
         os.makedirs(self.run_log_dir, exist_ok=True)
         root_logger = logging.getLogger()
-        root_logger.setLevel(getattr(logging, log_cfg.log_level))
+        # Set log level with fallback for invalid levels
+        try:
+            log_level = getattr(logging, log_cfg.log_level.upper())
+        except AttributeError:
+            log_level = logging.INFO
+            logger.warning(f'Invalid log level "{log_cfg.log_level}", falling back to INFO')
+        root_logger.setLevel(log_level)
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
         if log_cfg.log_to_file:
@@ -103,7 +117,7 @@ class MultiCoCoRunner:
         try:
             import wandb
             from dataclasses import asdict
-            run_name = self.config.logging.run_name or self.config.training.name or f'run_{random.randint(0, 1000000)}'
+            run_name = self.config.logging.run_name or self.config.training.name or f'run_{random.randint(1000, 999999)}'
             project = self.config.logging.project or 'multicoco'
             tags = []
             if self.config.training.mode:
@@ -163,8 +177,7 @@ class MultiCoCoRunner:
             return (model_config.model_name, None)
 
     def _has_latent_tokens(self, special_tokens: list) -> bool:
-        latent_tokens = ['<|latent|>', '<|start_latent|>', '<|end_latent|>']
-        return any((tok in special_tokens for tok in latent_tokens))
+        return any((tok in special_tokens for tok in COCONUT_SPECIAL_TOKENS))
 
     def _needs_latent_wrapper(self, coconut_config, training_mode) -> bool:
         return coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN
@@ -217,7 +230,7 @@ class MultiCoCoRunner:
             data_config = self.config.data
             test_limit = data_config.limit_for_testing
             if isinstance(test_limit, bool):
-                test_limit = 20 if test_limit else None
+                test_limit = TEST_DATASET_LIMIT if test_limit else None
             if self.config.training.mode != TrainingMode.EVAL_ONLY and data_config.train_data_path:
                 self.train_dataset = SupervisedDataset(data_path=data_config.train_data_path, data_dir=data_config.data_dir, test_limit=test_limit)
                 logger.info(f'Training dataset: {len(self.train_dataset)} samples')
