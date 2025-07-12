@@ -42,14 +42,13 @@ class CoCoTrainer(Trainer):
     handling for multimodal inputs, and epoch-based training with progress bars.
     """
 
-    def __init__(self, *args, tqdm_file_stream=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         """Initialize the CoCoTrainer."""
         kwargs.pop('processor', None)
         super().__init__(*args, **kwargs)
         
         self.best_val_acc = 0.0
         self.total_train_steps = 0
-        self.tqdm_file_stream = tqdm_file_stream
         
         logger.info("CoCoTrainer initialized.")
 
