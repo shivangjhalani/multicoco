@@ -174,6 +174,7 @@ class LoggingConfig:
     log_level: str = "INFO"
     use_wandb: bool = True
     log_to_file: bool = True
+    verbose: bool = False
     run_name: Optional[str] = None
     project: str = "multicoco"
     
@@ -429,6 +430,7 @@ class MultiCoCoConfig:
             log_level=logging_dict.get('log_level', 'INFO'),
             use_wandb=logging_dict.get('use_wandb', True),
             log_to_file=logging_dict.get('log_to_file', True),
+            verbose=logging_dict.get('verbose', False),
             run_name=training_config.name or logging_dict.get('run_name'),
             project=logging_dict.get('project', 'multicoco')
         )
