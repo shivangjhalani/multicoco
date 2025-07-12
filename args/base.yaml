@@ -2,7 +2,7 @@
 
 # Project Configuration
 debug: false
-project: "multicoco"
+project: "multi"
 seed: 42
 
 # Training Configuration

@@ -1,19 +1,18 @@
 # Core ML frameworks
-torch>=2.4.0
-torchvision>=0.19.0
-torchaudio>=2.4.0
-transformers>=4.40.0
+torch
+# torchvision>=0.19.0
+# torchaudio>=2.4.0
+transformers[torch]
 
 # Computer Vision & Image Processing
-Pillow>=10.0.0
-opencv-python
+pillow
 
 # Data Science & Numerical Computing
-numpy>=1.24.0
-datasets>=2.14.0
+# numpy>=1.24.0
+datasets
 
 # Progress bars and utilities
-tqdm>=4.64.0
+# tqdm
 einops
 
 # Vision models
@@ -23,8 +22,8 @@ timm
 wandb
 
 # Development and testing
-pytest
-pytest-cov
+# pytest
+# pytest-cov
 
 # Configuration and file handling
-PyYAML>=6.0
+# PyYAML>=6.0
