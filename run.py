@@ -171,7 +171,7 @@ class MultiCoCoRunner:
             eval_handler.setFormatter(logging.Formatter('%(message)s'))
             eval_logger.addHandler(eval_handler)
 
-        logger.info(f"Logging initialized. All output will be saved to: {self.run_log_dir}")""
+        logger.info(f"Logging initialized. All output will be saved to: {self.run_log_dir}")
 
     # Removed _setup_console_handler and _setup_file_handler (no longer needed)
 
