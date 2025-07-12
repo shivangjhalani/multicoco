@@ -32,7 +32,8 @@ if not getattr(_checkpoint_module.checkpoint, "_patched_use_reentrant", False):
     _checkpoint_with_explicit_use_reentrant._patched_use_reentrant = True  # type: ignore
     _checkpoint_module.checkpoint = _checkpoint_with_explicit_use_reentrant
 # -------------------------------------------------------------------------------
-from transformers import AutoModelForCausalLM, TrainingArguments
+from transformers import AutoModelForCausalLM, TrainingArguments, logging as transformers_logging
+transformers_logging.set_verbosity_error()
 
 from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import (
