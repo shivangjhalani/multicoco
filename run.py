@@ -428,8 +428,7 @@ class MultiCoCoRunner:
                     batch, 
                     self.model.tokenizer if self.model else None, 
                     self.model.image_processor if self.model else None
-                ),
-                tqdm_file_stream=self.tqdm_file_stream
+                )
             )
             
             if self.config.coconut.enabled:
