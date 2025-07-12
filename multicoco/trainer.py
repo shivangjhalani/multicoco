@@ -518,7 +518,7 @@ class CoCoTrainer(Trainer):
                         if data:
                             training_data_table = wandb.Table(columns=columns, data=data)
                             wandb.log({"train/data_samples": training_data_table})
-                            logger.info(f"Logged {len(data)} training data tokens to wandb")
+                            # logger.info(f"Logged {len(data)} training data tokens to wandb")
                             
             except Exception as e:
                 logger.warning(f"Failed to log training data samples: {e}")
