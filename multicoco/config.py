@@ -384,12 +384,13 @@ class MultiCoCoConfig:
     @staticmethod
     def _build_evaluation_config(config_dict: Dict[str, Any]) -> EvaluationConfig:
         """Create evaluation configuration."""
+        eval_config_dict = config_dict.get('eval_config', {})
         return EvaluationConfig(
-            vanilla=config_dict.get('vanilla', True),
-            coconut=config_dict.get('coconut', False),
-            cot=config_dict.get('cot', False),
-            eval_latent_tokens=config_dict.get('eval_latent_tokens'),
-            log_per_sample=config_dict.get('log_per_sample', False),
+            vanilla=eval_config_dict.get('vanilla', True),
+            coconut=eval_config_dict.get('coconut', False),
+            cot=eval_config_dict.get('cot', False),
+            eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'),
+            log_per_sample=eval_config_dict.get('log_per_sample', False),
         )
     
     @staticmethod
