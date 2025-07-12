@@ -194,6 +194,11 @@ class MultiCoCoRunner:
         try:
             data_config = self.config.data
             test_limit = data_config.limit_for_testing
+            
+            # Convert boolean True to a reasonable test limit, False to None
+            if isinstance(test_limit, bool):
+                test_limit = 100 if test_limit else None
+            
             if self.config.training.mode != TrainingMode.EVAL_ONLY and data_config.train_data_path:
                 self.train_dataset = SupervisedDataset(data_path=data_config.train_data_path, data_dir=data_config.data_dir, test_limit=test_limit)
                 logger.info(f'Training dataset: {len(self.train_dataset)} samples')
@@ -355,15 +360,9 @@ def main() -> None:
         args = parser.parse_args()
         config = _load_config(args.config_path)
         config = apply_cli_overrides(config, args)
-        
-        # Set evaluation flags based on training mode
         if config.training.mode == TrainingMode.COT_TRAIN:
             config.evaluation.cot = True
             config.evaluation.vanilla = False
-        elif config.training.mode == TrainingMode.COCONUT_TRAIN:
-            config.evaluation.cot = False
-            config.evaluation.vanilla = True
-
         runner = MultiCoCoRunner(config)
         metrics = runner.run()
         print('\n' + '=' * 50)

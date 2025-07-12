@@ -2,7 +2,7 @@ import os
 import random
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from .constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_C_THOUGHT, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_MAX_LATENT_STAGE, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR
 
@@ -46,7 +46,7 @@ class DataConfig:
     data_dir: str = ''
     train_data_path: Optional[str] = None
     eval_data_path: Optional[str] = None
-    limit_for_testing: bool = False
+    limit_for_testing: Union[bool, int] = False
 
     def __post_init__(self):
         if self.data_dir:
