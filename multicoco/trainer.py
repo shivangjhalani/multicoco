@@ -95,6 +95,9 @@ class CoCoTrainer(Trainer):
         if self.runner and hasattr(self.runner, 'setup_epoch_evaluation_logger'):
             self.runner.setup_epoch_evaluation_logger(epoch)
             logger.info(f'Running evaluation after epoch {epoch + 1}...')
+            logger.debug(f'Epoch evaluation logger configured for epoch {epoch + 1}')
+        else:
+            logger.warning('No runner or setup_epoch_evaluation_logger method available. Per-sample evaluation logs may not be written.')
         eval_metrics = self.evaluate()
         checkpoint_dir = self._save_checkpoint_with_metrics(epoch, eval_metrics)
         epoch_time = time.time() - epoch_start_time
@@ -260,11 +263,9 @@ class CoCoTrainer(Trainer):
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
         # Use config's log_per_sample setting for consistent behavior
-        # Reduce logging overhead during training by disabling per-sample logging
         log_per_sample = getattr(self.args, 'log_per_sample', False)
-        # Disable extensive logging during training for better performance
-        if hasattr(self, 'model') and self.model.training:
-            log_per_sample = False
+        # Note: We allow per-sample logging during epoch evaluations even when model is in training mode
+        # The model.eval() call in perform_evaluation will set the model to evaluation mode anyway
         return self.perform_evaluation(eval_dataset, metric_key_prefix, log_per_sample=log_per_sample)
 
     def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
@@ -319,7 +320,9 @@ class CoCoTrainer(Trainer):
                     logger.warning('wandb not available for logging evaluation metrics')
             if log_per_sample:
                 correctness = np.array(all_preds) == np.array(all_labels)
+                logger.info(f'Logging {len(all_questions)} per-sample evaluation details to file...')
                 self._log_per_sample_details(all_questions, all_labels, all_gen_texts, all_ext_ans, all_gen_tokens, correctness)
+                logger.debug(f'Completed logging per-sample evaluation details')
             return metrics
         return {}
 
@@ -349,6 +352,12 @@ class CoCoTrainer(Trainer):
 
     def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
         eval_logger = logging.getLogger('evaluation_details')
+        
+        # Check if logger has handlers configured (should be set up by runner.setup_epoch_evaluation_logger)
+        if not eval_logger.hasHandlers():
+            logger.warning('evaluation_details logger has no handlers configured. Per-sample logs may not be written to file.')
+            return
+            
         for i in range(len(questions)):
             details = {'question': questions[i], 'ground_truth': labels[i], 'generated_answer': generated_texts[i], 'extracted_answer': extracted[i], 'generated_tokens': generated_tokens[i], 'correct': bool(correctness[i])}
             eval_logger.info(json.dumps(details))
