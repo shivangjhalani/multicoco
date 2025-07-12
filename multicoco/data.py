@@ -67,7 +67,8 @@ class SupervisedDataset(Dataset):
             raise DatasetError(f'Sample {index} missing fields: {missing_fields}')
 
     def _load_image(self, image_file: str) -> Image.Image:
-        image_path = os.path.join(self.data_dir, image_file)
+        # The image_file is an absolute path, so we can use it directly.
+        image_path = image_file
         try:
             return Image.open(image_path).convert('RGB')
         except Exception as e:
