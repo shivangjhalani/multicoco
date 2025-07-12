@@ -153,13 +153,6 @@ class MultiCoCoRunner:
         else:
             self.tqdm_file_stream = None
 
-        # --- Console Handler for stdout ---
-        if log_cfg.console_output:
-            console_handler = TqdmLoggingHandler()
-            console_formatter = logging.Formatter("%(message)s")
-            console_handler.setFormatter(console_formatter)
-            root_logger.addHandler(console_handler)
-
         # --- Configure Evaluation Logger ---
         eval_logger = logging.getLogger('evaluation_details')
         eval_logger.setLevel(logging.INFO)

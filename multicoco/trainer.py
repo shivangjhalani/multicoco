@@ -11,6 +11,7 @@ import os
 import random
 import time
 import json
+import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -176,7 +177,7 @@ class CoCoTrainer(Trainer):
             desc=f"Epoch {epoch + 1}",
             total=len(train_dataloader),
             disable=not self.is_world_process_zero(),
-            file=self.tqdm_file_stream
+            file=sys.stdout
         )
 
     def _log_training_step(self, loss: torch.Tensor, step: int) -> None:
@@ -236,7 +237,7 @@ class CoCoTrainer(Trainer):
         all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans = [], [], [], [], [], []
         max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
         
-        progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero(), file=self.tqdm_file_stream)
+        progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero(), file=sys.stdout)
         with torch.no_grad():
             for batch in progress_bar:
                 preds, gen_texts, gen_tokens = self._generate_batch_predictions_with_details(batch, max_new_tokens)

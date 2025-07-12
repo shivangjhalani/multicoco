@@ -24,3 +24,4 @@ eval_config:
   coconut: false
   cot: false
   vanilla: true
+  log_per_sample: true
