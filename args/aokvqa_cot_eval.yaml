@@ -4,17 +4,15 @@
 mode: "eval_only"
 name: "aokvqa-cot-eval"
 run_name: "aokvqa-cot-eval"
-eval_batch_size: 32  # Increased for speed
+eval_batch_size: 32
 eval_accumulation_steps: 2
 limit_for_testing: true
 
 # Generation Configuration
 generation:
-  do_sample: false  # Deterministic evaluation
-  max_new_tokens: 256  # Allow full CoT reasoning
-  num_beams: 3  # Beam search for better accuracy
-  #temperature: 0.0  # Greedy decoding
-  # temperature removed - not used in greedy/beam decoding
+  do_sample: false
+  max_new_tokens: 256
+  num_beams: 3
   top_p: 1.0
   top_k: 50
 
@@ -24,4 +22,4 @@ load_model_path: "checkpoints/aokvqa_cot"
 # Evaluation Configuration
 eval_config:
   coconut: false
-  cot: true 
+  cot: true

@@ -8,7 +8,7 @@ output_dir: "checkpoints/aokvqa_cot"
 batch_size: 16
 eval_batch_size: 64
 eval_accumulation_steps: 2
-num_epochs: 8  # Reduced from 10 to avoid overfitting explicit chains
+num_epochs: 8
 weight_decay: 0.01
 warmup_steps: 500
 load_best_model_at_end: true
@@ -19,11 +19,11 @@ generation:
   do_sample: true
   max_new_tokens: 256
   num_beams: 1
-  temperature: 1.0  # Promotes diversity in reasoning chains
+  temperature: 1.0
   top_p: 0.9
-  top_k: 50  # Limits sampling to top 50 tokens
+  top_k: 50
 
 # Evaluation Configuration
 eval_config:
   coconut: false
-  cot: true 
+  cot: true

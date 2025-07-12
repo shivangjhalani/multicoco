@@ -1,5 +1,4 @@
 # Complete Configuration Template for MultiCoCo
-# This file shows all available configuration options
 
 # Project Configuration
 debug: false
@@ -7,9 +6,9 @@ project: "multicoco"
 seed: 42
 
 # Training Configuration  
-mode: "cot_train"  # Options: "cot_train", "coconut_train", "eval_only"
+mode: "cot_train"
 name: "my-experiment"
-run_name: "my-experiment-run"  # Name for wandb run
+run_name: "my-experiment-run"
 output_dir: "checkpoints/my_experiment"
 batch_size: 8
 eval_batch_size: 16
@@ -66,7 +65,7 @@ eval_data_path: "data/aokvqa_validation.json"
 # Logging Configuration
 console_output: true
 log_dir: "logs/"
-log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
+log_level: "INFO"
 verbose: false
 use_wandb: true
 run_name: "my-experiment-run"

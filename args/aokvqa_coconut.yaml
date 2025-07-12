@@ -6,7 +6,7 @@ name: "aokvqa-coconut-multistage"
 run_name: "aokvqa-coconut-multistage"
 output_dir: "checkpoints/aokvqa_coconut"
 limit_for_testing: true
-num_epochs: 24  # Optimized: 6 stages * 3 epochs + 6 buffer = 24
+num_epochs: 24
 reset_optimizer: true
 resume_from_checkpoint: false
 weight_decay: 0.01
@@ -19,9 +19,9 @@ generation:
   do_sample: true
   max_new_tokens: 256
   num_beams: 1
-  temperature: 0.8  # Slightly lower than CoT for latent stability
+  temperature: 0.8
   top_p: 0.9
-  top_k: 50  # Consistent sampling constraint
+  top_k: 50
 
 # Model Configuration
 load_model_path: "checkpoints/aokvqa_cot"
@@ -33,12 +33,12 @@ use_wandb: true
 coconut:
   c_thought: 1
   enabled: true
-  epochs_per_stage: 3  # Reduced from 5 for efficiency in multimodal
+  epochs_per_stage: 3
   max_latent_stage: 6
   pad_latent_to_max: false
-  uniform_prob: 0.0  # Strict progression for research clarity
+  uniform_prob: 0.0
 
 # Evaluation Configuration
 eval_config:
   coconut: true
-  cot: false 
+  cot: false

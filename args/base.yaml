@@ -1,5 +1,4 @@
 # Base configuration for MultiCoCo
-# Common settings shared across all configurations
 
 # Project Configuration
 debug: false
@@ -11,9 +10,9 @@ batch_size: 8
 eval_batch_size: 16
 gradient_accumulation_steps: 2
 eval_accumulation_steps: 1
-learning_rate: 1.0e-5  # Safe for fine-tuning large models
-weight_decay: 0.01  # Prevents overfitting
-warmup_steps: 500  # 10% of total steps for stability
+learning_rate: 1.0e-5
+weight_decay: 0.01
+warmup_steps: 500
 limit_for_testing: false
 resume_from_checkpoint: true
 load_best_model_at_end: true
@@ -27,15 +26,15 @@ generation:
   num_beams: 1
   temperature: 0.7
   top_p: 0.9
-  top_k: 50  # Standard constraint from LLM literature
+  top_k: 50
 
 # Model Configuration
-bf16: true  # Mixed-precision speed on Ampere+ GPUs
-fp16: false  # Avoid if causes instability in vision components
+bf16: true
+fp16: false
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
 torch_compile: false
 use_flash_attention_2: true
-gradient_checkpointing: true  # Memory efficiency
+gradient_checkpointing: true
 dataloader_num_workers: 4
 
 # Data Configuration
@@ -48,10 +47,10 @@ logging:
   log_dir: "logs/"
   log_level: "INFO"
   use_wandb: true
-  run_name: null  # Will be set by specific configs
+  run_name: null
   log_to_file: true
 
 # Checkpoint Management
 keep_best_checkpoints: true
 max_checkpoints_to_keep: 10
-use_run_name_in_output_dir: true 
+use_run_name_in_output_dir: true
