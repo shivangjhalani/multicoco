@@ -384,7 +384,18 @@ class CoCoTrainer(Trainer):
 
     def _log_training_step(self, loss: torch.Tensor, step: int) -> None:
         """Log training step to wandb if configured."""
-        # Per-step wandb logging disabled for brevity
+        if (step % self.args.gradient_accumulation_steps == 0 and
+            getattr(self.args, "report_to", None) and 
+            "wandb" in self.args.report_to):
+            try:
+                import wandb  # type: ignore
+                if wandb.run is not None:
+                    wandb.log({
+                        "train/batch_loss": loss.item(),
+                        "train/step": self.total_train_steps,
+                    })
+            except ImportError:
+                pass
 
     def _log_epoch_training_summary(self, epoch: int, epoch_loss: float, step_count: int) -> None:
         """Log epoch training summary."""
