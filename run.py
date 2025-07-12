@@ -4,7 +4,7 @@ import os
 import random
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -93,10 +93,33 @@ class MultiCoCoRunner:
             from dataclasses import asdict
             run_name = self.config.logging.run_name or self.config.training.name or f'run_{random.randint(0, 1000000)}'
             project = self.config.logging.project or 'multicoco'
-            self.wandb_run = wandb.init(project=project, name=run_name, reinit=True)
+            
+            # Initialize wandb with tags based on training mode
+            tags = []
+            if self.config.training.mode:
+                tags.append(str(self.config.training.mode.value))
+            if self.config.coconut.enabled:
+                tags.append('coconut')
+                tags.append(f'c_thought_{self.config.coconut.c_thought}')
+                tags.append(f'max_stage_{self.config.coconut.max_latent_stage}')
+            else:
+                tags.append('cot')
+                
+            self.wandb_run = wandb.init(
+                project=project, 
+                name=run_name, 
+                tags=tags,
+                reinit=True
+            )
+            
+            # Log comprehensive configuration 
             cfg_dict = asdict(self.config)
             self.wandb_run.config.update(cfg_dict, allow_val_change=True)
-            logger.info(f'Initialized wandb run: project={project}, name={run_name}')
+            
+            # Initialize generation samples table for later use
+            self.generation_table = wandb.Table(columns=["epoch", "question", "generated_text", "ground_truth", "prediction", "correct"])
+            
+            logger.info(f'Initialized wandb run: project={project}, name={run_name}, tags={tags}')
         except ImportError:
             logger.warning('wandb not found; skipping integration')
             self.config.logging.use_wandb = False
@@ -268,14 +291,28 @@ class MultiCoCoRunner:
         if self.train_dataset is None or len(self.train_dataset) == 0:
             raise DataLoadingError('Training dataset is empty or not loaded')
         logger.info('Starting training...')
+        
+        # Log model configuration to wandb
+        self._log_model_config_to_wandb()
+        
+        # Start training
         self.trainer.train()
+        
+        # Log final performance summary
+        if hasattr(self.trainer, '_log_performance_summary'):
+            self.trainer._log_performance_summary()
 
     def run_evaluation(self) -> Dict[str, float]:
         if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
             raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
+        
+        # Run evaluation with comprehensive logging
         metrics = self.trainer.perform_evaluation(log_per_sample=self.config.evaluation.log_per_sample)
+        
+        # Enhanced evaluation result logging
         self._log_evaluation_results(metrics)
+        
         return metrics
 
     def run(self) -> Dict[str, float]:
@@ -295,9 +332,7 @@ class MultiCoCoRunner:
             logger.error(f'Pipeline failed: {e}')
             raise
         finally:
-            if self.wandb_run is not None:
-                import wandb
-                wandb.finish()
+            self.cleanup()
 
     def _run_eval_only(self) -> Dict[str, float]:
         logger.info('Starting evaluation only...')
@@ -311,10 +346,68 @@ class MultiCoCoRunner:
         return self._run_final_evaluation()
 
     def _run_coconut_mode(self) -> Dict[str, float]:
-        logger.info('Starting CoCoNut training...')
-        self.create_trainer()
-        self.run_training()
-        return self._run_final_evaluation()
+        logger.info('Starting CoCoNut multi-stage training...')
+        stage = 0
+        epochs_per_stage = self.config.coconut.epochs_per_stage
+        max_latent_stage = self.config.coconut.max_latent_stage
+        total_epochs = self.config.training.num_epochs
+        
+        # Log CoCoNut configuration to wandb
+        if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+            coconut_config = {
+                'coconut/max_latent_stage': max_latent_stage,
+                'coconut/epochs_per_stage': epochs_per_stage,
+                'coconut/c_thought': self.config.coconut.c_thought,
+                'coconut/total_stages': max_latent_stage + 1,
+                'coconut/uniform_prob': self.config.coconut.uniform_prob,
+            }
+            self.wandb_run.log(coconut_config)
+            logger.info(f'Logged CoCoNut configuration to wandb: {coconut_config}')
+        
+        for epoch in range(total_epochs):
+            # Calculate current stage based on epoch and epochs_per_stage
+            current_stage = min(epoch // epochs_per_stage, max_latent_stage)
+            stage_epoch = epoch % epochs_per_stage
+            stage_progress = (stage_epoch + 1) / epochs_per_stage
+            
+            logger.info(f'Epoch {epoch + 1}/{total_epochs} - CoCoNut Stage {current_stage}/{max_latent_stage} '
+                       f'(Stage Epoch {stage_epoch + 1}/{epochs_per_stage})')
+            
+            # Log stage progression metrics
+            self._log_coconut_stage_metrics(current_stage, stage_epoch, stage_progress)
+            
+            # Update dataset for current stage (this would need to be implemented in dataset)
+            # For now, just recreate trainer with stage-specific settings
+            if current_stage != stage:
+                stage = current_stage
+                logger.info(f'Transitioning to CoCoNut stage {stage}')
+                # Here you would update the dataset/collator for the new stage
+                # self._update_dataset_for_stage(stage)
+                
+            # Log stage transition to wandb
+            if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+                stage_transition = {
+                    'coconut/stage_transition': current_stage,
+                    'coconut/epoch_in_stage': stage_epoch,
+                    'coconut/latent_tokens_count': current_stage * self.config.coconut.c_thought,
+                }
+                self.wandb_run.log(stage_transition)
+            
+            # Run training for this epoch
+            self.trainer.train()
+            
+            # Run evaluation if configured
+            if epoch % self.config.training.eval_steps == 0:
+                metrics = self.trainer.perform_evaluation(log_per_sample=False)
+                # Add stage info to metrics
+                stage_metrics = {f'{key}_stage_{current_stage}': value for key, value in metrics.items()}
+                if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+                    self.wandb_run.log(stage_metrics)
+        
+        # Final evaluation
+        logger.info('Running final CoCoNut evaluation...')
+        final_metrics = self.trainer.perform_evaluation(log_per_sample=True)
+        return final_metrics
 
     def _run_final_evaluation(self) -> Dict[str, float]:
         logger.info('Running final evaluation...')
@@ -328,7 +421,107 @@ class MultiCoCoRunner:
             for key, value in metrics.items():
                 logger.info(f'  {key}: {value:.4f}')
             logger.info('=' * 50)
+            
+            # Log evaluation metrics to wandb
+            if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+                wandb_metrics = {}
+                for key, value in metrics.items():
+                    wandb_metrics[f'eval/{key}'] = value
+                self.wandb_run.log(wandb_metrics)
+                logger.info(f'Logged evaluation metrics to wandb: {wandb_metrics}')
 
+    def _log_training_metrics(self, epoch: int, step: int, loss: float, learning_rate: float = None) -> None:
+        """Log comprehensive training metrics to wandb similar to coconut"""
+        if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+            metrics = {
+                'train/epoch': epoch,
+                'train/step': step,
+                'train/loss': loss,
+            }
+            if learning_rate is not None:
+                metrics['train/learning_rate'] = learning_rate
+            
+            self.wandb_run.log(metrics)
+
+    def _log_coconut_stage_metrics(self, stage: int, epoch: int, stage_progress: float) -> None:
+        """Log CoCoNut specific stage progression metrics"""
+        if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+            stage_metrics = {
+                'coconut/current_stage': stage,
+                'coconut/stage_epoch': epoch,
+                'coconut/stage_progress': stage_progress,
+                'coconut/latent_replacement_ratio': stage / max(1, self.config.coconut.max_latent_stage)
+            }
+            self.wandb_run.log(stage_metrics)
+            
+    def _log_generation_samples(self, questions: List[str], generated_texts: List[str], 
+                               ground_truth: List[str], predictions: List[str], 
+                               max_samples: int = 10) -> None:
+        """Log generation samples to wandb for qualitative analysis"""
+        if not hasattr(self, 'wandb_run') or self.wandb_run is None:
+            return
+            
+        try:
+            import wandb
+            
+            # Create a table with sample generations
+            columns = ["Question", "Generated Text", "Ground Truth", "Prediction", "Correct"]
+            data = []
+            
+            for i in range(min(len(questions), max_samples)):
+                is_correct = predictions[i] == ground_truth[i] if i < len(predictions) and i < len(ground_truth) else False
+                data.append([
+                    questions[i][:200] + "..." if len(questions[i]) > 200 else questions[i],
+                    generated_texts[i][:500] + "..." if len(generated_texts[i]) > 500 else generated_texts[i], 
+                    ground_truth[i] if i < len(ground_truth) else "N/A",
+                    predictions[i] if i < len(predictions) else "N/A", 
+                    "✓" if is_correct else "✗"
+                ])
+                
+            generation_table = wandb.Table(columns=columns, data=data)
+            self.wandb_run.log({"eval/generation_samples": generation_table})
+            logger.info(f"Logged {len(data)} generation samples to wandb")
+            
+        except Exception as e:
+            logger.warning(f"Failed to log generation samples to wandb: {e}")
+
+    def _log_model_config_to_wandb(self) -> None:
+        """Log model configuration and training setup to wandb"""
+        if not hasattr(self, 'wandb_run') or self.wandb_run is None:
+            return
+            
+        try:
+            from dataclasses import asdict
+            
+            # Log comprehensive config
+            config_dict = asdict(self.config)
+            self.wandb_run.config.update(config_dict, allow_val_change=True)
+            
+            # Log model specific info
+            if hasattr(self.model, 'config'):
+                model_config = {
+                    'model_type': getattr(self.model.config, 'model_type', 'unknown'),
+                    'hidden_size': getattr(self.model.config, 'hidden_size', 'unknown'),
+                    'num_attention_heads': getattr(self.model.config, 'num_attention_heads', 'unknown'),
+                    'num_hidden_layers': getattr(self.model.config, 'num_hidden_layers', 'unknown'),
+                }
+                self.wandb_run.config.update({'model_details': model_config}, allow_val_change=True)
+                
+            logger.info("Logged comprehensive configuration to wandb")
+            
+        except Exception as e:
+            logger.warning(f"Failed to log model config to wandb: {e}")
+
+    def cleanup(self) -> None:
+        """Cleanup resources and finish wandb run"""
+        if hasattr(self, 'wandb_run') and self.wandb_run is not None:
+            try:
+                import wandb
+                logger.info("Finishing wandb run...")
+                self.wandb_run.finish()
+            except ImportError:
+                pass
+        logger.info("MultiCoCo runner cleanup complete")
 
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='MultiCoCo: Two-phase training for multimodal models.')

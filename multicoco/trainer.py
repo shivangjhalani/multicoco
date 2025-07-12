@@ -105,29 +105,128 @@ class CoCoTrainer(Trainer):
         pbar = tqdm(train_dataloader, desc=f'Epoch {epoch + 1}', total=len(train_dataloader), disable=not self.is_world_process_zero())
         epoch_loss = 0.0
         step_count = 0
+        
         for step, inputs in enumerate(pbar):
             loss = self.training_step(model, inputs)
             if loss is not None:
                 epoch_loss += loss.item()
                 step_count += 1
                 avg_loss = epoch_loss / step_count
-                pbar.set_postfix({'loss': f'{avg_loss:.4f}'})
-                self._log_training_step(loss, step)
+                pbar.set_postfix({'loss': f'{avg_loss:.4f}', 'lr': f'{self.get_lr():.6f}'})
+                
+                # Enhanced training step logging with more metrics
+                self._log_training_step(loss, step, epoch)
+                
+                # Log gradient norm if gradient clipping is applied
+                if hasattr(self.args, 'max_grad_norm') and self.args.max_grad_norm > 0:
+                    if (step + 1) % self.args.gradient_accumulation_steps == 0:
+                        # Calculate gradient norm before clipping
+                        total_norm = 0.0
+                        for p in model.parameters():
+                            if p.grad is not None:
+                                param_norm = p.grad.data.norm(2)
+                                total_norm += param_norm.item() ** 2
+                        total_norm = total_norm ** (1. / 2)
+                        self._last_grad_norm = total_norm
+                        
+                        # Apply gradient clipping
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
+                        
             if (step + 1) % self.args.gradient_accumulation_steps == 0:
                 self.total_train_steps += 1
         pbar.close()
         if step_count > 0:
             avg_loss = epoch_loss / step_count
             logger.info(f'Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}')
+            
+            # Log epoch average loss
+            if 'wandb' in self.args.report_to:
+                try:
+                    import wandb
+                    if wandb.run:
+                        wandb.log({
+                            'train/epoch_avg_loss': avg_loss,
+                            'train/epoch': epoch + 1,
+                            'train/steps_per_epoch': step_count,
+                        })
+                except ImportError:
+                    pass
 
-    def _log_training_step(self, loss: torch.Tensor, step: int) -> None:
+    def _log_training_step(self, loss: torch.Tensor, step: int, epoch: int = None) -> None:
         if step % self.args.gradient_accumulation_steps == 0 and 'wandb' in self.args.report_to:
             try:
                 import wandb
                 if wandb.run:
-                    wandb.log({'train/batch_loss': loss.item(), 'train/step': self.total_train_steps})
+                    # Log comprehensive training metrics similar to coconut
+                    log_dict = {
+                        'train/batch_loss': loss.item(), 
+                        'train/step': self.total_train_steps,
+                        'train/global_step': self.state.global_step,
+                        'train/learning_rate': self.get_lr(),
+                    }
+                    
+                    # Add epoch information
+                    if epoch is not None:
+                        log_dict['train/epoch'] = epoch + 1
+                    elif hasattr(self.state, 'epoch') and self.state.epoch is not None:
+                        log_dict['train/epoch'] = self.state.epoch
+                        
+                    # Add gradient norm if available
+                    if hasattr(self, '_last_grad_norm'):
+                        log_dict['train/grad_norm'] = self._last_grad_norm
+                        
+                    # Add gradient accumulation info
+                    log_dict['train/gradient_accumulation_steps'] = self.args.gradient_accumulation_steps
+                        
+                    wandb.log(log_dict)
             except ImportError:
                 pass
+
+    def _log_epoch_summary(self, epoch: int, eval_metrics: Dict[str, float], checkpoint_dir: str, epoch_time: float) -> None:
+        summary = [f'\nEPOCH {epoch + 1} SUMMARY', f'Checkpoint: {checkpoint_dir}', f'Epoch time: {epoch_time:.2f}s']
+        if eval_metrics:
+            summary.append('Evaluation metrics:')
+            summary.extend([f'  {k}: {v:.4f}' for k, v in eval_metrics.items()])
+        for line in summary:
+            logger.info(line)
+            
+        # Log epoch summary to wandb
+        if 'wandb' in self.args.report_to:
+            try:
+                import wandb
+                if wandb.run:
+                    epoch_summary = {
+                        'epoch/number': epoch + 1,
+                        'epoch/time_seconds': epoch_time,
+                        'epoch/checkpoint_dir': checkpoint_dir,
+                    }
+                    # Add evaluation metrics with epoch prefix
+                    if eval_metrics:
+                        for key, value in eval_metrics.items():
+                            epoch_summary[f'epoch/{key}'] = value
+                    wandb.log(epoch_summary)
+            except ImportError:
+                pass
+                
+    def _log_validation_loss(self, val_loss: float, epoch: int) -> None:
+        """Log validation loss similar to coconut's eval loss logging"""
+        if 'wandb' in self.args.report_to:
+            try:
+                import wandb
+                if wandb.run:
+                    wandb.log({
+                        'eval/loss': val_loss,
+                        'eval/epoch': epoch + 1,
+                    })
+                    logger.info(f"Validation loss: {val_loss:.4f}")
+            except ImportError:
+                pass
+
+    def get_lr(self) -> float:
+        """Get current learning rate from optimizer"""
+        if self.optimizer is None:
+            return 0.0
+        return self.optimizer.param_groups[0]['lr']
 
     def _save_checkpoint_with_metrics(self, epoch: int, metrics: Dict[str, float]) -> str:
         checkpoint_dir = os.path.join(self.args.output_dir, f'epoch-{epoch}')
@@ -174,11 +273,81 @@ class CoCoTrainer(Trainer):
         if self.is_world_process_zero():
             metrics = self._compute_evaluation_metrics(all_preds, all_labels, metric_key_prefix)
             logger.info(f'{metric_key_prefix.upper()} METRICS: {metrics}')
+            
+            # Log evaluation metrics to wandb with more comprehensive metrics similar to coconut
+            if 'wandb' in self.args.report_to:
+                try:
+                    import wandb
+                    if wandb.run:
+                        wandb_metrics = {}
+                        
+                        # Standard accuracy metrics (similar to coconut's eval/acc)
+                        for key, value in metrics.items():
+                            wandb_metrics[f'{metric_key_prefix}/{key}'] = value
+                            
+                        # Calculate additional metrics similar to coconut
+                        total_samples = len(all_preds)
+                        correct_predictions = sum(1 for pred, label in zip(all_preds, all_labels) if pred == label)
+                        accuracy = correct_predictions / total_samples if total_samples > 0 else 0.0
+                        
+                        # Add coconut-style metrics
+                        wandb_metrics[f'{metric_key_prefix}/acc'] = accuracy
+                        wandb_metrics[f'{metric_key_prefix}/total_samples'] = total_samples
+                        wandb_metrics[f'{metric_key_prefix}/correct_predictions'] = correct_predictions
+                        
+                        # If we have reasoning text, compute CoT exact match (like coconut's eval/cot_em)
+                        if all_gen_texts:
+                            # Calculate exact match for generated reasoning text
+                            cot_exact_matches = 0
+                            for gen_text, label in zip(all_gen_texts, all_labels):
+                                # Simple heuristic: check if label appears in generated text
+                                if label.lower().strip() in gen_text.lower():
+                                    cot_exact_matches += 1
+                            cot_em_rate = cot_exact_matches / total_samples if total_samples > 0 else 0.0
+                            wandb_metrics[f'{metric_key_prefix}/cot_em'] = cot_em_rate
+                            
+                        wandb.log(wandb_metrics)
+                        logger.info(f'Logged comprehensive evaluation metrics to wandb: {wandb_metrics}')
+                        
+                        # Log sample generations table (similar to coconut's data_table)
+                        if log_per_sample and len(all_questions) > 0:
+                            self._log_evaluation_samples_to_wandb(
+                                all_questions[:10], all_gen_texts[:10], 
+                                all_labels[:10], all_preds[:10], metric_key_prefix
+                            )
+                except ImportError:
+                    logger.warning("wandb not available for logging evaluation metrics")
+                    
             if log_per_sample:
                 correctness = np.array(all_preds) == np.array(all_labels)
                 self._log_per_sample_details(all_questions, all_labels, all_gen_texts, all_ext_ans, all_gen_tokens, correctness)
             return metrics
         return {}
+
+    def _log_evaluation_samples_to_wandb(self, questions: List[str], generated_texts: List[str], 
+                                       labels: List[str], predictions: List[str], metric_prefix: str) -> None:
+        """Log evaluation samples to wandb similar to coconut's text table logging"""
+        try:
+            import wandb
+            if wandb.run:
+                columns = ["Question", "Generated Text", "Ground Truth", "Prediction", "Correct"]
+                data = []
+                
+                for i in range(len(questions)):
+                    is_correct = predictions[i] == labels[i] if i < len(predictions) and i < len(labels) else False
+                    data.append([
+                        questions[i][:300] + "..." if len(questions[i]) > 300 else questions[i],
+                        generated_texts[i][:500] + "..." if len(generated_texts[i]) > 500 else generated_texts[i],
+                        labels[i] if i < len(labels) else "N/A",
+                        predictions[i] if i < len(predictions) else "N/A",
+                        "✓" if is_correct else "✗"
+                    ])
+                
+                eval_table = wandb.Table(columns=columns, data=data)
+                wandb.log({f"{metric_prefix}/sample_generations": eval_table})
+                logger.info(f"Logged {len(data)} evaluation samples to wandb")
+        except Exception as e:
+            logger.warning(f"Failed to log evaluation samples to wandb: {e}")
 
     def _gather_evaluation_results(self, predictions: List[str], labels: List[str], questions: List[str], generated_texts: List[str], generated_tokens: List[int], extracted_answers: List[str]) -> Tuple[List[str], List[str], List[str], List[str], List[int], List[str]]:
         if dist.is_initialized() and dist.get_world_size() > 1:
@@ -248,3 +417,136 @@ class CoCoTrainer(Trainer):
         elif hasattr(self.model, 'module') and hasattr(self.model.module, 'tokenizer'):
             return self.model.module.tokenizer
         raise AttributeError('Tokenizer not found in model')
+
+    def _log_training_data_sample(self, batch: Dict, epoch: int, step: int) -> None:
+        """Log training data samples to wandb similar to coconut's data table logging"""
+        if not (step == 0 and epoch == 0):  # Only log on first step of first epoch
+            return
+            
+        if 'wandb' in self.args.report_to:
+            try:
+                import wandb
+                if wandb.run and self.is_world_process_zero():
+                    logger.info("Logging training data samples to wandb")
+                    
+                    # Extract sample data from batch
+                    input_ids = batch.get('input_ids', [])
+                    labels = batch.get('labels', [])
+                    
+                    if hasattr(self, 'tokenizer') and len(input_ids) > 0:
+                        # Create data table similar to coconut
+                        columns = ["step", "sample_id", "token_id", "label_id", "token_text"]
+                        data = []
+                        
+                        # Log first few samples
+                        max_samples = min(2, len(input_ids))
+                        for sample_idx in range(max_samples):
+                            sample_input_ids = input_ids[sample_idx]
+                            sample_labels = labels[sample_idx] if sample_idx < len(labels) else None
+                            
+                            # Log first 50 tokens of each sample
+                            max_tokens = min(50, len(sample_input_ids))
+                            for token_idx in range(max_tokens):
+                                token_id = sample_input_ids[token_idx].item() if hasattr(sample_input_ids[token_idx], 'item') else sample_input_ids[token_idx]
+                                label_id = sample_labels[token_idx].item() if sample_labels is not None and hasattr(sample_labels[token_idx], 'item') else -100
+                                token_text = self.tokenizer.decode([token_id]) if hasattr(self, 'tokenizer') else f"token_{token_id}"
+                                
+                                data.append([
+                                    self.total_train_steps,
+                                    sample_idx,
+                                    token_id,
+                                    label_id,
+                                    token_text.replace('\n', '\\n')  # Escape newlines
+                                ])
+                        
+                        if data:
+                            training_data_table = wandb.Table(columns=columns, data=data)
+                            wandb.log({"train/data_samples": training_data_table})
+                            logger.info(f"Logged {len(data)} training data tokens to wandb")
+                            
+            except Exception as e:
+                logger.warning(f"Failed to log training data samples: {e}")
+
+    def training_step(self, model: torch.nn.Module, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Override training step to add data logging"""
+        # Log training data samples (only on first step)
+        if hasattr(self, 'state') and self.state.global_step == 0:
+            self._log_training_data_sample(inputs, self.state.epoch or 0, 0)
+            
+        # Call parent training step
+        return super().training_step(model, inputs)
+
+    def _track_best_performance(self, metrics: Dict[str, float], epoch: int, checkpoint_dir: str) -> bool:
+        """Track best model performance and log to wandb similar to coconut's best_acc tracking"""
+        # Extract accuracy metric (could be 'accuracy', 'acc', or 'eval_accuracy')
+        acc_key = None
+        for key in ['accuracy', 'acc', 'eval_accuracy']:
+            if key in metrics:
+                acc_key = key
+                break
+                
+        if acc_key is None:
+            logger.warning("No accuracy metric found for best model tracking")
+            return False
+            
+        current_acc = metrics[acc_key]
+        
+        # Initialize best accuracy if not set
+        if not hasattr(self, 'best_accuracy'):
+            self.best_accuracy = 0.0
+            self.best_epoch = -1
+            self.best_checkpoint = None
+            
+        is_best = current_acc > self.best_accuracy
+        
+        if is_best:
+            self.best_accuracy = current_acc
+            self.best_epoch = epoch
+            self.best_checkpoint = checkpoint_dir
+            logger.info(f"🎉 New best accuracy: {current_acc:.4f} at epoch {epoch + 1}")
+            
+            # Log best model info to wandb
+            if 'wandb' in self.args.report_to:
+                try:
+                    import wandb
+                    if wandb.run:
+                        best_metrics = {
+                            'best/accuracy': self.best_accuracy,
+                            'best/epoch': self.best_epoch + 1,
+                            'best/checkpoint': checkpoint_dir,
+                        }
+                        # Add all current metrics with 'best/' prefix
+                        for key, value in metrics.items():
+                            best_metrics[f'best/{key}'] = value
+                            
+                        wandb.log(best_metrics)
+                        logger.info(f"Updated best model metrics in wandb: {best_metrics}")
+                except ImportError:
+                    pass
+        else:
+            logger.info(f"Current accuracy: {current_acc:.4f}, Best: {self.best_accuracy:.4f} (epoch {self.best_epoch + 1})")
+            
+        return is_best
+
+    def _log_performance_summary(self) -> None:
+        """Log final performance summary similar to coconut's final logging"""
+        if hasattr(self, 'best_accuracy') and 'wandb' in self.args.report_to:
+            try:
+                import wandb
+                if wandb.run and self.is_world_process_zero():
+                    summary_metrics = {
+                        'summary/best_accuracy': self.best_accuracy,
+                        'summary/best_epoch': self.best_epoch + 1,
+                        'summary/total_train_steps': self.total_train_steps,
+                    }
+                    
+                    if hasattr(self, 'best_checkpoint'):
+                        summary_metrics['summary/best_checkpoint'] = self.best_checkpoint
+                        
+                    wandb.log(summary_metrics)
+                    logger.info(f"Logged training summary to wandb: {summary_metrics}")
+                    
+                    # Mark run as finished
+                    wandb.finish()
+            except ImportError:
+                pass
