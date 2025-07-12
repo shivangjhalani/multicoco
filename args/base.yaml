@@ -35,8 +35,7 @@ bf16: true
 fp16: false
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
 torch_compile: false
-use_flash_attentPrint Debug Info: In trainer.py _train_one_epoch, add logger.info(f"Current LR: {self.get_lr()} (full float: {self.optimizer.param_groups[0]['lr']})") after each training_step. This will show if it's exactly 0 or just small.
-Check Total Steps: Add print(len(self.train_dataloader), self.args.gradient_accumulation_steps, total_steps) before training. Ensure total_steps > warmup_steps.ion_2: true
+use_flash_attention_2: false
 # gradient_checkpointing: true
 gradient_checkpointing_kwargs: {"use_reentrant": false}
 dataloader_num_workers: 8

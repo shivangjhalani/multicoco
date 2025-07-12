@@ -52,7 +52,7 @@ trust_remote_code: true
 low_cpu_mem_usage: true
 load_model_path: null
 torch_compile: false
-use_flash_attention_2: true
+use_flash_attention_2: false
 gradient_checkpointing: true
 dataloader_pin_memory: false
 dataloader_num_workers: 4
