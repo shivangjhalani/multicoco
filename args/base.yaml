@@ -13,6 +13,8 @@ eval_accumulation_steps: 1
 learning_rate: 2.0e-5
 weight_decay: 0.01
 warmup_steps: 50
+max_grad_norm: 1.0
+lr_scheduler_type: "cosine"
 limit_for_testing: false
 resume_from_checkpoint: true
 load_best_model_at_end: true

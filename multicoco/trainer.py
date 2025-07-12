@@ -163,39 +163,65 @@ class CoCoTrainer(Trainer):
         pbar = tqdm(train_dataloader, desc=f'Epoch {epoch + 1}', total=len(train_dataloader), disable=not self.is_world_process_zero())
         epoch_loss = 0.0
         step_count = 0
+        tr_loss = torch.tensor(0.0).to(model.device)  # Track accumulated loss for logging
         
         for step, inputs in enumerate(pbar):
-            loss = self.training_step(model, inputs)
+            loss = self.training_step(model, inputs)  # Computes forward + loss + backward (scaled if needed)
+            
+            # Accumulate loss for averaging
             if loss is not None:
+                tr_loss += loss.detach()  # Use detach for accurate logging
                 epoch_loss += loss.item()
                 step_count += 1
-                avg_loss = epoch_loss / step_count
-                pbar.set_postfix({'loss': f'{avg_loss:.8f}', 'lr': f'{self.get_lr():.6f}'})
-                
-                # Enhanced training step logging with more metrics
-                self._log_training_step(loss, step, epoch)
-                
-                # Log gradient norm if gradient clipping is applied
-                if hasattr(self.args, 'max_grad_norm') and self.args.max_grad_norm > 0:
-                    if (step + 1) % self.args.gradient_accumulation_steps == 0:
-                        # Calculate gradient norm before clipping
-                        total_norm = 0.0
-                        for p in model.parameters():
-                            if p.grad is not None:
-                                param_norm = p.grad.data.norm(2)
-                                total_norm += param_norm.item() ** 2
-                        total_norm = total_norm ** (1. / 2)
-                        self._last_grad_norm = total_norm
-                        
-                        # Apply gradient clipping
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
-                        
+            
+            # Accumulation logic: Step optimizer/scheduler every 'gradient_accumulation_steps' batches
             if (step + 1) % self.args.gradient_accumulation_steps == 0:
-                self.total_train_steps += 1
+                # Add distributed barrier if needed
+                if dist.is_initialized():
+                    dist.barrier()
+                
+                # Calculate gradient norm before clipping (for logging)
+                if hasattr(self.args, 'max_grad_norm') and self.args.max_grad_norm > 0:
+                    total_norm = 0.0
+                    for p in model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    total_norm = total_norm ** (1. / 2)
+                    self._last_grad_norm = total_norm
+                    
+                    # Apply gradient clipping
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
+                
+                # Step optimizer and scheduler
+                self.optimizer.step()
+                self.lr_scheduler.step()
+                model.zero_grad()  # Clear gradients
+                
+                # Increment global step (critical for HF Trainer state)
+                self.state.global_step += 1
+                self.total_train_steps += 1  # Keep custom counter if needed
+                
+                # Compute avg loss (normalize by accumulation steps for accurate avg)
+                avg_loss = (tr_loss.item() / self.args.gradient_accumulation_steps) / max(1, step_count) if step_count > 0 else 0.0
+                current_lr = self.get_lr()
+                
+                # Log LR debug
+                logger.debug(f"Current LR: {current_lr} (full float: {self.optimizer.param_groups[0]['lr']})")
+                
+                # Update progress bar
+                pbar.set_postfix({'loss': f'{avg_loss:.4f}', 'lr': f'{current_lr:.6f}'})
+                
+                # Reset accumulated loss for next accumulation cycle
+                tr_loss = torch.tensor(0.0).to(model.device)
+                
+                # Enhanced training step logging
+                self._log_training_step(loss, step, epoch)
+        
         pbar.close()
         if step_count > 0:
-            avg_loss = epoch_loss / step_count
-            logger.info(f'Epoch {epoch + 1} training complete. Average loss: {avg_loss:.4f}')
+            final_avg_loss = epoch_loss / step_count
+            logger.info(f'Epoch {epoch + 1} training complete. Average loss: {final_avg_loss:.4f}')
             
             # Log epoch average loss
             if 'wandb' in self.args.report_to:
@@ -203,7 +229,7 @@ class CoCoTrainer(Trainer):
                     import wandb
                     if wandb.run:
                         wandb.log({
-                            'train/epoch_avg_loss': avg_loss,
+                            'train/epoch_avg_loss': final_avg_loss,
                             'train/epoch': epoch + 1,
                             'train/steps_per_epoch': step_count,
                         })
@@ -211,7 +237,8 @@ class CoCoTrainer(Trainer):
                     pass
 
     def _log_training_step(self, loss: torch.Tensor, step: int, epoch: int = None) -> None:
-        if step % self.args.gradient_accumulation_steps == 0 and 'wandb' in self.args.report_to:
+        # Only log on accumulation steps to avoid excessive logging
+        if (step + 1) % self.args.gradient_accumulation_steps == 0 and 'wandb' in self.args.report_to:
             try:
                 import wandb
                 if wandb.run:
@@ -229,7 +256,7 @@ class CoCoTrainer(Trainer):
                     elif hasattr(self.state, 'epoch') and self.state.epoch is not None:
                         log_dict['train/epoch'] = self.state.epoch
                         
-                    # Add gradient norm if available
+                    # Add gradient norm if available (only after clipping)
                     if hasattr(self, '_last_grad_norm'):
                         log_dict['train/grad_norm'] = self._last_grad_norm
                         
@@ -679,3 +706,53 @@ class CoCoTrainer(Trainer):
                     wandb.log(stage_metrics)
             except ImportError:
                 pass
+
+    def create_optimizer_and_scheduler(self, num_training_steps: int):
+        """Create optimizer and scheduler with enhanced logging."""
+        # Create optimizer first
+        self.create_optimizer()
+        
+        # Create custom cosine scheduler
+        self.lr_scheduler = self.create_scheduler(num_training_steps, self.optimizer)
+        
+        logger.info(f"Optimizer created with initial LR: {self.get_lr()}")
+        logger.info(f"Scheduler: {type(self.lr_scheduler).__name__}, num_training_steps={num_training_steps}")
+        if hasattr(self.args, 'warmup_steps'):
+            logger.info(f"Warmup steps: {self.args.warmup_steps}")
+        else:
+            logger.info("No warmup steps configured")
+        if hasattr(self.args, 'max_grad_norm'):
+            logger.info(f"Gradient clipping enabled with max_grad_norm: {self.args.max_grad_norm}")
+        else:
+            logger.info("No gradient clipping configured")
+
+    def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer = None):
+        """
+        Create a learning rate scheduler with support for cosine annealing (like CoCoNut).
+        Override the default to use cosine annealing instead of linear decay when specified.
+        """
+        if optimizer is None:
+            optimizer = self.optimizer
+            
+        # Use cosine annealing with warmup for more stable training
+        warmup_steps = getattr(self.args, 'warmup_steps', 0)
+        scheduler_type = getattr(self.args, 'lr_scheduler_type', 'linear')
+        
+        if scheduler_type.lower() == 'cosine':
+            try:
+                from transformers.optimization import get_cosine_schedule_with_warmup
+                scheduler = get_cosine_schedule_with_warmup(
+                    optimizer=optimizer,
+                    num_warmup_steps=warmup_steps,
+                    num_training_steps=num_training_steps,
+                )
+                logger.info(f"Created cosine scheduler with warmup_steps={warmup_steps}, total_steps={num_training_steps}")
+                return scheduler
+            except ImportError:
+                # Fallback to default scheduler if transformers.optimization is not available
+                logger.warning("Could not import get_cosine_schedule_with_warmup, falling back to default scheduler")
+                return super().create_scheduler(num_training_steps, optimizer)
+        else:
+            # Use default linear scheduler
+            logger.info(f"Using default linear scheduler with warmup_steps={warmup_steps}, total_steps={num_training_steps}")
+            return super().create_scheduler(num_training_steps, optimizer)

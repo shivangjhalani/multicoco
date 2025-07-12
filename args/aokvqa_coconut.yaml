@@ -11,6 +11,8 @@ reset_optimizer: true
 resume_from_checkpoint: false
 weight_decay: 0.01
 warmup_steps: 500
+max_grad_norm: 1.0
+lr_scheduler_type: "cosine"
 load_best_model_at_end: true
 metric_for_best_model: "accuracy"
 
