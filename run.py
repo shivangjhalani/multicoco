@@ -633,12 +633,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Override model name"
     )
     
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
-    
     return parser
 
 
@@ -653,10 +647,6 @@ def apply_cli_overrides(config: MultiCoCoConfig,
     
     if args.model_name:
         config.model.model_name = args.model_name
-    
-    if args.verbose:
-        config.logging.verbose = True
-        config.logging.console_output = True
     
     return config
 

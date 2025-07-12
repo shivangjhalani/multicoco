@@ -248,6 +248,12 @@ class CoCoTrainer(Trainer):
                 all_ext_ans.extend(preds)
         
         progress_bar.close()
+
+        # Gather results from all processes
+        gathered = self._gather_evaluation_results(
+            all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans
+        )
+        all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans = gathered
         
         if self.is_world_process_zero():
             metrics = self._compute_evaluation_metrics(all_preds, all_labels, metric_key_prefix)
@@ -265,6 +271,30 @@ class CoCoTrainer(Trainer):
                     pass
             return metrics
         return {}
+
+    def _gather_evaluation_results(
+        self,
+        predictions: List[str], 
+        labels: List[str], 
+        questions: List[str],
+        generated_texts: List[str],
+        generated_tokens: List[List[int]],
+        extracted_answers: List[str]
+    ) -> Tuple[List[str], List[str], List[str], List[str], List[List[int]], List[str]]:
+        """Gather evaluation results from all processes in distributed setting."""
+        if dist.is_initialized() and dist.get_world_size() > 1:
+            local_results = list(zip(predictions, labels, questions, generated_texts, generated_tokens, extracted_answers))
+            
+            gathered_results = [None] * dist.get_world_size()
+            dist.all_gather_object(gathered_results, local_results)
+            
+            all_results = [item for sublist in gathered_results for item in sublist]
+            
+            all_predictions, all_labels, all_questions, all_generated_texts, all_generated_tokens, all_extracted = zip(*all_results)
+            
+            return list(all_predictions), list(all_labels), list(all_questions), list(all_generated_texts), list(all_generated_tokens), list(all_extracted)
+
+        return predictions, labels, questions, generated_texts, generated_tokens, extracted_answers
 
     def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
         eval_logger = logging.getLogger('evaluation_details')
