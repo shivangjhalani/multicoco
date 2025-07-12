@@ -347,67 +347,28 @@ class MultiCoCoRunner:
 
     def _run_coconut_mode(self) -> Dict[str, float]:
         logger.info('Starting CoCoNut multi-stage training...')
-        stage = 0
-        epochs_per_stage = self.config.coconut.epochs_per_stage
-        max_latent_stage = self.config.coconut.max_latent_stage
-        total_epochs = self.config.training.num_epochs
+        
+        # Initialize trainer once before the training loop
+        self.create_trainer()
         
         # Log CoCoNut configuration to wandb
         if hasattr(self, 'wandb_run') and self.wandb_run is not None:
             coconut_config = {
-                'coconut/max_latent_stage': max_latent_stage,
-                'coconut/epochs_per_stage': epochs_per_stage,
+                'coconut/max_latent_stage': self.config.coconut.max_latent_stage,
+                'coconut/epochs_per_stage': self.config.coconut.epochs_per_stage,
                 'coconut/c_thought': self.config.coconut.c_thought,
-                'coconut/total_stages': max_latent_stage + 1,
+                'coconut/total_stages': self.config.coconut.max_latent_stage + 1,
                 'coconut/uniform_prob': self.config.coconut.uniform_prob,
             }
             self.wandb_run.log(coconut_config)
             logger.info(f'Logged CoCoNut configuration to wandb: {coconut_config}')
         
-        for epoch in range(total_epochs):
-            # Calculate current stage based on epoch and epochs_per_stage
-            current_stage = min(epoch // epochs_per_stage, max_latent_stage)
-            stage_epoch = epoch % epochs_per_stage
-            stage_progress = (stage_epoch + 1) / epochs_per_stage
-            
-            logger.info(f'Epoch {epoch + 1}/{total_epochs} - CoCoNut Stage {current_stage}/{max_latent_stage} '
-                       f'(Stage Epoch {stage_epoch + 1}/{epochs_per_stage})')
-            
-            # Log stage progression metrics
-            self._log_coconut_stage_metrics(current_stage, stage_epoch, stage_progress)
-            
-            # Update dataset for current stage (this would need to be implemented in dataset)
-            # For now, just recreate trainer with stage-specific settings
-            if current_stage != stage:
-                stage = current_stage
-                logger.info(f'Transitioning to CoCoNut stage {stage}')
-                # Here you would update the dataset/collator for the new stage
-                # self._update_dataset_for_stage(stage)
-                
-            # Log stage transition to wandb
-            if hasattr(self, 'wandb_run') and self.wandb_run is not None:
-                stage_transition = {
-                    'coconut/stage_transition': current_stage,
-                    'coconut/epoch_in_stage': stage_epoch,
-                    'coconut/latent_tokens_count': current_stage * self.config.coconut.c_thought,
-                }
-                self.wandb_run.log(stage_transition)
-            
-            # Run training for this epoch
-            self.trainer.train()
-            
-            # Run evaluation if configured
-            if epoch % self.config.training.eval_steps == 0:
-                metrics = self.trainer.perform_evaluation(log_per_sample=False)
-                # Add stage info to metrics
-                stage_metrics = {f'{key}_stage_{current_stage}': value for key, value in metrics.items()}
-                if hasattr(self, 'wandb_run') and self.wandb_run is not None:
-                    self.wandb_run.log(stage_metrics)
+        # Single call to train(); the trainer will handle epoch loops and stage logic internally
+        self.trainer.train()
         
         # Final evaluation
         logger.info('Running final CoCoNut evaluation...')
-        final_metrics = self.trainer.perform_evaluation(log_per_sample=True)
-        return final_metrics
+        return self.trainer.perform_evaluation(log_per_sample=True)
 
     def _run_final_evaluation(self) -> Dict[str, float]:
         logger.info('Running final evaluation...')

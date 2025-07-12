@@ -28,6 +28,16 @@ class CoCoTrainer(Trainer):
         logger.info('CoCoTrainer initialized.')
 
     def train(self, resume_from_checkpoint: Optional[Union[str, bool]] = None, **kwargs) -> TrainOutput:
+        # Check if we're in CoCoNut mode with multi-stage training
+        is_coconut_mode = hasattr(self.args, 'epochs_per_stage') and hasattr(self.args, 'max_latent_stage')
+        
+        if is_coconut_mode:
+            return self._train_with_coconut_stages(resume_from_checkpoint, **kwargs)
+        else:
+            return self._train_standard(resume_from_checkpoint, **kwargs)
+    
+    def _train_standard(self, resume_from_checkpoint: Optional[Union[str, bool]] = None, **kwargs) -> TrainOutput:
+        """Standard training without CoCoNut stage transitions."""
         self._setup_epoch_training()
         start_epoch = self._handle_checkpoint_resumption(resume_from_checkpoint)
         train_dataloader = self.get_train_dataloader()
@@ -41,6 +51,54 @@ class CoCoTrainer(Trainer):
             gc.collect()
             torch.cuda.empty_cache()
         logger.info('Training completed!')
+        return TrainOutput(global_step=self.total_train_steps, training_loss=0.0, metrics={})
+    
+    def _train_with_coconut_stages(self, resume_from_checkpoint: Optional[Union[str, bool]] = None, **kwargs) -> TrainOutput:
+        """Training with CoCoNut multi-stage curriculum."""
+        logger.info('Starting CoCoNut multi-stage training with stage transitions')
+        
+        self._setup_epoch_training()
+        start_epoch = self._handle_checkpoint_resumption(resume_from_checkpoint)
+        
+        # Initialize stage tracking
+        self._last_stage = -1  # Track last processed stage
+        
+        # Initial training setup
+        train_dataloader = self.get_train_dataloader()
+        steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
+        total_steps = steps_per_epoch * int(self.args.num_train_epochs)
+        self._log_training_setup(steps_per_epoch, total_steps)
+        model = self._wrap_model(self.model_wrapped)
+        self.create_optimizer_and_scheduler(num_training_steps=total_steps)
+        
+        # Main training loop with stage transitions
+        for epoch in range(start_epoch, int(self.args.num_train_epochs)):
+            # Calculate current stage based on epoch and epochs_per_stage
+            current_stage = min(epoch // self.args.epochs_per_stage, self.args.max_latent_stage)
+            
+            # Handle stage transitions
+            if current_stage != self._last_stage:
+                self._update_for_stage(current_stage)
+                self._last_stage = current_stage
+                # Refresh dataloader after dataset update
+                train_dataloader = self.get_train_dataloader()
+            
+            # Log stage progress
+            stage_epoch = epoch % self.args.epochs_per_stage
+            stage_progress = (stage_epoch + 1) / self.args.epochs_per_stage
+            logger.info(f'Epoch {epoch + 1}/{int(self.args.num_train_epochs)} - '
+                       f'CoCoNut Stage {current_stage}/{self.args.max_latent_stage} '
+                       f'(Stage Epoch {stage_epoch + 1}/{self.args.epochs_per_stage})')
+            
+            # Log stage metrics to wandb if available
+            self._log_coconut_stage_metrics(current_stage, stage_epoch, stage_progress)
+            
+            # Train the epoch
+            self._train_single_epoch(model, train_dataloader, epoch, steps_per_epoch)
+            gc.collect()
+            torch.cuda.empty_cache()
+        
+        logger.info('CoCoNut multi-stage training completed!')
         return TrainOutput(global_step=self.total_train_steps, training_loss=0.0, metrics={})
 
     def _log_training_setup(self, steps_per_epoch: int, total_steps: int) -> None:
@@ -548,5 +606,78 @@ class CoCoTrainer(Trainer):
                     
                     # Mark run as finished
                     wandb.finish()
+            except ImportError:
+                pass
+    
+    def _update_for_stage(self, stage: int) -> None:
+        """Update dataset and training configuration for a new CoCoNut stage."""
+        logger.info(f"Transitioning to CoCoNut stage {stage}")
+        
+        # Apply progressive curriculum to the training dataset
+        if hasattr(self.train_dataset, 'apply_progressive_curriculum'):
+            # Log dataset state before update for verification
+            if hasattr(self.train_dataset, 'data') and len(self.train_dataset.data) > 0:
+                sample_before = self.train_dataset.data[0] if len(self.train_dataset.data) > 0 else None
+                logger.info(f"Dataset sample before curriculum update (stage {stage}): "
+                           f"steps={sample_before.get('steps', 'N/A') if sample_before else 'No data'}")
+            
+            self.train_dataset.apply_progressive_curriculum(
+                scheduled_stage=stage,
+                c_thought=self.args.c_thought,
+                max_latent_stage=self.args.max_latent_stage,
+                uniform_prob=self.args.uniform_prob,
+                pad_latent_to_max=self.args.pad_latent_to_max,
+                no_cot=False,
+            )
+            
+            # Log dataset state after update for verification
+            if hasattr(self.train_dataset, 'data') and len(self.train_dataset.data) > 0:
+                sample_after = self.train_dataset.data[0] if len(self.train_dataset.data) > 0 else None
+                logger.info(f"Dataset sample after curriculum update (stage {stage}): "
+                           f"steps={sample_after.get('steps', 'N/A') if sample_after else 'No data'}")
+                
+            logger.info(f"Applied progressive curriculum for stage {stage} - Dataset size: {len(self.train_dataset)}")
+        else:
+            logger.warning("Training dataset does not support progressive curriculum")
+        
+        # Refresh the dataloader to use updated dataset
+        if hasattr(self, '_last_train_dataloader'):
+            del self._last_train_dataloader  # Clear any cached dataloader
+        logger.info("Dataloader will be refreshed for updated curriculum")
+        
+        # Reset optimizer if configured
+        if hasattr(self.args, 'reset_optimizer') and self.args.reset_optimizer:
+            logger.info("Resetting optimizer for new stage")
+            self.create_optimizer()
+            
+        # Log stage transition to wandb
+        if 'wandb' in self.args.report_to:
+            try:
+                import wandb
+                if wandb.run:
+                    stage_transition = {
+                        'coconut/stage_transition': stage,
+                        'coconut/latent_tokens_count': stage * self.args.c_thought,
+                        'coconut/stage_timestamp': time.time(),
+                        'coconut/dataset_size_after_update': len(self.train_dataset) if hasattr(self, 'train_dataset') else 0,
+                    }
+                    wandb.log(stage_transition)
+                    logger.info(f"Logged stage transition to wandb: stage {stage}")
+            except ImportError:
+                pass
+    
+    def _log_coconut_stage_metrics(self, current_stage: int, stage_epoch: int, stage_progress: float) -> None:
+        """Log CoCoNut specific stage progression metrics."""
+        if 'wandb' in self.args.report_to:
+            try:
+                import wandb
+                if wandb.run:
+                    stage_metrics = {
+                        'coconut/current_stage': current_stage,
+                        'coconut/stage_epoch': stage_epoch,
+                        'coconut/stage_progress': stage_progress,
+                        'coconut/latent_replacement_ratio': current_stage / max(1, self.args.max_latent_stage),
+                    }
+                    wandb.log(stage_metrics)
             except ImportError:
                 pass
