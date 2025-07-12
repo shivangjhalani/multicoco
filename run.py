@@ -150,6 +150,11 @@ class MultiCoCoRunner:
         run_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         run_handler.setFormatter(run_formatter)
         root_logger.addHandler(run_handler)
+
+        # Handler for stdout
+        stdout_handler = TqdmLoggingHandler()
+        stdout_handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logger.addHandler(stdout_handler)
         
         # This stream will be used to direct tqdm output to the log file
         self.tqdm_file_stream = open(run_log_path, 'a')
