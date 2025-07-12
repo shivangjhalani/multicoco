@@ -58,7 +58,6 @@ from multicoco.exceptions import (
 from multicoco.latent_wrapper import LatentWrapper
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
-from multicoco.utils import TqdmLoggingHandler
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,7 @@ class MultiCoCoRunner:
         self.eval_dataset: Optional[SupervisedDataset] = None
         self.wandb_run: Optional[Any] = None
         self.run_log_dir: Optional[str] = None
+        self.tqdm_file_stream: Optional[Any] = None
         
         self._initialize()
         
@@ -149,6 +149,9 @@ class MultiCoCoRunner:
             run_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
             run_handler.setFormatter(run_formatter)
             root_logger.addHandler(run_handler)
+            self.tqdm_file_stream = open(run_log_path, 'a')
+        else:
+            self.tqdm_file_stream = None
 
         # --- Configure Evaluation Logger ---
         eval_logger = logging.getLogger('evaluation_details')
@@ -426,6 +429,7 @@ class MultiCoCoRunner:
                     self.model.tokenizer if self.model else None, 
                     self.model.image_processor if self.model else None
                 ),
+                tqdm_file_stream=self.tqdm_file_stream
             )
             
             if self.config.coconut.enabled:
