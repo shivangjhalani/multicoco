@@ -121,7 +121,7 @@ class MultiCoCoRunner:
         else:
             logger.warning("CUDA not available, using CPU")
 
-    """    def _setup_logging(self) -> None:
+    def _setup_logging(self) -> None:
         """Configure structured, file-based logging for each run."""
         local_rank = int(os.environ.get("LOCAL_RANK", -1))
         if local_rank > 0:  # Only configure handlers on the main process
@@ -667,7 +667,6 @@ def _load_config(config_path: str) -> MultiCoCoConfig:
 
 
 def main() -> None:
-    """Main entry point."""
     try:
         parser = create_parser()
         args = parser.parse_args()
