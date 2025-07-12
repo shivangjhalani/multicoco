@@ -68,7 +68,7 @@ class MultiCoCoRunner:
         log_cfg = self.config.logging
         timestamp = time.strftime('%Y%m%d-%H%M%S')
         run_name = log_cfg.run_name or 'run'
-        self.run_log_dir = os.path.join(log_cfg.log_dir, f'{run_name}_{timestamp}')
+        self.run_log_dir = os.path.join(log_cfg.log_dir, run_name)
         os.makedirs(self.run_log_dir, exist_ok=True)
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_cfg.log_level))
@@ -80,7 +80,34 @@ class MultiCoCoRunner:
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             root_logger.addHandler(handler)
+        
+        # Setup evaluation details logger with JSON-only format
+        self._setup_evaluation_logger()
         logger.info(f'Logging initialized. Output saved to: {self.run_log_dir}')
+
+    def _setup_evaluation_logger(self) -> None:
+        """Setup evaluation logger with JSON-only format for clean evaluation logs"""
+        eval_logger = logging.getLogger('evaluation_details')
+        eval_logger.setLevel(logging.INFO)
+        eval_logger.propagate = False  # Don't propagate to root logger to avoid duplicates
+        
+        # Clear any existing handlers
+        if eval_logger.hasHandlers():
+            eval_logger.handlers.clear()
+        
+        # Create JSON-only formatter (no timestamp)
+        json_formatter = logging.Formatter('%(message)s')
+        
+        # If we're in eval-only mode, create evaluation.log
+        # Otherwise we'll create epoch-specific logs during training
+        if self.config.training.mode == TrainingMode.EVAL_ONLY:
+            eval_log_path = os.path.join(self.run_log_dir, 'evaluation.log')
+            eval_handler = logging.FileHandler(eval_log_path)
+            eval_handler.setFormatter(json_formatter)
+            eval_logger.addHandler(eval_handler)
+        
+        self.eval_logger = eval_logger
+        self.json_formatter = json_formatter
 
     def _setup_wandb(self) -> None:
         if not self.config.logging.use_wandb:
@@ -236,7 +263,7 @@ class MultiCoCoRunner:
             raise ModelInitializationError('Model must be initialized first')
         try:
             training_args = self._create_training_arguments()
-            self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.model.tokenizer, self.model.image_processor))
+            self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.model.tokenizer, self.model.image_processor), runner=self)
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             logger.info('Trainer created successfully')
@@ -472,6 +499,23 @@ class MultiCoCoRunner:
             
         except Exception as e:
             logger.warning(f"Failed to log model config to wandb: {e}")
+
+    def setup_epoch_evaluation_logger(self, epoch: int) -> None:
+        """Setup epoch-specific evaluation logger for training mode"""
+        if self.config.training.mode == TrainingMode.EVAL_ONLY:
+            return  # Use main evaluation.log for eval-only mode
+            
+        eval_logger = logging.getLogger('evaluation_details')
+        
+        # Clear existing handlers to avoid duplicates
+        if eval_logger.hasHandlers():
+            eval_logger.handlers.clear()
+            
+        # Create epoch-specific log file
+        eval_log_path = os.path.join(self.run_log_dir, f'evaluation_epoch_{epoch + 1}.log')
+        eval_handler = logging.FileHandler(eval_log_path)
+        eval_handler.setFormatter(self.json_formatter)
+        eval_logger.addHandler(eval_handler)
 
     def cleanup(self) -> None:
         """Cleanup resources and finish wandb run"""

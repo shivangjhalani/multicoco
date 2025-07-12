@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 
 
 class CoCoTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, runner=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.total_train_steps = 0
+        self.runner = runner  # Store reference to runner for logging
         logger.info('CoCoTrainer initialized.')
 
     def train(self, resume_from_checkpoint: Optional[Union[str, bool]] = None, **kwargs) -> TrainOutput:
@@ -113,6 +114,12 @@ class CoCoTrainer(Trainer):
         epoch_start_time = time.time()
         logger.info(f'\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}')
         self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
+        
+        # Setup epoch-specific evaluation logger before evaluation
+        if self.runner and hasattr(self.runner, 'setup_epoch_evaluation_logger'):
+            self.runner.setup_epoch_evaluation_logger(epoch)
+            logger.info(f'Running evaluation after epoch {epoch + 1}...')
+        
         eval_metrics = self.evaluate()
         checkpoint_dir = self._save_checkpoint_with_metrics(epoch, eval_metrics)
         epoch_time = time.time() - epoch_start_time
