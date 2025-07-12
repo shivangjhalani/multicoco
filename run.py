@@ -68,7 +68,7 @@ class MultiCoCoRunner:
         log_cfg = self.config.logging
         timestamp = time.strftime('%Y%m%d-%H%M%S')
         run_name = log_cfg.run_name or 'run'
-        self.run_log_dir = os.path.join(log_cfg.log_dir, run_name)
+        self.run_log_dir = os.path.join(log_cfg.log_dir, f'{run_name}_{timestamp}')
         os.makedirs(self.run_log_dir, exist_ok=True)
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_cfg.log_level))
