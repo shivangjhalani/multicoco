@@ -10,7 +10,7 @@ eval_batch_size: 64
 eval_accumulation_steps: 2
 num_epochs: 8
 weight_decay: 0.01
-warmup_steps: 10
+warmup_steps: 50
 load_best_model_at_end: true
 metric_for_best_model: "accuracy"
 
