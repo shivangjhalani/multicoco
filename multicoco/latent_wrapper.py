@@ -110,7 +110,7 @@ class LatentWrapper(nn.Module):
             return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
         image_embeds = self._compute_vision_embeddings(pixel_values, image_embeds)
         last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
-        inputs_embeds = self._build_modified_embeddings(input_ids, spans, last_hidden)
+        inputs_embeds = self._build_modified_embeddings(input_ids, spans, last_hidden, image_embeds, attention_mask)
         return self._second_pass_forward(input_ids, attention_mask, inputs_embeds, image_embeds, labels)
 
     def _extract_latent_spans(self, input_ids: torch.Tensor) -> list[list[tuple[int, int]]]:
@@ -144,14 +144,55 @@ class LatentWrapper(nn.Module):
             first_out = self.base_model.model.language_model(inputs_embeds=first_pass_embeds, attention_mask=attention_mask, output_hidden_states=True)
             return first_out.hidden_states[-1]
 
-    def _build_modified_embeddings(self, input_ids: torch.Tensor, spans: list[list[tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
+    def _build_modified_embeddings(
+        self,
+        input_ids: torch.Tensor,
+        spans: list[list[tuple[int, int]]],
+        last_hidden: torch.Tensor,  # Initial full-pass hidden (for fallback)
+        image_embeds: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         inputs_embeds = self.embedding(input_ids).clone()
+        
         for batch_idx, span_pairs in enumerate(spans):
             for start, end in span_pairs:
                 if start == 0:
                     continue
-                span_length = end - start
-                inputs_embeds[batch_idx, start:end] = last_hidden[batch_idx, start - 1].unsqueeze(0).repeat(span_length, 1)
+                
+                # Initialize with pre-span hidden
+                prev_hidden = last_hidden[batch_idx, start - 1].unsqueeze(0)
+                
+                # Sequential chaining: each latent token's input is the previous one's output
+                for pos in range(start, end):
+                    # Set current position's embed to prev_hidden
+                    inputs_embeds[batch_idx, pos] = prev_hidden.squeeze(0)
+                    
+                    # Compute partial forward up to this position to get new hidden
+                    partial_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+                        input_ids=input_ids[batch_idx : batch_idx + 1, : pos + 1],
+                        pixel_values=None,
+                        image_embeds=image_embeds[batch_idx : batch_idx + 1]
+                        if image_embeds is not None
+                        else None,
+                        inputs_embeds=inputs_embeds[batch_idx : batch_idx + 1, : pos + 1],
+                    )
+                    
+                    partial_out = self.base_model.model.language_model(
+                        inputs_embeds=partial_embeds,
+                        attention_mask=attention_mask[batch_idx : batch_idx + 1, : pos + 1]
+                        if attention_mask is not None
+                        else None,
+                        output_hidden_states=True,
+                    )
+                    
+                    # Update prev_hidden for next latent token
+                    prev_hidden = partial_out.hidden_states[-1][:, -1:]  # Last token's hidden
+                    
+                    # Log hidden norms for debugging if enabled
+                    if self.enable_norm_logging:
+                        hidden_norm = prev_hidden.norm().item()
+                        logger.debug(f"Batch {batch_idx}, pos {pos}, hidden norm: {hidden_norm:.4f}")
+        
         return inputs_embeds
 
     def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]) -> dict:
