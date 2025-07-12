@@ -165,7 +165,7 @@ class CoCoTrainer(Trainer):
                 model.zero_grad()
                 self.state.global_step += 1
                 self.total_train_steps += 1
-                avg_loss = tr_loss.item() / self.args.gradient_accumulation_steps / max(1, step_count) if step_count > 0 else 0.0
+                avg_loss = tr_loss.item() / self.args.gradient_accumulation_steps
                 current_lr = self.get_lr()
                 logger.debug(f"Current LR: {current_lr} (full float: {self.optimizer.param_groups[0]['lr']})")
                 pbar.set_postfix({'loss': f'{avg_loss:.4f}', 'lr': f'{current_lr:.6f}'})
