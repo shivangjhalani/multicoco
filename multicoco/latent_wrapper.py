@@ -28,8 +28,10 @@ class LatentWrapper(nn.Module):
         """Delegate attribute access to the base model for compatibility"""
         # Avoid infinite recursion by checking if we're during initialization
         if '_base_model_initialized' in self.__dict__ and self.__dict__['_base_model_initialized']:
+            # Use object.__getattribute__ to avoid recursion
             try:
-                return getattr(self.base_model, name)
+                base_model = object.__getattribute__(self, 'base_model')
+                return getattr(base_model, name)
             except AttributeError:
                 pass
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
