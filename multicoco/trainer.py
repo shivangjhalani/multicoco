@@ -452,7 +452,10 @@ class CoCoTrainer(Trainer):
         from .latent_wrapper import LatentWrapper
         is_latent_wrapper = isinstance(self.model, LatentWrapper)
         
-        if hasattr(self.model, 'chat') and pixel_values is not None:
+        # Get the underlying model for chat interface
+        underlying_model = self.model.model if is_latent_wrapper else self.model.model
+        
+        if hasattr(underlying_model, 'chat') and pixel_values is not None:
             # Use chat interface - this will handle latent injection if needed
             for i in range(batch_size):
                 try:
@@ -463,12 +466,12 @@ class CoCoTrainer(Trainer):
                         # Use LatentWrapper's chat method which handles latent injection
                         response = self.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
                     else:
-                        # Use base model's chat method for vanilla/CoT modes
+                        # Use underlying model's chat method for vanilla/CoT modes
                         # Debug: Check tensor shapes before calling chat
                         logger.debug(f"Sample {i}: pixel_values shape = {sample_pixel_values.shape if sample_pixel_values is not None else 'None'}")
                         logger.debug(f"Sample {i}: question = {question[:50]}...")
                         
-                        response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
+                        response = underlying_model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
                     
                     batch_predictions.append(extract_answer_choice(response))
                     batch_generated_texts.append(response)
