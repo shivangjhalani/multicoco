@@ -24,16 +24,12 @@ class LatentWrapper(nn.Module):
 
     def __getattr__(self, name):
         """Delegate attribute access to the base model for compatibility"""
-        # Check if we have the base_model attribute first to avoid infinite recursion
-        if hasattr(super(), '__getattribute__'):
-            try:
-                # First try to get it from our own __dict__ to avoid any delegation issues
-                if 'base_model' in self.__dict__:
-                    base_model = self.__dict__['base_model']
-                    return getattr(base_model, name)
-            except (AttributeError, KeyError):
-                pass
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        # Use try/except to avoid infinite recursion when base_model doesn't exist
+        try:
+            base_model = object.__getattribute__(self, 'base_model')
+            return getattr(base_model, name)
+        except AttributeError:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
         """Generate with proper latent injection support"""
