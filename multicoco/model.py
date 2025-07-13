@@ -84,7 +84,23 @@ class MultiCoCo(nn.Module):
 
     def _resize_special_token_embeddings(self) -> None:
         current_size = len(self.tokenizer)
-        model_vocab_size = self.model.config.vocab_size
+        
+        # Get vocab size from the correct config attribute
+        # InternVL models use different config structure
+        if hasattr(self.model.config, 'vocab_size'):
+            model_vocab_size = self.model.config.vocab_size
+        elif hasattr(self.model.config, 'llm_config') and hasattr(self.model.config.llm_config, 'vocab_size'):
+            model_vocab_size = self.model.config.llm_config.vocab_size
+        elif hasattr(self.model, 'language_model') and hasattr(self.model.language_model.config, 'vocab_size'):
+            model_vocab_size = self.model.language_model.config.vocab_size
+        else:
+            # Fallback: get vocab size from the actual embedding layer
+            if hasattr(self.model, 'language_model'):
+                embed_layer = self.model.language_model.get_input_embeddings()
+            else:
+                embed_layer = self.model.get_input_embeddings()
+            model_vocab_size = embed_layer.num_embeddings
+            logger.warning(f'Could not find vocab_size in config, using embedding layer size: {model_vocab_size}')
         
         # Only resize if we actually added tokens
         if current_size > model_vocab_size:
