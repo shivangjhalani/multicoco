@@ -12,9 +12,9 @@ class LatentWrapper(nn.Module):
 
     def __init__(self, model: nn.Module, tokenizer):
         super().__init__()
-        # Store the wrapped model and tokenizer using proper PyTorch registration
-        self.base_model = model
-        self.tokenizer = tokenizer
+        # Store the wrapped model using add_module to ensure proper registration
+        self.add_module('base_model', model)
+        self.tokenizer = tokenizer  # Tokenizer is not a PyTorch module
         self.latent_id = self.tokenizer.convert_tokens_to_ids('<|latent|>')
         self.start_id = self.tokenizer.convert_tokens_to_ids('<|start_latent|>')
         self.end_id = self.tokenizer.convert_tokens_to_ids('<|end_latent|>')
