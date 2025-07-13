@@ -190,13 +190,39 @@ class MultiCoCoRunner:
         if not os.path.exists(checkpoint_path):
             raise ModelInitializationError(f'Checkpoint path does not exist: {checkpoint_path}')
         try:
-            checkpoint_model = AutoModelForCausalLM.from_pretrained(checkpoint_path, torch_dtype=self.model.model.dtype, trust_remote_code=True, low_cpu_mem_usage=True)
-            missing_keys, unexpected_keys = self.model.model.load_state_dict(checkpoint_model.state_dict(), strict=False)
+            # Use the same loading mechanism as the trainer for consistency
+            model_files = ['model.safetensors', 'pytorch_model.bin']
+            model_file = None
+            
+            for f in model_files:
+                full_path = os.path.join(checkpoint_path, f)
+                if os.path.exists(full_path):
+                    model_file = full_path
+                    break
+            
+            if not model_file:
+                raise ModelInitializationError(f'No model file found in {checkpoint_path}. Expected one of: {model_files}')
+            
+            # Load state dict directly (same as trainer does)
+            if model_file.endswith('.safetensors'):
+                from safetensors.torch import load_file
+                state_dict = load_file(model_file)
+                logger.info(f'Loading checkpoint from safetensors: {model_file}')
+            else:
+                state_dict = torch.load(model_file, map_location='cpu')
+                logger.info(f'Loading checkpoint from pytorch: {model_file}')
+            
+            # Load into the model (access the underlying model if wrapped)
+            target_model = getattr(self.model, 'model', self.model)
+            missing_keys, unexpected_keys = target_model.load_state_dict(state_dict, strict=False)
+            
             if missing_keys:
-                logger.warning(f'Missing keys: {missing_keys}')
+                logger.warning(f'Missing keys when loading checkpoint: {missing_keys[:5]}...' if len(missing_keys) > 5 else missing_keys)
             if unexpected_keys:
-                logger.warning(f'Unexpected keys: {unexpected_keys}')
-            del checkpoint_model
+                logger.warning(f'Unexpected keys when loading checkpoint: {unexpected_keys[:5]}...' if len(unexpected_keys) > 5 else unexpected_keys)
+                
+            logger.info(f'Successfully loaded model weights from {model_file}')
+            
         except Exception as e:
             raise ModelInitializationError(f'Failed to load checkpoint weights: {e}') from e
 
