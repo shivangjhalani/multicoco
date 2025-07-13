@@ -136,18 +136,18 @@ class LatentWrapperV2(nn.Module):
         return {'loss': loss, 'logits': logits}
 
     def _compute_vision_embeddings(self, pixel_values: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-        """Compute vision embeddings using InternVL's vision tower and projector"""
+        """Compute vision embeddings using InternVL3's correct vision model and mlp1"""
         if pixel_values is None:
             return None
         
-        if hasattr(self.model, 'model') and hasattr(self.model.model, 'vision_tower'):
+        if hasattr(self.model, 'model') and hasattr(self.model.model, 'vision_model'):
             with torch.inference_mode():
                 # Get model dtype for consistency
                 model_dtype = next(self.model.parameters()).dtype
-                vision_embeds = self.model.model.vision_tower(
+                vision_embeds = self.model.model.vision_model(
                     pixel_values.to(dtype=model_dtype)
                 )
-                return self.model.model.projector(vision_embeds)
+                return self.model.model.mlp1(vision_embeds.last_hidden_state)
         return None
 
     def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], 
