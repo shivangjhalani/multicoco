@@ -425,12 +425,9 @@ class CoCoTrainer(Trainer):
 
     def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
         eval_logger = logging.getLogger('evaluation_details')
-        logger.debug(f'evaluation_details logger: {eval_logger}, handlers: {len(eval_logger.handlers)}, hasHandlers: {eval_logger.hasHandlers()}')
-        
         if not eval_logger.hasHandlers():
             logger.warning('evaluation_details logger has no handlers configured. Per-sample logs may not be written to file.')
             return
-            
         logger.info(f'Writing {len(questions)} per-sample details to evaluation log...')
         for i in range(len(questions)):
             details = {'question': questions[i], 'ground_truth': labels[i], 'generated_answer': generated_texts[i], 'extracted_answer': extracted[i], 'generated_tokens': generated_tokens[i], 'correct': bool(correctness[i])}
@@ -444,19 +441,35 @@ class CoCoTrainer(Trainer):
         input_ids = device_batch.get('input_ids')
         if input_ids is None or batch_size == 0:
             return ([''] * batch_size, [''] * batch_size, [0] * batch_size)
+        
+        # Get generation config from args
+        gen_config = getattr(self.args, 'generation_config', None)
+        if gen_config is None:
+            # Fallback to default config
+            generation_kwargs = {'max_new_tokens': max_new_tokens, 'do_sample': False}
+        else:
+            generation_kwargs = {
+                'max_new_tokens': max_new_tokens,
+                'do_sample': gen_config.do_sample,
+                'num_beams': gen_config.num_beams,
+                'temperature': gen_config.temperature if gen_config.do_sample else 1.0,
+                'top_p': gen_config.top_p if gen_config.do_sample else 1.0,
+                'top_k': gen_config.top_k if gen_config.do_sample else 50
+            }
+        
         batch_predictions, batch_generated_texts, batch_generated_tokens = ([], [], [])
         if hasattr(self.model.model, 'chat') and pixel_values is not None:
             for i in range(batch_size):
                 sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
                 question = device_batch['questions'][i] if 'questions' in device_batch else ''
-                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False})
+                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_kwargs)
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
                 response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
                 batch_generated_tokens.append(len(response_tokens))
         else:
             attention_mask = device_batch.get('attention_mask')
-            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
+            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, pad_token_id=self.tokenizer.eos_token_id, **generation_kwargs)
             input_length = input_ids.shape[1]
             for i in range(batch_size):
                 gen_part = generated_ids[i, input_length:]
