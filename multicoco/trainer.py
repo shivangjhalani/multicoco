@@ -361,22 +361,43 @@ class CoCoTrainer(Trainer):
         self.model.eval()
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
         all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans = ([], [], [], [], [], [])
+        all_latencies = []  # Track latencies
         max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
         progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero())
         with torch.no_grad():
             for batch in progress_bar:
-                preds, gen_texts, gen_tokens = self._generate_batch_predictions_with_details(batch, max_new_tokens)
+                preds, gen_texts, gen_tokens, latencies = self._generate_batch_predictions_with_details(batch, max_new_tokens)
                 all_preds.extend(preds)
                 all_labels.extend(batch.get('answers', []))
                 all_questions.extend(batch.get('questions', []))
                 all_gen_texts.extend(gen_texts)
                 all_gen_tokens.extend(gen_tokens)
                 all_ext_ans.extend(preds)
+                all_latencies.extend(latencies)  # Collect latencies
         progress_bar.close()
         gathered = self._gather_evaluation_results(all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans)
         all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans = gathered
+        # Note: latencies are not gathered across processes to keep implementation simple
         if self.is_world_process_zero():
             metrics = self._compute_evaluation_metrics(all_preds, all_labels, metric_key_prefix)
+            
+            # Add latency metrics if enabled and available
+            log_latency = getattr(self.runner.config.evaluation, 'log_latency', True) if hasattr(self, 'runner') and self.runner else True
+            if log_latency and all_latencies:
+                avg_latency = sum(all_latencies) / len(all_latencies)
+                min_latency = min(all_latencies)
+                max_latency = max(all_latencies)
+                total_eval_time = sum(all_latencies)
+                
+                latency_metrics = {
+                    f'{metric_key_prefix}/avg_latency_sec': avg_latency,
+                    f'{metric_key_prefix}/min_latency_sec': min_latency,
+                    f'{metric_key_prefix}/max_latency_sec': max_latency,
+                    f'{metric_key_prefix}/total_eval_time_sec': total_eval_time
+                }
+                metrics.update(latency_metrics)
+                logger.info(f'Latency Metrics: Avg={avg_latency:.4f}s, Min={min_latency:.4f}s, Max={max_latency:.4f}s, Total={total_eval_time:.2f}s')
+            
             logger.info(f'{metric_key_prefix.upper()} METRICS: {metrics}')
             if 'wandb' in self.args.report_to:
                 try:
@@ -407,7 +428,7 @@ class CoCoTrainer(Trainer):
             if log_per_sample:
                 correctness = np.array(all_preds) == np.array(all_labels)
                 logger.info(f'Logging {len(all_questions)} per-sample evaluation details to file...')
-                self._log_per_sample_details(all_questions, all_labels, all_gen_texts, all_ext_ans, all_gen_tokens, correctness)
+                self._log_per_sample_details(all_questions, all_labels, all_gen_texts, all_ext_ans, all_gen_tokens, correctness, all_latencies)
                 logger.debug(f'Completed logging per-sample evaluation details')
             return metrics
         return {}
@@ -436,24 +457,36 @@ class CoCoTrainer(Trainer):
             return (list(all_predictions), list(all_labels), list(all_questions), list(all_generated_texts), list(all_generated_tokens), list(all_extracted))
         return (predictions, labels, questions, generated_texts, generated_tokens, extracted_answers)
 
-    def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
+    def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness, latencies=None):
         eval_logger = logging.getLogger('evaluation_details')
         if not eval_logger.hasHandlers():
             logger.warning('evaluation_details logger has no handlers configured. Per-sample logs may not be written to file.')
             return
         for i in range(len(questions)):
-            details = {'question': questions[i], 'ground_truth': labels[i], 'generated_answer': generated_texts[i], 'extracted_answer': extracted[i], 'generated_tokens': generated_tokens[i], 'correct': bool(correctness[i])}
+            details = {
+                'question': questions[i], 
+                'ground_truth': labels[i], 
+                'generated_answer': generated_texts[i], 
+                'extracted_answer': extracted[i], 
+                'generated_tokens': generated_tokens[i], 
+                'correct': bool(correctness[i])
+            }
+            # Add latency if available
+            if latencies and i < len(latencies):
+                details['latency_sec'] = latencies[i]
             eval_logger.info(json.dumps(details))
 
-    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int]]:
+    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int], List[float]]:
+        import time
+        
         device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         batch_size = find_batch_size(batch)
         pixel_values = device_batch.get('pixel_values')
         input_ids = device_batch.get('input_ids')
         if input_ids is None or batch_size == 0:
-            return ([''] * batch_size, [''] * batch_size, [0] * batch_size)
+            return ([''] * batch_size, [''] * batch_size, [0] * batch_size, [0.0] * batch_size)
         generation_config = self._get_generation_config(max_new_tokens)
-        batch_predictions, batch_generated_texts, batch_generated_tokens = ([], [], [])
+        batch_predictions, batch_generated_texts, batch_generated_tokens, batch_latencies = ([], [], [], [])
         
         # Check if we have a LatentWrapper (CoCoNut mode)
         from .latent_wrapper import LatentWrapper
@@ -465,6 +498,7 @@ class CoCoTrainer(Trainer):
         if hasattr(underlying_model, 'chat') and pixel_values is not None:
             # Use chat interface - this will handle latent injection if needed
             for i in range(batch_size):
+                start_time = time.time()
                 try:
                     sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
                     question = device_batch['questions'][i] if 'questions' in device_batch else ''
@@ -491,14 +525,20 @@ class CoCoTrainer(Trainer):
                     logger.error(f"Input IDs shape: {input_ids.shape if input_ids is not None else 'None'}")
                     logger.error(f"Batch size: {batch_size}")
                     raise e
+                finally:
+                    latency = time.time() - start_time
+                    batch_latencies.append(latency)
         else:
             # Use generate interface - this will also handle latent injection if needed
+            start_time = time.time()
             if is_latent_wrapper:
                 # Use LatentWrapper's generate method
                 generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=device_batch.get('attention_mask'), pad_token_id=self.tokenizer.eos_token_id, **generation_config)
             else:
                 # Use base model's generate method
                 generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=device_batch.get('attention_mask'), pad_token_id=self.tokenizer.eos_token_id, **generation_config)
+            
+            batch_latency = time.time() - start_time
             
             input_length = input_ids.shape[1]
             for i in range(batch_size):
@@ -508,7 +548,8 @@ class CoCoTrainer(Trainer):
                 batch_predictions.append(extract_answer_choice(gen_text))
                 batch_generated_texts.append(full_text)
                 batch_generated_tokens.append(len(gen_part.tolist()))
-        return (batch_predictions, batch_generated_texts, batch_generated_tokens)
+                batch_latencies.append(batch_latency / batch_size)  # Average per sample
+        return (batch_predictions, batch_generated_texts, batch_generated_tokens, batch_latencies)
 
     def _compute_evaluation_metrics(self, predictions: List[str], labels: List[str], prefix: str) -> Dict[str, float]:
         if not predictions or not labels:

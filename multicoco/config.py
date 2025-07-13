@@ -21,6 +21,7 @@ class EvaluationConfig:
     eval_latent_tokens: Optional[int] = None
     log_per_sample: bool = False
     detailed_logging: bool = False
+    log_latency: bool = True  # Track wall clock latency during evaluation
 
     def get_eval_type(self) -> str:
         if self.coconut:
@@ -356,7 +357,7 @@ class MultiCoCoConfig:
     @staticmethod
     def _build_evaluation_config(config_dict: Dict[str, Any]) -> EvaluationConfig:
         eval_config_dict = config_dict.get('eval_config', {})
-        return EvaluationConfig(vanilla=eval_config_dict.get('vanilla', True), coconut=eval_config_dict.get('coconut', False), cot=eval_config_dict.get('cot', False), eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'), log_per_sample=eval_config_dict.get('log_per_sample', False), detailed_logging=eval_config_dict.get('detailed_logging', False))
+        return EvaluationConfig(vanilla=eval_config_dict.get('vanilla', True), coconut=eval_config_dict.get('coconut', False), cot=eval_config_dict.get('cot', False), eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'), log_per_sample=eval_config_dict.get('log_per_sample', False), detailed_logging=eval_config_dict.get('detailed_logging', False), log_latency=eval_config_dict.get('log_latency', True))
 
     @staticmethod
     def _build_coconut_config(config_dict: Dict[str, Any]) -> CoCoNutConfig:
