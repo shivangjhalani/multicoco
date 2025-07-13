@@ -387,26 +387,7 @@ class MultiCoCoRunner:
     def _run_eval_only(self) -> Dict[str, float]:
         logger.info('Starting evaluation only...')
         self.create_trainer()
-        # Ensure evaluation logger is properly set up for eval-only mode
-        self._ensure_evaluation_logger_setup()
         return self.run_evaluation()
-
-    def _ensure_evaluation_logger_setup(self) -> None:
-        """Ensure the evaluation logger is properly configured for eval-only mode."""
-        if self.config.training.mode != TrainingMode.EVAL_ONLY:
-            return
-            
-        eval_logger = logging.getLogger('evaluation_details')
-        if not eval_logger.hasHandlers():
-            logger.info('Re-setting up evaluation logger for eval-only mode')
-            eval_logger.setLevel(logging.INFO)
-            eval_logger.propagate = False
-            json_formatter = logging.Formatter('%(message)s')
-            eval_log_path = os.path.join(self.run_log_dir, 'evaluation.log')
-            eval_handler = logging.FileHandler(eval_log_path)
-            eval_handler.setFormatter(json_formatter)
-            eval_logger.addHandler(eval_handler)
-            logger.info(f'Evaluation logger configured to write to: {eval_log_path}')
 
     def _run_training_mode(self) -> Dict[str, float]:
         logger.info('Starting CoT training...')
