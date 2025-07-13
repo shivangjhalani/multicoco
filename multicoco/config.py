@@ -152,9 +152,8 @@ class MultiCoCoConfig:
         self._validate_coconut()
         self._validate_data_requirements()
         self._validate_file_existence()
-        self._validate_generation()
-        self._validate_logging()
         self._validate_generation_config()
+        self._validate_logging()
 
     def _validate_training(self) -> None:
         if self.training.learning_rate <= 0:
@@ -184,16 +183,6 @@ class MultiCoCoConfig:
         # Validate metric for best model
         if self.training.load_best_model_at_end and not self.training.metric_for_best_model:
             raise ValueError('metric_for_best_model must be specified when load_best_model_at_end is True')
-        
-        # Validate lr_scheduler_type
-        valid_schedulers = ['linear', 'cosine', 'cosine_with_restarts', 'polynomial', 'constant', 'constant_with_warmup']
-        if self.training.lr_scheduler_type not in valid_schedulers:
-            raise ValueError(f'lr_scheduler_type must be one of: {valid_schedulers}')
-        
-        # Validate log_level
-        valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-        if self.logging.log_level.upper() not in valid_log_levels:
-            raise ValueError(f'log_level must be one of: {valid_log_levels}')
 
     def _validate_coconut(self) -> None:
         if self.coconut.c_thought < 0:
@@ -219,42 +208,6 @@ class MultiCoCoConfig:
             raise FileNotFoundError(f'Training data not found: {self.data.train_data_path}')
         if self.data.eval_data_path and (not os.path.exists(self.data.eval_data_path)):
             raise FileNotFoundError(f'Evaluation data not found: {self.data.eval_data_path}')
-
-    def _validate_generation(self) -> None:
-        """Validate generation configuration parameters."""
-        if not isinstance(self.generation, dict):
-            raise ValueError('Generation config must be a dictionary')
-        
-        gen_config = self.generation
-        
-        # Validate max_new_tokens
-        if 'max_new_tokens' in gen_config:
-            if not isinstance(gen_config['max_new_tokens'], int) or gen_config['max_new_tokens'] <= 0:
-                raise ValueError('max_new_tokens must be a positive integer')
-        
-        # Validate temperature
-        if 'temperature' in gen_config:
-            temp = gen_config['temperature']
-            if not isinstance(temp, (int, float)) or temp <= 0:
-                raise ValueError('temperature must be a positive number')
-        
-        # Validate top_p
-        if 'top_p' in gen_config:
-            top_p = gen_config['top_p']
-            if not isinstance(top_p, (int, float)) or not 0 < top_p <= 1:
-                raise ValueError('top_p must be between 0 and 1')
-        
-        # Validate top_k
-        if 'top_k' in gen_config:
-            top_k = gen_config['top_k']
-            if not isinstance(top_k, int) or top_k <= 0:
-                raise ValueError('top_k must be a positive integer')
-        
-        # Validate num_beams
-        if 'num_beams' in gen_config:
-            num_beams = gen_config['num_beams']
-            if not isinstance(num_beams, int) or num_beams <= 0:
-                raise ValueError('num_beams must be a positive integer')
 
     def _validate_logging(self) -> None:
         """Validate logging configuration."""

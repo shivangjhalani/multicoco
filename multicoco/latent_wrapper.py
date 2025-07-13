@@ -1,7 +1,7 @@
 import logging
 import torch
 import torch.nn as nn
-from typing import List, Optional, Tuple, Any
+from typing import List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 class LatentWrapper(nn.Module):
