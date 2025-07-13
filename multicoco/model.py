@@ -61,12 +61,19 @@ class MultiCoCo(nn.Module):
             logger.info('Set pad_token to eos_token')
         all_special_tokens = special_tokens.copy() if special_tokens else []
         existing_tokens = set(tokenizer.get_vocab().keys())
-        for token in PROMPT_TOKENS:
-            if token not in existing_tokens and token not in all_special_tokens:
-                all_special_tokens.append(token)
+        
+        # Only add PROMPT_TOKENS if we actually have special tokens to add
+        # This prevents unnecessary embedding resizing in vanilla mode
+        if special_tokens:  # Only if we're in a mode that needs special tokens
+            for token in PROMPT_TOKENS:
+                if token not in existing_tokens and token not in all_special_tokens:
+                    all_special_tokens.append(token)
+        
         if all_special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': all_special_tokens})
             logger.info(f'Added {len(all_special_tokens)} special tokens: {all_special_tokens}')
+        else:
+            logger.info('No special tokens added - using base tokenizer vocabulary')
         return tokenizer
 
     def _resize_token_embeddings(self, tokenizer: AutoTokenizer) -> None:
@@ -76,10 +83,18 @@ class MultiCoCo(nn.Module):
             self.model.resize_token_embeddings(len(tokenizer))
 
     def _resize_special_token_embeddings(self) -> None:
-        if hasattr(self.model, 'language_model'):
-            self.model.language_model.resize_token_embeddings(len(self.tokenizer))
+        current_size = len(self.tokenizer)
+        model_vocab_size = self.model.config.vocab_size
+        
+        # Only resize if we actually added tokens
+        if current_size > model_vocab_size:
+            logger.info(f'Resizing embeddings from {model_vocab_size} to {current_size} for {current_size - model_vocab_size} new tokens')
+            if hasattr(self.model, 'language_model'):
+                self.model.language_model.resize_token_embeddings(current_size)
+            else:
+                self.model.resize_token_embeddings(current_size)
         else:
-            self.model.resize_token_embeddings(len(self.tokenizer))
+            logger.info(f'No embedding resize needed - tokenizer size {current_size} matches model vocab size {model_vocab_size}')
 
     def _setup_special_tokens(self) -> None:
         img_token_id = self.tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
