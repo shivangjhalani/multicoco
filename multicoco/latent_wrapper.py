@@ -35,6 +35,16 @@ class LatentWrapper(nn.Module):
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
         self.embedding = base_model.get_input_embeddings()
 
+    @property
+    def image_processor(self):
+        """Expose the underlying model's image_processor for compatibility with data collators"""
+        return getattr(self.base_model, 'image_processor', None)
+    
+    @property  
+    def model(self):
+        """Expose the underlying model for compatibility"""
+        return self.base_model
+
     def chat(self, tokenizer, pixel_values: Optional[torch.Tensor] = None, question: str = "", generation_config: Optional[dict] = None, **kwargs):
         """Chat method that handles latent injection when needed"""
         # Check if we have latent tokens in the question

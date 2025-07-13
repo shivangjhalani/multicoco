@@ -345,7 +345,24 @@ class MultiCoCoRunner:
             raise ModelInitializationError('Model must be initialized first')
         try:
             training_args = self._create_training_arguments()
-            self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.model.tokenizer, self.model.image_processor), runner=self)
+            
+            # Get tokenizer and image_processor - handle LatentWrapper case
+            tokenizer = getattr(self.model, 'tokenizer', None)
+            image_processor = getattr(self.model, 'image_processor', None)
+            
+            # If wrapped by LatentWrapper, get from base_model
+            if hasattr(self.model, 'base_model'):
+                tokenizer = tokenizer or getattr(self.model.base_model, 'tokenizer', None) 
+                image_processor = image_processor or getattr(self.model.base_model, 'image_processor', None)
+            
+            self.trainer = CoCoTrainer(
+                model=self.model, 
+                args=training_args, 
+                train_dataset=self.train_dataset, 
+                eval_dataset=self.eval_dataset, 
+                data_collator=lambda batch: collate_fn(batch, tokenizer, image_processor), 
+                runner=self
+            )
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)

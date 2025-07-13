@@ -56,6 +56,13 @@ class CoCoTrainer(Trainer):
         self._setup_epoch_training()
         start_epoch, checkpoint_path = self._handle_checkpoint_resumption(resume_from_checkpoint)
         self._last_stage = -1
+        
+        # If resuming from checkpoint, calculate the current stage based on the start epoch
+        if start_epoch > 0:
+            current_stage = min(start_epoch // self.args.epochs_per_stage, self.args.max_latent_stage)
+            self._last_stage = current_stage - 1  # Will trigger stage update on first epoch
+            logger.info(f'Resuming CoCoNut training from epoch {start_epoch + 1}, stage {current_stage}')
+        
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
@@ -156,6 +163,15 @@ class CoCoTrainer(Trainer):
                 return 0
             epoch_num = int(os.path.basename(checkpoint_path).split('-')[1])
             logger.info(f'Loading model and training state from epoch {epoch_num}: {checkpoint_path}')
+            
+            # Handle tokenizer info for vocabulary size mismatch
+            tokenizer_info_path = os.path.join(checkpoint_path, 'tokenizer_info.json')
+            checkpoint_tokenizer_info = None
+            if os.path.exists(tokenizer_info_path):
+                with open(tokenizer_info_path, 'r') as f:
+                    checkpoint_tokenizer_info = json.load(f)
+                logger.info(f"Found tokenizer info: checkpoint vocab_size={checkpoint_tokenizer_info['vocab_size']}")
+            
             model_file = None
             for f in model_files:
                 full_path = os.path.join(checkpoint_path, f)
@@ -168,7 +184,63 @@ class CoCoTrainer(Trainer):
                     state_dict = load_file(model_file)
                 else:
                     state_dict = torch.load(model_file, map_location='cpu')
+                
+                # Check for vocabulary size mismatch and handle it
+                current_vocab_size = len(self.tokenizer)
+                checkpoint_vocab_size = None
+                
+                # Detect checkpoint vocab size from state dict
+                for key in state_dict.keys():
+                    if 'embed_tokens.weight' in key or 'lm_head.weight' in key:
+                        checkpoint_vocab_size = state_dict[key].shape[0]
+                        break
+                
+                if checkpoint_vocab_size and checkpoint_vocab_size != current_vocab_size:
+                    logger.warning(f'Vocabulary size mismatch: checkpoint={checkpoint_vocab_size}, current={current_vocab_size}')
+                    logger.info('This is expected when loading CoT checkpoint for CoCoNut training (latent tokens added)')
+                    
+                    # Temporarily resize model to match checkpoint for loading
+                    target_model = self.model
+                    if hasattr(target_model, 'base_model'):  # LatentWrapper case
+                        underlying_model = target_model.base_model
+                    else:
+                        underlying_model = target_model
+                    
+                    # Resize to checkpoint size temporarily
+                    if hasattr(underlying_model, 'model') and hasattr(underlying_model.model, 'language_model'):
+                        underlying_model.model.language_model.resize_token_embeddings(checkpoint_vocab_size)
+                    elif hasattr(underlying_model, 'model'):
+                        underlying_model.model.resize_token_embeddings(checkpoint_vocab_size)
+                    else:
+                        underlying_model.resize_token_embeddings(checkpoint_vocab_size)
+                    
+                    logger.info(f'Temporarily resized model embeddings to {checkpoint_vocab_size} to match checkpoint')
+                
                 missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+                
+                # Resize back to current vocabulary size if there was a mismatch
+                if checkpoint_vocab_size and checkpoint_vocab_size != current_vocab_size:
+                    target_model = self.model
+                    if hasattr(target_model, 'base_model'):  # LatentWrapper case
+                        underlying_model = target_model.base_model
+                    else:
+                        underlying_model = target_model
+                    
+                    # Resize back to current size
+                    if hasattr(underlying_model, 'model') and hasattr(underlying_model.model, 'language_model'):
+                        underlying_model.model.language_model.resize_token_embeddings(current_vocab_size)
+                    elif hasattr(underlying_model, 'model'):
+                        underlying_model.model.resize_token_embeddings(current_vocab_size)
+                    else:
+                        underlying_model.resize_token_embeddings(current_vocab_size)
+                    
+                    logger.info(f'Resized model embeddings back to current vocab size: {current_vocab_size}')
+                    logger.info('New latent token embeddings will be randomly initialized')
+                    
+                    # Filter out embedding-related keys from warnings since we expect them to be missing
+                    missing_keys = [k for k in missing_keys if 'embed_tokens' not in k and 'lm_head' not in k]
+                    unexpected_keys = [k for k in unexpected_keys if 'embed_tokens' not in k and 'lm_head' not in k]
+                
                 if missing_keys:
                     logger.warning(f'Missing keys when loading checkpoint: {missing_keys[:5]}...' if len(missing_keys) > 5 else missing_keys)
                 if unexpected_keys:
@@ -177,6 +249,7 @@ class CoCoTrainer(Trainer):
             else:
                 logger.error(f'No valid model file found in {checkpoint_path}')
                 return 0
+            
             state_file = os.path.join(checkpoint_path, 'training_state.pt')
             if os.path.exists(state_file):
                 try:
