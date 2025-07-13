@@ -127,6 +127,26 @@ class LoggingConfig:
         os.makedirs(self.log_dir, exist_ok=True)
 
 @dataclass
+class GenerationConfig:
+    do_sample: bool = True
+    max_new_tokens: int = 256
+    num_beams: int = 1
+    temperature: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 50
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for use with transformers generation methods"""
+        return {
+            'do_sample': self.do_sample,
+            'max_new_tokens': self.max_new_tokens,
+            'num_beams': self.num_beams,
+            'temperature': self.temperature,
+            'top_p': self.top_p,
+            'top_k': self.top_k,
+        }
+
+@dataclass
 class MultiCoCoConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
@@ -134,6 +154,7 @@ class MultiCoCoConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     coconut: CoCoNutConfig = field(default_factory=CoCoNutConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    generation: GenerationConfig = field(default_factory=GenerationConfig)
 
     def __post_init__(self):
         self.validate()
@@ -196,7 +217,7 @@ class MultiCoCoConfig:
     @staticmethod
     def _merge_configs(base_dict: Dict[str, Any], config_dict: Dict[str, Any]) -> Dict[str, Any]:
         merged_dict = {**base_dict, **config_dict}
-        for key in ['eval_config', 'coconut']:
+        for key in ['eval_config', 'coconut', 'generation']:
             if key in base_dict and key in config_dict and isinstance(base_dict[key], dict) and isinstance(config_dict[key], dict):
                 merged_dict[key] = {**base_dict[key], **config_dict[key]}
         return merged_dict
@@ -204,7 +225,7 @@ class MultiCoCoConfig:
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'MultiCoCoConfig':
         torch_dtype = cls._determine_torch_dtype(config_dict)
-        config_builders = {'model': lambda: cls._build_model_config(config_dict, torch_dtype), 'training': lambda: cls._build_training_config(config_dict), 'data': lambda: cls._build_data_config(config_dict), 'evaluation': lambda: cls._build_evaluation_config(config_dict), 'coconut': lambda: cls._build_coconut_config(config_dict)}
+        config_builders = {'model': lambda: cls._build_model_config(config_dict, torch_dtype), 'training': lambda: cls._build_training_config(config_dict), 'data': lambda: cls._build_data_config(config_dict), 'evaluation': lambda: cls._build_evaluation_config(config_dict), 'coconut': lambda: cls._build_coconut_config(config_dict), 'generation': lambda: cls._build_generation_config(config_dict)}
         configs = {name: builder() for name, builder in config_builders.items()}
         configs['logging'] = cls._build_logging_config(config_dict, configs['training'])
         return cls(**configs)
@@ -253,6 +274,18 @@ class MultiCoCoConfig:
     def _build_logging_config(config_dict: Dict[str, Any], training_config: TrainingConfig) -> LoggingConfig:
         logging_dict = config_dict.get('logging', {})
         return LoggingConfig(log_dir=logging_dict.get('log_dir', 'logs'), log_level=logging_dict.get('log_level', 'INFO'), use_wandb=logging_dict.get('use_wandb', True), log_to_file=logging_dict.get('log_to_file', True), console_output=logging_dict.get('console_output', True), verbose=logging_dict.get('verbose', False), run_name=training_config.name or logging_dict.get('run_name'), project=logging_dict.get('project', 'multicoco'))
+
+    @staticmethod
+    def _build_generation_config(config_dict: Dict[str, Any]) -> GenerationConfig:
+        generation_dict = config_dict.get('generation', {})
+        return GenerationConfig(
+            do_sample=generation_dict.get('do_sample', True),
+            max_new_tokens=generation_dict.get('max_new_tokens', 256),
+            num_beams=generation_dict.get('num_beams', 1),
+            temperature=generation_dict.get('temperature', 0.7),
+            top_p=generation_dict.get('top_p', 0.9),
+            top_k=generation_dict.get('top_k', 50)
+        )
 
     def get_wandb_report_to(self) -> List[str]:
         return ['wandb'] if self.logging.use_wandb else []

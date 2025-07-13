@@ -348,11 +348,20 @@ class CoCoTrainer(Trainer):
         self.model.eval()
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
         all_preds, all_labels, all_questions, all_gen_texts, all_gen_tokens, all_ext_ans = ([], [], [], [], [], [])
-        max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
+        
+        # Get generation config from trainer args or use default
+        generation_config = getattr(self.args, 'generation_config', None)
+        if generation_config is not None:
+            gen_kwargs = generation_config.to_dict()
+        else:
+            # Fallback to default if no config provided
+            max_new_tokens = getattr(self.args, 'eval_max_new_tokens', DEFAULT_MAX_NEW_TOKENS)
+            gen_kwargs = {'max_new_tokens': max_new_tokens, 'do_sample': False}
+            
         progress_bar = tqdm(eval_dataloader, desc='Evaluating', total=len(eval_dataloader), disable=not self.is_world_process_zero())
         with torch.no_grad():
             for batch in progress_bar:
-                preds, gen_texts, gen_tokens = self._generate_batch_predictions_with_details(batch, max_new_tokens)
+                preds, gen_texts, gen_tokens = self._generate_batch_predictions_with_details(batch, gen_kwargs)
                 all_preds.extend(preds)
                 all_labels.extend(batch.get('answers', []))
                 all_questions.extend(batch.get('questions', []))
@@ -432,7 +441,7 @@ class CoCoTrainer(Trainer):
             details = {'question': questions[i], 'ground_truth': labels[i], 'generated_answer': generated_texts[i], 'extracted_answer': extracted[i], 'generated_tokens': generated_tokens[i], 'correct': bool(correctness[i])}
             eval_logger.info(json.dumps(details))
 
-    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int]]:
+    def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], gen_kwargs: Dict[str, Any]) -> Tuple[List[str], List[str], List[int]]:
         device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         batch_size = find_batch_size(batch)
         pixel_values = device_batch.get('pixel_values')
@@ -444,14 +453,16 @@ class CoCoTrainer(Trainer):
             for i in range(batch_size):
                 sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
                 question = device_batch['questions'][i] if 'questions' in device_batch else ''
-                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False})
+                # Use the full generation config instead of hardcoded values
+                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=gen_kwargs)
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
                 response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
                 batch_generated_tokens.append(len(response_tokens))
         else:
             attention_mask = device_batch.get('attention_mask')
-            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
+            # Use the full generation config for model.generate as well
+            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, pad_token_id=self.tokenizer.eos_token_id, **gen_kwargs)
             input_length = input_ids.shape[1]
             for i in range(batch_size):
                 gen_part = generated_ids[i, input_length:]

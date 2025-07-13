@@ -271,6 +271,8 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)
+            # Pass generation config to trainer
+            setattr(self.trainer.args, 'generation_config', self.config.generation)
             logger.info('Trainer created successfully')
         except Exception as e:
             raise ModelInitializationError(f'Trainer creation failed: {e}') from e
