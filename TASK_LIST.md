@@ -6,15 +6,15 @@
 - [ ] **Task 1.1**: Fix progressive curriculum to preserve image fields
 - [ ] **Task 1.2**: Ensure reasoning field is preserved in __getitem__
 - [ ] **Task 1.3**: Update collate_fn to handle reasoning with latent tokens
-- [ ] **Task 1.4**: Fix image token consistency (use <img> everywhere)
+- [x] **Task 1.4**: Fix image token consistency (use <img> everywhere)
 
 ### Phase 2: Token and Tokenizer Fixes  
-- [ ] **Task 2.1**: Add missing special tokens (chat markers, image tokens)
-- [ ] **Task 2.2**: Update constants to use consistent image token
-- [ ] **Task 2.3**: Verify token ID consistency across codebase
+- [x] **Task 2.1**: Add missing special tokens (chat markers, image tokens)
+- [x] **Task 2.2**: Update constants to use consistent image token
+- [x] **Task 2.3**: Verify token ID consistency across codebase
 
 ### Phase 3: Latent Injection Mechanism Redesign
-- [ ] **Task 3.1**: Simplify LatentWrapper to separate multimodal prep from latent injection
+- [x] **Task 3.1**: Simplify LatentWrapper to separate multimodal prep from latent injection
 - [ ] **Task 3.2**: Implement clean Coconut-style multi-pass forward
 - [ ] **Task 3.3**: Remove complex KV caching that breaks the latent injection logic
 - [ ] **Task 3.4**: Ensure vision embeddings are computed once and reused
