@@ -51,7 +51,7 @@ class LatentWrapper(nn.Module):
         else:
             second_pass_embeds = inputs_embeds
         if hasattr(self.model, 'model') and hasattr(self.model.model, 'language_model'):
-            second_out = self.model.model.language_model(inputs_embeds=second_pass_embeds, attention_mask=attention_mask, use_cache=True)
+            second_out = self.model.model.language_model(inputs_embeds=second_pass_embeds, attention_mask=attention_mask, use_cache=False)
             logits = second_out.logits
         else:
             output = self.model(inputs_embeds=second_pass_embeds, attention_mask=attention_mask, labels=labels)
@@ -112,11 +112,79 @@ class LatentWrapper(nn.Module):
         logger.warning('latent_injection called directly - using embeddings as hidden states proxy')
         return self._build_modified_embeddings(input_ids, spans, embeddings)
 
-    def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs):
-        if hasattr(self.model, 'generate'):
+    def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
+        if not self._has_latent_spans(input_ids):
             return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+        return self._generate_with_latent_injection(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+
+    def _has_latent_spans(self, input_ids: torch.Tensor) -> bool:
+        return any((self.start_id in ids.tolist() and self.end_id in ids.tolist() for ids in input_ids))
+
+    def _generate_with_latent_injection(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, max_new_tokens: int=50, do_sample: bool=False, temperature: float=1.0, top_p: float=1.0, top_k: int=50, pad_token_id: Optional[int]=None, eos_token_id: Optional[int]=None, **kwargs) -> torch.Tensor:
+        device = input_ids.device
+        batch_size = input_ids.shape[0]
+        generation_state = self._initialize_generation_state(batch_size, device, input_ids, attention_mask, pad_token_id, eos_token_id)
+        image_embeds = self._compute_vision_embeddings(pixel_values)
+        
+        for _ in range(max_new_tokens):
+            with torch.no_grad():
+                outputs = self.forward(input_ids=generation_state['generated_ids'], attention_mask=generation_state['attention_mask'], pixel_values=None)
+            next_token = self._sample_and_update_token(outputs['logits'], generation_state, temperature, top_k, top_p, do_sample)
+            if generation_state['unfinished_sequences'].max() == 0:
+                break
+        return generation_state['generated_ids']
+
+    def _initialize_generation_state(self, batch_size: int, device: torch.device, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pad_token_id: Optional[int], eos_token_id: Optional[int]) -> dict:
+        pad_token_id = pad_token_id or self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
+        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
+        return {
+            'generated_ids': input_ids.clone(),
+            'attention_mask': attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+            'unfinished_sequences': torch.ones(batch_size, dtype=torch.long, device=device),
+            'pad_token_id': pad_token_id,
+            'eos_token_id': eos_token_id
+        }
+
+    def _sample_and_update_token(self, logits: torch.Tensor, generation_state: dict, temperature: float, top_k: int, top_p: float, do_sample: bool) -> torch.Tensor:
+        current_logits = logits[:, -1, :]
+        current_logits = self._apply_generation_filters(current_logits, temperature, top_k, top_p)
+        next_token_id = self._sample_next_token(current_logits, do_sample)
+        next_token_id = self._handle_finished_sequences(next_token_id, generation_state['unfinished_sequences'], generation_state['pad_token_id'])
+        
+        generation_state['generated_ids'] = torch.cat([generation_state['generated_ids'], next_token_id], dim=1)
+        generation_state['attention_mask'] = torch.cat([generation_state['attention_mask'], generation_state['unfinished_sequences'].unsqueeze(-1)], dim=1)
+        
+        if generation_state['eos_token_id'] is not None:
+            newly_finished = (next_token_id.squeeze(-1) == generation_state['eos_token_id']) & (generation_state['unfinished_sequences'] == 1)
+            generation_state['unfinished_sequences'].mul_((~newly_finished).long())
+        return next_token_id
+
+    def _apply_generation_filters(self, logits: torch.Tensor, temperature: float, top_k: int, top_p: float) -> torch.Tensor:
+        if temperature != 1.0:
+            logits = logits / temperature
+        if top_k > 0:
+            top_k_logits, top_k_indices = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits = torch.full_like(logits, float('-inf'))
+            logits.scatter_(1, top_k_indices, top_k_logits)
+        if top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+            sorted_indices_to_remove = cumulative_probs > top_p
+            sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
+            sorted_indices_to_remove[:, 0] = 0
+            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+            logits[indices_to_remove] = float('-inf')
+        return logits
+
+    def _sample_next_token(self, logits: torch.Tensor, do_sample: bool) -> torch.Tensor:
+        if do_sample:
+            probs = torch.softmax(logits, dim=-1)
+            return torch.multinomial(probs, num_samples=1)
         else:
-            return self.model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+            return torch.argmax(logits, dim=-1, keepdim=True)
+
+    def _handle_finished_sequences(self, next_token_id: torch.Tensor, unfinished_sequences: torch.Tensor, pad_token_id: int) -> torch.Tensor:
+        return next_token_id * unfinished_sequences.unsqueeze(-1) + pad_token_id * (1 - unfinished_sequences.unsqueeze(-1))
 
     def __getattr__(self, name):
         if name in ['model', 'tokenizer']:
