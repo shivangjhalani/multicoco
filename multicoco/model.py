@@ -102,6 +102,9 @@ class MultiCoCo(nn.Module):
             model_vocab_size = embed_layer.num_embeddings
             logger.warning(f'Could not find vocab_size in config, using embedding layer size: {model_vocab_size}')
         
+        # Log multimodal dimension info for debugging
+        self._log_multimodal_dimensions()
+        
         # Only resize if we actually added tokens
         if current_size > model_vocab_size:
             logger.info(f'Resizing embeddings from {model_vocab_size} to {current_size} for {current_size - model_vocab_size} new tokens')
@@ -167,3 +170,28 @@ class MultiCoCo(nn.Module):
         generation_kwargs = {k: v for k, v in kwargs.items() if k != 'image_flags'}
         with suppress_internvl_messages():
             return self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, **generation_kwargs)
+
+    def _log_multimodal_dimensions(self) -> None:
+        """Log dimension information for multimodal model debugging."""
+        try:
+            # Log text embedding dimensions
+            if hasattr(self.model, 'language_model'):
+                text_embed = self.model.language_model.get_input_embeddings()
+            else:
+                text_embed = self.model.get_input_embeddings()
+            logger.debug(f'Text embedding dim: {text_embed.embedding_dim}')
+            
+            # Log vision dimensions if available
+            if hasattr(self.model.config, 'vision_config'):
+                vision_config = self.model.config.vision_config
+                logger.debug(f'Vision hidden size: {getattr(vision_config, "hidden_size", "N/A")}')
+                logger.debug(f'Vision image size: {getattr(vision_config, "image_size", "N/A")}')
+                
+                # Check for dimension mismatches
+                text_dim = text_embed.embedding_dim
+                vision_dim = getattr(vision_config, 'hidden_size', None)
+                if vision_dim and text_dim != vision_dim:
+                    logger.info(f'Vision-text dimension mismatch: vision={vision_dim}, text={text_dim}. Using projector.')
+                    
+        except Exception as e:
+            logger.debug(f'Could not log multimodal dimensions: {e}')

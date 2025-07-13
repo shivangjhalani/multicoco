@@ -93,13 +93,20 @@ class CoCoTrainer(Trainer):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
-        if self.runner and hasattr(self.runner, 'setup_epoch_evaluation_logger'):
-            self.runner.setup_epoch_evaluation_logger(epoch)
-            logger.info(f'Running evaluation after epoch {epoch + 1}...')
-            logger.debug(f'Epoch evaluation logger configured for epoch {epoch + 1}')
+        # Check if evaluation should run based on eval_strategy
+        should_evaluate = self._should_evaluate_after_epoch(epoch)
+        
+        if should_evaluate:
+            if self.runner and hasattr(self.runner, 'setup_epoch_evaluation_logger'):
+                self.runner.setup_epoch_evaluation_logger(epoch)
+                logger.info(f'Running evaluation after epoch {epoch + 1}...')
+                logger.debug(f'Epoch evaluation logger configured for epoch {epoch + 1}')
+            else:
+                logger.warning('No runner or setup_epoch_evaluation_logger method available. Per-sample evaluation logs may not be written.')
+            eval_metrics = self.evaluate()
         else:
-            logger.warning('No runner or setup_epoch_evaluation_logger method available. Per-sample evaluation logs may not be written.')
-        eval_metrics = self.evaluate()
+            logger.info(f'Skipping evaluation after epoch {epoch + 1} due to eval_strategy setting')
+            eval_metrics = {}
         checkpoint_dir = self._save_checkpoint_with_metrics(epoch, eval_metrics)
         epoch_time = time.time() - epoch_start_time
         self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
@@ -642,7 +649,19 @@ class CoCoTrainer(Trainer):
             try:
                 import wandb
                 if wandb.run:
-                    stage_metrics = {'coconut/current_stage': current_stage, 'coconut/stage_epoch': stage_epoch, 'coconut/stage_progress': stage_progress, 'coconut/latent_replacement_ratio': current_stage / max(1, self.args.max_latent_stage)}
+                    # Calculate latent/explicit token ratio for this stage
+                    latent_token_count = current_stage * getattr(self.args, 'c_thought', 0)
+                    total_possible_latent = self.args.max_latent_stage * getattr(self.args, 'c_thought', 0)
+                    latent_explicit_ratio = latent_token_count / max(1, total_possible_latent)
+                    
+                    stage_metrics = {
+                        'coconut/current_stage': current_stage, 
+                        'coconut/stage_epoch': stage_epoch, 
+                        'coconut/stage_progress': stage_progress, 
+                        'coconut/latent_replacement_ratio': current_stage / max(1, self.args.max_latent_stage),
+                        'coconut/latent_token_count': latent_token_count,
+                        'coconut/latent_explicit_ratio': latent_explicit_ratio
+                    }
                     wandb.log(stage_metrics)
             except ImportError:
                 pass
@@ -692,3 +711,24 @@ class CoCoTrainer(Trainer):
             generation_config.update({'do_sample': False, 'num_beams': 1, 'temperature': 1.0, 'top_p': 1.0})
         logger.debug(f'Using generation config: {generation_config}')
         return generation_config
+
+    def _should_evaluate_after_epoch(self, epoch: int) -> bool:
+        """
+        Check if evaluation should run after the given epoch based on eval_strategy.
+        """
+        eval_strategy = getattr(self.args, 'eval_strategy', 'epoch')
+        
+        if eval_strategy == 'no':
+            # Never evaluate during training
+            return False
+        elif eval_strategy == 'epoch':
+            # Evaluate after every epoch (default behavior)
+            return True
+        elif eval_strategy == 'steps':
+            # For steps-based evaluation, we still evaluate at epoch end
+            # unless specifically configured otherwise
+            return True
+        else:
+            # Default to evaluating if strategy is unknown
+            logger.warning(f'Unknown eval_strategy: {eval_strategy}, defaulting to evaluation')
+            return True

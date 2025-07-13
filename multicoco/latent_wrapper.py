@@ -125,8 +125,17 @@ class LatentWrapper(nn.Module):
         device = input_ids.device
         batch_size = input_ids.shape[0]
         
-        # Ensure we're working with the right batch size
-        assert batch_size == 1, "Currently only supports batch_size=1 for latent generation"
+        # Note: Optimized for batch_size=1, larger batches will fall back to sequential processing
+        if batch_size > 1:
+            logger.warning(f"Batch size {batch_size} > 1 detected. Processing sequentially for latent injection.")
+            results = []
+            for i in range(batch_size):
+                single_input = input_ids[i:i+1]
+                single_attn = attention_mask[i:i+1] if attention_mask is not None else None
+                single_pixel = pixel_values[i:i+1] if pixel_values is not None else None
+                result = self._generate_with_latent_injection(single_input, single_attn, single_pixel, max_new_tokens, do_sample, temperature, top_p, top_k, pad_token_id, eos_token_id, **kwargs)
+                results.append(result)
+            return torch.cat(results, dim=0)
         
         # Step 1: Process the prompt with latent injection to get modified embeddings
         image_embeds = self._get_cached_vision_embeddings(pixel_values, device)

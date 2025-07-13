@@ -366,6 +366,11 @@ class MultiCoCoRunner:
         eval_strategy = getattr(training_config, 'eval_strategy', 'epoch')
         if hasattr(training_config, 'skip_eval_during_training') and training_config.skip_eval_during_training:
             eval_strategy = 'no'
+            logger.warning(
+                "Conflicting configuration detected: "
+                "skip_eval_during_training=True but load_best_model_at_end=True. "
+                "Cannot load best model without evaluations. Consider setting load_best_model_at_end=False."
+            )
         common_args = {'output_dir': training_config.output_dir, 'num_train_epochs': training_config.num_epochs, 'per_device_train_batch_size': training_config.batch_size, 'per_device_eval_batch_size': training_config.eval_batch_size, 'gradient_accumulation_steps': training_config.gradient_accumulation_steps, 'eval_accumulation_steps': training_config.eval_accumulation_steps, 'learning_rate': training_config.learning_rate, 'warmup_steps': training_config.warmup_steps, 'logging_steps': training_config.logging_steps, 'save_steps': training_config.save_steps, 'eval_steps': training_config.eval_steps, 'save_strategy': training_config.save_strategy, 'eval_strategy': eval_strategy, 'save_total_limit': training_config.save_total_limit, 'load_best_model_at_end': training_config.load_best_model_at_end, 'metric_for_best_model': training_config.metric_for_best_model, 'greater_is_better': training_config.greater_is_better, 'bf16': training_config.bf16, 'fp16': training_config.fp16, 'remove_unused_columns': training_config.remove_unused_columns, 'dataloader_pin_memory': training_config.dataloader_pin_memory, 'dataloader_num_workers': training_config.dataloader_num_workers, 'gradient_checkpointing': training_config.gradient_checkpointing, 'gradient_checkpointing_kwargs': training_config.gradient_checkpointing_kwargs, 'weight_decay': training_config.weight_decay, 'max_grad_norm': training_config.max_grad_norm, 'lr_scheduler_type': training_config.lr_scheduler_type, 'seed': training_config.seed, 'data_seed': training_config.data_seed, 'report_to': self.config.get_wandb_report_to()}
         return TrainingArguments(**common_args)
 

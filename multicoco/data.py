@@ -238,7 +238,8 @@ def _parse_reasoning_steps(steps: Union[List[str], str]) -> List[str]:
 
 def _calculate_curriculum_params(stage_to_train: int, max_latent_stage: int, steps: List[str], pad_latent_to_max: bool, no_cot: bool) -> Tuple[int, int]:
     if no_cot:
-        return (100, 0)
+        # For pure evaluation without CoT, use no latent tokens but don't skip all steps
+        return (len(steps), 0)  # Skip all explicit steps, use no latent tokens
     if stage_to_train > max_latent_stage:
         n_skip_steps = 10000
         n_latent_tokens = max_latent_stage if pad_latent_to_max else min(len(steps), max_latent_stage)

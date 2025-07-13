@@ -1,9 +1,12 @@
 import os
 import random
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from .constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_C_THOUGHT, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_MAX_LATENT_STAGE, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR
+
+logger = logging.getLogger(__name__)
 
 class TrainingMode(str, Enum):
     EVAL_ONLY = 'eval_only'
@@ -190,6 +193,23 @@ class MultiCoCoConfig:
         self._validate_file_existence()
         self._validate_generation_config()
         self._validate_logging()
+        self._validate_multimodal_config()
+
+    def _validate_multimodal_config(self) -> None:
+        """Validate multimodal-specific configuration."""
+        # Check if model appears to be multimodal
+        model_name = self.model.model_name.lower()
+        is_likely_multimodal = any(keyword in model_name for keyword in ['intern', 'llava', 'blip', 'flamingo', 'clip'])
+        
+        if is_likely_multimodal:
+            # For multimodal models, ensure we have image processor configuration
+            if not self.model.image_processor_id and not any('vision' in str(self.model.__dict__).lower() for _ in [None]):
+                logger.info(f'Model {self.model.model_name} appears multimodal but no explicit image_processor_id set. Will use model default.')
+            
+            # Warn if using very large batch sizes with images (potential OOM)
+            if self.training.batch_size > 4:
+                logger.warning(f'Large batch size ({self.training.batch_size}) with multimodal model may cause OOM. Consider reducing batch_size.')
+                
 
     def _validate_training(self) -> None:
         if self.training.learning_rate <= 0:
@@ -311,7 +331,22 @@ class MultiCoCoConfig:
     @staticmethod
     def _build_training_config(config_dict: Dict[str, Any]) -> TrainingConfig:
         name = config_dict.get('name') or config_dict.get('run_name')
-        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), max_grad_norm=config_dict.get('max_grad_norm', 1.0), lr_scheduler_type=config_dict.get('lr_scheduler_type', 'linear'), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), eval_strategy=config_dict.get('eval_strategy', 'epoch'), save_strategy=config_dict.get('save_strategy', 'epoch'), skip_eval_during_training=config_dict.get('skip_eval_during_training', False), save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=config_dict.get('load_best_model_at_end', True), metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), dataloader_num_workers=config_dict.get('dataloader_num_workers', 4), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
+        
+        # Handle potential config conflicts
+        skip_eval = config_dict.get('skip_eval_during_training', False)
+        load_best = config_dict.get('load_best_model_at_end', True)
+        
+        # Auto-correct conflicting settings
+        if skip_eval and load_best:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "Auto-correcting conflicting config: skip_eval_during_training=True but "
+                "load_best_model_at_end=True. Setting load_best_model_at_end=False."
+            )
+            load_best = False
+        
+        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), max_grad_norm=config_dict.get('max_grad_norm', 1.0), lr_scheduler_type=config_dict.get('lr_scheduler_type', 'linear'), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), eval_strategy=config_dict.get('eval_strategy', 'epoch'), save_strategy=config_dict.get('save_strategy', 'epoch'), skip_eval_during_training=skip_eval, save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=load_best, metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), dataloader_num_workers=config_dict.get('dataloader_num_workers', 4), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
 
     @staticmethod
     def _build_data_config(config_dict: Dict[str, Any]) -> DataConfig:
