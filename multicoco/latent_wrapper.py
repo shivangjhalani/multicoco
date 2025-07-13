@@ -21,33 +21,38 @@ class LatentWrapper(nn.Module):
         if self.latent_id is None or self.start_id is None or self.end_id is None:
             logger.warning('Some latent tokens not found in tokenizer vocabulary')
 
+    @property
+    def model(self):
+        """Access the wrapped model through PyTorch's module system"""
+        return self._modules['base_model']
+
     def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, labels: Optional[torch.Tensor]=None, **kwargs):
         # No injection: Just call base model for end-to-end learning
-        return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
+        return self.model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
         # Use InternVL's generate directly (handles multimodal)
-        return self.base_model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+        return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
 
     # Explicit delegation for commonly used attributes to maintain compatibility
     @property
     def device(self):
-        return self.base_model.device
+        return self.model.device
     
     def get_input_embeddings(self):
-        return self.base_model.get_input_embeddings()
+        return self.model.get_input_embeddings()
     
     def resize_token_embeddings(self, new_num_tokens):
-        return self.base_model.resize_token_embeddings(new_num_tokens)
+        return self.model.resize_token_embeddings(new_num_tokens)
     
     def train(self, mode=True):
-        self.base_model.train(mode)
+        self.model.train(mode)
         return super().train(mode)
     
     def eval(self):
-        self.base_model.eval()
+        self.model.eval()
         return super().eval()
     
     def to(self, *args, **kwargs):
-        self.base_model = self.base_model.to(*args, **kwargs)
+        self._modules['base_model'] = self.model.to(*args, **kwargs)
         return super().to(*args, **kwargs)
