@@ -21,10 +21,13 @@ class LatentWrapper(nn.Module):
         self.start_id = tokenizer.convert_tokens_to_ids('<|start_latent|>')
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
         self.embedding = base_model.get_input_embeddings()
+        # Mark that initialization is complete
+        self._base_model_initialized = True
 
     def __getattr__(self, name):
         """Delegate attribute access to the base model for compatibility"""
-        if hasattr(self, '__dict__') and 'base_model' in self.__dict__:
+        # Avoid infinite recursion by checking if we're during initialization
+        if '_base_model_initialized' in self.__dict__ and self.__dict__['_base_model_initialized']:
             try:
                 return getattr(self.base_model, name)
             except AttributeError:
