@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import random
@@ -190,7 +191,15 @@ class MultiCoCoRunner:
         if not os.path.exists(checkpoint_path):
             raise ModelInitializationError(f'Checkpoint path does not exist: {checkpoint_path}')
         try:
-            # Use the same loading mechanism as the trainer for consistency
+            # Load tokenizer info if available for compatibility checking
+            tokenizer_info_path = os.path.join(checkpoint_path, 'tokenizer_info.json')
+            checkpoint_tokenizer_info = None
+            if os.path.exists(tokenizer_info_path):
+                with open(tokenizer_info_path, 'r') as f:
+                    checkpoint_tokenizer_info = json.load(f)
+                logger.info(f'Found tokenizer info: checkpoint vocab_size={checkpoint_tokenizer_info["vocab_size"]}, current vocab_size={len(self.model.tokenizer)}')
+            
+            # Find and load model file
             model_files = ['model.safetensors', 'pytorch_model.bin']
             model_file = None
             
@@ -203,7 +212,7 @@ class MultiCoCoRunner:
             if not model_file:
                 raise ModelInitializationError(f'No model file found in {checkpoint_path}. Expected one of: {model_files}')
             
-            # Load state dict directly (same as trainer does)
+            # Load state dict
             if model_file.endswith('.safetensors'):
                 from safetensors.torch import load_file
                 state_dict = load_file(model_file)
@@ -212,9 +221,57 @@ class MultiCoCoRunner:
                 state_dict = torch.load(model_file, map_location='cpu')
                 logger.info(f'Loading checkpoint from pytorch: {model_file}')
             
-            # Load into the model (use the outer MultiCoCo wrapper to match saved prefix)
+            # Handle vocabulary size mismatch
+            current_vocab_size = len(self.model.tokenizer)
+            checkpoint_vocab_size = None
+            
+            # Try to infer checkpoint vocab size from embedding weights
+            for key in state_dict.keys():
+                if 'embed_tokens.weight' in key or 'lm_head.weight' in key:
+                    checkpoint_vocab_size = state_dict[key].shape[0]
+                    break
+            
+            if checkpoint_vocab_size and checkpoint_vocab_size != current_vocab_size:
+                logger.warning(f'Vocabulary size mismatch: checkpoint={checkpoint_vocab_size}, current={current_vocab_size}')
+                logger.info('Handling vocabulary size mismatch by resizing embeddings...')
+                
+                # Resize current model embeddings to match checkpoint before loading
+                if hasattr(self.model.model, 'language_model'):
+                    # For InternVL3 structure
+                    embed_layer = self.model.model.language_model.model.embed_tokens
+                    lm_head = self.model.model.language_model.lm_head
+                else:
+                    # For other models
+                    embed_layer = self.model.model.get_input_embeddings()
+                    lm_head = self.model.model.get_output_embeddings()
+                
+                # Resize to checkpoint size temporarily for loading
+                if hasattr(self.model.model, 'language_model'):
+                    self.model.model.language_model.resize_token_embeddings(checkpoint_vocab_size)
+                else:
+                    self.model.model.resize_token_embeddings(checkpoint_vocab_size)
+                    
+                logger.info(f'Temporarily resized model embeddings to {checkpoint_vocab_size} to match checkpoint')
+            
+            # Load state dict into the model 
             target_model = self.model
             missing_keys, unexpected_keys = target_model.load_state_dict(state_dict, strict=False)
+            
+            # Resize back to current vocabulary size if needed
+            if checkpoint_vocab_size and checkpoint_vocab_size != current_vocab_size:
+                if hasattr(self.model.model, 'language_model'):
+                    self.model.model.language_model.resize_token_embeddings(current_vocab_size)
+                else:
+                    self.model.model.resize_token_embeddings(current_vocab_size)
+                    
+                logger.info(f'Resized model embeddings back to current vocab size: {current_vocab_size}')
+                logger.info('New token embeddings will be randomly initialized')
+            
+            # Filter out embedding-related warnings if we handled vocab size mismatch
+            if checkpoint_vocab_size and checkpoint_vocab_size != current_vocab_size:
+                # Remove embedding-related keys from warnings since we handled them
+                missing_keys = [k for k in missing_keys if 'embed_tokens' not in k and 'lm_head' not in k]
+                unexpected_keys = [k for k in unexpected_keys if 'embed_tokens' not in k and 'lm_head' not in k]
             
             if missing_keys:
                 logger.warning(f'Missing keys when loading checkpoint: {missing_keys[:5]}...' if len(missing_keys) > 5 else missing_keys)
