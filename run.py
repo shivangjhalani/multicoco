@@ -304,7 +304,8 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
             raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
-        metrics = self.trainer.perform_evaluation()
+        # Use evaluate() method which properly reads log_per_sample from args
+        metrics = self.trainer.evaluate()
         self._log_evaluation_results(metrics)
         return metrics
 

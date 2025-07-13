@@ -425,12 +425,17 @@ class CoCoTrainer(Trainer):
 
     def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
         eval_logger = logging.getLogger('evaluation_details')
+        logger.debug(f'evaluation_details logger: {eval_logger}, handlers: {len(eval_logger.handlers)}, hasHandlers: {eval_logger.hasHandlers()}')
+        
         if not eval_logger.hasHandlers():
             logger.warning('evaluation_details logger has no handlers configured. Per-sample logs may not be written to file.')
             return
+            
+        logger.info(f'Writing {len(questions)} per-sample details to evaluation log...')
         for i in range(len(questions)):
             details = {'question': questions[i], 'ground_truth': labels[i], 'generated_answer': generated_texts[i], 'extracted_answer': extracted[i], 'generated_tokens': generated_tokens[i], 'correct': bool(correctness[i])}
             eval_logger.info(json.dumps(details))
+        logger.info('Completed writing per-sample evaluation details')
 
     def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int]]:
         device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
