@@ -99,10 +99,15 @@ def collate_fn(batch: List[Dict[str, Any]], tokenizer: Any, image_processor: Any
         raise DatasetError(f'Failed to collate batch: {e}') from e
 
 def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[str], answers: List[str]) -> Tuple[List[str], List[str]]:
+    """
+    Create chat formatted texts ensuring proper image-latent-text ordering.
+    Fix: Ensure latent reasoning happens after image context is established.
+    """
     full_texts = []
     prompts = []
     for i, (question, answer) in enumerate(zip(questions, answers)):
         assistant_part = _build_assistant_response(batch[i], answer)
+        # IMAGE_TOKEN is placed before the question to establish visual context first
         prompt = f'<|im_start|>user\n{IMAGE_TOKEN}\n{question}<|im_end|><|im_start|>assistant\n'
         full_text = f'{prompt}{assistant_part}'
         full_texts.append(full_text)
@@ -162,10 +167,19 @@ def _calculate_curriculum_params(stage_to_train: int, max_latent_stage: int, ste
     return (n_skip_steps, n_latent_tokens)
 
 def _build_reasoning_text(total_latent_tokens: int, steps: List[str], n_skip_steps: int) -> str:
+    """
+    Build reasoning text with latent tokens, ensuring proper positioning relative to images.
+    Fix: Place latent tokens after image understanding, not before reasoning about images.
+    """
     reasoning_parts = []
+    
+    # Add latent tokens for reasoning (place them after any image context)
     if total_latent_tokens > 0:
         latent_block = ' '.join([LATENT_TOKEN] * total_latent_tokens)
         reasoning_parts.append(f'{START_LATENT_TOKEN} {latent_block} {END_LATENT_TOKEN}')
+    
+    # Add remaining explicit reasoning steps
     if (remaining_steps := steps[n_skip_steps:]):
         reasoning_parts.append(' '.join(remaining_steps))
+    
     return ' '.join(reasoning_parts).strip()

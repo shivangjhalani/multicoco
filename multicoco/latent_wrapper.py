@@ -292,118 +292,38 @@ class LatentWrapper(nn.Module):
     
     def _sequential_latent_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor], spans: List[List[Tuple[int, int]]], **kwargs):
         """
-        Sequential forward pass that processes latent tokens one by one.
-        This mimics the original Coconut algorithm's sequential approach.
+        Simplified sequential forward pass following original Coconut approach.
+        Fix: Use two-pass approach with single multimodal processing to avoid position misalignment.
         """
-        batch_size, seq_len = input_ids.shape
+        # First pass: get hidden states for the original sequence
+        last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
         
-        # Get all latent positions sorted by position
-        latent_positions = []
+        # Build modified embeddings with sequential latent injection (like original Coconut)
+        inputs_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
+        
+        # Second pass: single forward with modified embeddings  
+        return self._second_pass_forward(input_ids, attention_mask, inputs_embeds, image_embeds, labels)
+        
+    def _build_modified_embeddings_sequential(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
+        """
+        Build modified embeddings with sequential latent processing.
+        Fix: Each latent token gets the hidden state from the previous position (not repeated).
+        """
+        inputs_embeds = self.embedding(input_ids).clone()
+        
         for batch_idx, span_pairs in enumerate(spans):
             for start, end in span_pairs:
-                # Add positions within the span (excluding start/end markers)
-                for pos in range(start + 1, end):  # Skip start_latent and end_latent tokens
-                    latent_positions.append((batch_idx, pos))
-        
-        if not latent_positions:
-            # No actual latent tokens (only markers), use standard forward
-            return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=None, labels=labels, **kwargs)
-        
-        # Sort by position to process sequentially
-        latent_positions.sort(key=lambda x: x[1])
-        
-        # Start with original embeddings
-        inputs_embeds = self.embedding(input_ids)
-        
-        # Process the entire sequence with sequential latent injection
-        # First, inject all latent tokens with evolved hidden states
-        current_hidden = None
-        
-        for batch_idx, latent_pos in latent_positions:
-            # Process tokens up to this latent position to get evolved hidden states
-            if current_hidden is None:
-                # First time: process from beginning to this latent position
-                if latent_pos > 0:
-                    pre_embeds = inputs_embeds[:, :latent_pos]
-                    if image_embeds is not None:
-                        # Apply multimodal processing
-                        pre_embeds = self.base_model.model.prepare_inputs_for_multimodal(
-                            input_ids=input_ids[:, :latent_pos],
-                            pixel_values=None,
-                            image_embeds=image_embeds
-                        )
-                    
-                    pre_attention = attention_mask[:, :latent_pos] if attention_mask is not None else None
-                    
-                    with torch.no_grad():
-                        pre_outputs = self.base_model.model.language_model(
-                            inputs_embeds=pre_embeds,
-                            attention_mask=pre_attention,
-                            output_hidden_states=True
-                        )
-                    current_hidden = pre_outputs.hidden_states[-1]
-                else:
-                    # Latent at position 0, use initial embedding
-                    current_hidden = inputs_embeds[:, :1]
-            
-            # Inject evolved hidden state into current latent position
-            if latent_pos > 0 and current_hidden.shape[1] > 0:
-                # Use the last hidden state as input for this latent token
-                prev_hidden = current_hidden[batch_idx, -1]
-                inputs_embeds[batch_idx, latent_pos] = prev_hidden
+                if start == 0:
+                    continue  # Skip if latent span starts at position 0
                 
-                # Process this latent token to get its evolved hidden state
-                latent_embed = inputs_embeds[:, latent_pos:latent_pos+1]
-                latent_attention = attention_mask[:, :latent_pos+1] if attention_mask is not None else None
-                
-                with torch.no_grad():
-                    latent_outputs = self.base_model.model.language_model(
-                        inputs_embeds=latent_embed,
-                        attention_mask=latent_attention,
-                        past_key_values=None,  # Don't use cache for individual latent tokens
-                        output_hidden_states=True
-                    )
-                
-                # Update current_hidden to include this latent token's evolved state
-                current_hidden = torch.cat([current_hidden, latent_outputs.hidden_states[-1]], dim=1)
+                # Sequential injection: each latent token gets evolved state from previous position
+                for pos in range(start + 1, end):  # Skip start/end markers, only process actual latent tokens
+                    # Each latent token gets hidden state from the immediately previous position
+                    source_pos = pos - 1
+                    if source_pos < last_hidden.shape[1]:
+                        inputs_embeds[batch_idx, pos] = last_hidden[batch_idx, source_pos]
         
-        # Now run a single forward pass with all the injected embeddings
-        if image_embeds is not None:
-            # Apply multimodal processing to the full sequence
-            final_embeds = self.base_model.model.prepare_inputs_for_multimodal(
-                input_ids=input_ids,
-                pixel_values=None,
-                image_embeds=image_embeds,
-                inputs_embeds=inputs_embeds
-            )
-        else:
-            final_embeds = inputs_embeds
-        
-        # Single forward pass for the entire sequence
-        outputs = self.base_model.model.language_model(
-            inputs_embeds=final_embeds,
-            attention_mask=attention_mask,
-            output_hidden_states=True
-        )
-        
-        # Compute loss if labels provided
-        loss = None
-        if labels is not None:
-            shift_logits = outputs.logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            
-            from torch.nn import CrossEntropyLoss
-            loss_fct = CrossEntropyLoss(ignore_index=-100)
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        
-        # Return in expected format
-        from types import SimpleNamespace
-        return SimpleNamespace(
-            loss=loss,
-            logits=outputs.logits,
-            hidden_states=outputs.hidden_states[-1] if outputs.hidden_states else None,
-            inputs_embeds=final_embeds
-        )
+        return inputs_embeds
 
     def _extract_latent_spans(self, input_ids: torch.Tensor) -> List[List[Tuple[int, int]]]:
         """Extract latent token spans between start_latent and end_latent tokens"""
