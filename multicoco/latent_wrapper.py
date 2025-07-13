@@ -12,8 +12,8 @@ class LatentWrapper(nn.Module):
 
     def __init__(self, model: nn.Module, tokenizer):
         super().__init__()
-        # Store the wrapped model and tokenizer
-        self.model = model
+        # Store the wrapped model and tokenizer using proper PyTorch registration
+        self.base_model = model
         self.tokenizer = tokenizer
         self.latent_id = self.tokenizer.convert_tokens_to_ids('<|latent|>')
         self.start_id = self.tokenizer.convert_tokens_to_ids('<|start_latent|>')
@@ -23,31 +23,31 @@ class LatentWrapper(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, labels: Optional[torch.Tensor]=None, **kwargs):
         # No injection: Just call base model for end-to-end learning
-        return self.model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
+        return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
         # Use InternVL's generate directly (handles multimodal)
-        return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+        return self.base_model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
 
     # Explicit delegation for commonly used attributes to maintain compatibility
     @property
     def device(self):
-        return self.model.device
+        return self.base_model.device
     
     def get_input_embeddings(self):
-        return self.model.get_input_embeddings()
+        return self.base_model.get_input_embeddings()
     
     def resize_token_embeddings(self, new_num_tokens):
-        return self.model.resize_token_embeddings(new_num_tokens)
+        return self.base_model.resize_token_embeddings(new_num_tokens)
     
     def train(self, mode=True):
-        self.model.train(mode)
+        self.base_model.train(mode)
         return super().train(mode)
     
     def eval(self):
-        self.model.eval()
+        self.base_model.eval()
         return super().eval()
     
     def to(self, *args, **kwargs):
-        self.model = self.model.to(*args, **kwargs)
+        self.base_model = self.base_model.to(*args, **kwargs)
         return super().to(*args, **kwargs)
