@@ -55,5 +55,5 @@ logging:
 
 # Checkpoint Management
 keep_best_checkpoints: true
-max_checkpoints_to_keep: 10
+max_checkpoints_to_keep: 50
 use_run_name_in_output_dir: true
