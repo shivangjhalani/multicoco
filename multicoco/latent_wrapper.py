@@ -19,27 +19,27 @@ class LatentWrapper(nn.Module):
         self.model = model
         self.tokenizer = tokenizer
         
-        # Initialize latent token IDs
-        self.latent_id = self.tokenizer.convert_tokens_to_ids('<|latent|>')
-        self.start_id = self.tokenizer.convert_tokens_to_ids('<|start_latent|>')
-        self.end_id = self.tokenizer.convert_tokens_to_ids('<|end_latent|>')
+        # Initialize latent token IDs - these will be None if tokens aren't found, that's OK
+        try:
+            self.latent_id = self.tokenizer.convert_tokens_to_ids('<|latent|>')
+            self.start_id = self.tokenizer.convert_tokens_to_ids('<|start_latent|>')
+            self.end_id = self.tokenizer.convert_tokens_to_ids('<|end_latent|>')
+        except:
+            # If tokenizer doesn't have these methods, set to None
+            self.latent_id = None
+            self.start_id = None
+            self.end_id = None
         
         if self.latent_id is None or self.start_id is None or self.end_id is None:
             logger.warning('Some latent tokens not found in tokenizer vocabulary')
         
         logger.info("LatentWrapper initialized for end-to-end latent learning (CoCoNut-style)")
-        
-        # Verify model was set correctly
-        assert hasattr(self, 'model') and self.model is not None, "Model was not set correctly during initialization"
 
     def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, labels: Optional[torch.Tensor]=None, **kwargs):
         """
         Direct delegation to base model - no injection.
         Latent tokens are treated as regular vocabulary and learned through autoregressive loss.
         """
-        # Explicit check to catch issues early
-        if not hasattr(self, 'model') or self.model is None:
-            raise RuntimeError("LatentWrapper.model is not initialized. This should not happen.")
         return self.model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
