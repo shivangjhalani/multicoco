@@ -21,6 +21,10 @@ load_best_model_at_end: true
 metric_for_best_model: "accuracy"
 greater_is_better: true
 
+# Evaluation Strategy Configuration
+# skip_eval_during_training: false  # Set to true to skip all evaluations between epochs
+# eval_strategy: "epoch"             # Options: "epoch", "steps", "no"
+
 # Generation Configuration
 generation:
   do_sample: true

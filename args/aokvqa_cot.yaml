@@ -16,6 +16,10 @@ lr_scheduler_type: "cosine"
 load_best_model_at_end: true
 metric_for_best_model: "accuracy"
 
+# Evaluation Strategy (set to true to skip evaluations during training)
+skip_eval_during_training: true  # Set to true to skip all evaluations between epochs
+load_best_model_at_end: false    # Should be false when skipping evaluations
+
 # Generation Configuration
 generation:
   do_sample: true
