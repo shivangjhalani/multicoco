@@ -24,9 +24,9 @@ class LatentWrapperV2(nn.Module):
         self.tokenizer = tokenizer
         self.enable_norm_logging = False  # Default to False for compatibility
         
-        # Debug: Make sure base_model is set
-        if not hasattr(self, 'base_model') or self.base_model is None:
-            raise ValueError("base_model not properly initialized")
+        # Validate that model is initialized
+        if self.base_model is None:
+            raise ValueError("base_model cannot be None")
         
         # Get token IDs for latent spans
         self.latent_id = tokenizer.convert_tokens_to_ids(LATENT_TOKEN)
@@ -65,9 +65,9 @@ class LatentWrapperV2(nn.Module):
         """
         if pixel_values is None:
             # No images, return standard text embeddings
-            return self.base_model.get_input_embeddings()(input_ids)
+            return self.embedding(input_ids)
         
-        # Use InternVL's multimodal preparation
+        # Use InternVL's multimodal preparation if available
         if hasattr(self.base_model, 'prepare_inputs_embeds'):
             return self.base_model.prepare_inputs_embeds(
                 input_ids=input_ids,
@@ -77,7 +77,7 @@ class LatentWrapperV2(nn.Module):
             )
         else:
             # Fallback: just return text embeddings
-            return self.base_model.get_input_embeddings()(input_ids)
+            return self.embedding(input_ids)
     
     def latent_injection(self, embeddings: torch.Tensor, input_ids: torch.Tensor):
         """
