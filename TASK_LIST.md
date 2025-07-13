@@ -3,9 +3,9 @@
 ## Critical Issues (Must Fix for Latent Reasoning to Work)
 
 ### Phase 1: Data Pipeline Fixes
-- [ ] **Task 1.1**: Fix progressive curriculum to preserve image fields
-- [ ] **Task 1.2**: Ensure reasoning field is preserved in __getitem__
-- [ ] **Task 1.3**: Update collate_fn to handle reasoning with latent tokens
+- [x] **Task 1.1**: Fix progressive curriculum to preserve image fields
+- [x] **Task 1.2**: Ensure reasoning field is preserved in __getitem__
+- [x] **Task 1.3**: Update collate_fn to handle reasoning with latent tokens
 - [x] **Task 1.4**: Fix image token consistency (use <img> everywhere)
 
 ### Phase 2: Token and Tokenizer Fixes  
@@ -15,12 +15,12 @@
 
 ### Phase 3: Latent Injection Mechanism Redesign
 - [x] **Task 3.1**: Simplify LatentWrapper to separate multimodal prep from latent injection
-- [ ] **Task 3.2**: Implement clean Coconut-style multi-pass forward
-- [ ] **Task 3.3**: Remove complex KV caching that breaks the latent injection logic
-- [ ] **Task 3.4**: Ensure vision embeddings are computed once and reused
+- [x] **Task 3.2**: Implement clean Coconut-style multi-pass forward
+- [x] **Task 3.3**: Remove complex KV caching that breaks the latent injection logic
+- [x] **Task 3.4**: Ensure vision embeddings are computed once and reused
 
 ### Phase 4: Integration and Testing
-- [ ] **Task 4.1**: Add generation config support in evaluation
+- [x] **Task 4.1**: Add generation config support in evaluation
 - [ ] **Task 4.2**: Test data pipeline end-to-end
 - [ ] **Task 4.3**: Verify latent spans are detected and processed
 - [ ] **Task 4.4**: Test multimodal + latent reasoning integration
@@ -34,12 +34,12 @@
 
 ## Success Criteria
 
-- [ ] Progressive curriculum preserves all data fields including images
-- [ ] Latent tokens are properly tokenized and detected
-- [ ] LatentWrapper successfully injects hidden states into latent positions
+- [x] Progressive curriculum preserves all data fields including images
+- [x] Latent tokens are properly tokenized and detected
+- [x] LatentWrapper successfully injects hidden states into latent positions
 - [ ] Multimodal reasoning works with latent tokens
-- [ ] Generation respects config parameters
-- [ ] No KeyError or data loss during training/evaluation
+- [x] Generation respects config parameters
+- [x] No KeyError or data loss during training/evaluation
 
 ## Risk Mitigation
 

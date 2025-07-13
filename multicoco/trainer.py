@@ -445,19 +445,22 @@ class CoCoTrainer(Trainer):
         input_ids = device_batch.get('input_ids')
         if input_ids is None or batch_size == 0:
             return ([''] * batch_size, [''] * batch_size, [0] * batch_size)
+        
+        # Get generation config from runner config
+        generation_config = self._get_generation_config(max_new_tokens)
+        
         batch_predictions, batch_generated_texts, batch_generated_tokens = ([], [], [])
         if hasattr(self.model.model, 'chat') and pixel_values is not None:
             for i in range(batch_size):
                 sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
                 question = device_batch['questions'][i] if 'questions' in device_batch else ''
-                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False})
+                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
                 response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
                 batch_generated_tokens.append(len(response_tokens))
         else:
-            attention_mask = device_batch.get('attention_mask')
-            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
+            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=device_batch.get('attention_mask'), pad_token_id=self.tokenizer.eos_token_id, **generation_config)
             input_length = input_ids.shape[1]
             for i in range(batch_size):
                 gen_part = generated_ids[i, input_length:]
@@ -635,3 +638,28 @@ class CoCoTrainer(Trainer):
         else:
             logger.info(f'Using default linear scheduler with warmup_steps={warmup_steps}, total_steps={num_training_steps}')
             return super().create_scheduler(num_training_steps, optimizer)
+
+    def _get_generation_config(self, max_new_tokens: int) -> Dict[str, Any]:
+        """Get generation config from runner config or use defaults."""
+        generation_config = {'max_new_tokens': max_new_tokens}
+        
+        # Get generation config from runner if available
+        if self.runner and hasattr(self.runner, 'config') and hasattr(self.runner.config, 'generation'):
+            config_dict = self.runner.config.generation
+            if isinstance(config_dict, dict):
+                # Copy supported generation parameters
+                supported_params = ['do_sample', 'num_beams', 'temperature', 'top_p', 'top_k']
+                for param in supported_params:
+                    if param in config_dict:
+                        generation_config[param] = config_dict[param]
+        else:
+            # Fallback to reasonable defaults
+            generation_config.update({
+                'do_sample': False,  # Conservative default for evaluation
+                'num_beams': 1,
+                'temperature': 1.0,
+                'top_p': 1.0
+            })
+        
+        logger.debug(f"Using generation config: {generation_config}")
+        return generation_config
