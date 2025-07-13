@@ -37,7 +37,7 @@ use_wandb: true
 
 # CoCoNut Configuration
 coconut:
-  c_thought: 1
+  c_thought: 2
   enabled: true
   epochs_per_stage: 3
   max_latent_stage: 6
