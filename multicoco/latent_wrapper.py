@@ -2,45 +2,166 @@ import logging
 import torch
 import torch.nn as nn
 from typing import List, Optional, Tuple
+from .constants import COCONUT_SPECIAL_TOKENS
+
 logger = logging.getLogger(__name__)
 
 class LatentWrapper(nn.Module):
     """
     LatentWrapper implementing the CoCoNut algorithm with hidden state injection.
-    This follows the original Facebook Research CoCoNut implementation adapted for multimodal models.
+    This is based on the proven old implementation that correctly implements CoCoNut.
     """
 
-    def __init__(self, model: nn.Module, tokenizer):
+    def __init__(self, base_model: nn.Module, tokenizer, enable_norm_logging: bool = False):
         super().__init__()
-        # Store the wrapped model using add_module to ensure proper registration
-        self.add_module('base_model', model)
-        self.tokenizer = tokenizer  # Tokenizer is not a PyTorch module
-        self.latent_id = self.tokenizer.convert_tokens_to_ids('<|latent|>')
-        self.start_id = self.tokenizer.convert_tokens_to_ids('<|start_latent|>')
-        self.end_id = self.tokenizer.convert_tokens_to_ids('<|end_latent|>')
-        if self.latent_id is None or self.start_id is None or self.end_id is None:
-            logger.warning('Some latent tokens not found in tokenizer vocabulary')
+        self.base_model = base_model
+        self.tokenizer = tokenizer
+        self.enable_norm_logging = enable_norm_logging
+        self.latent_id = tokenizer.convert_tokens_to_ids('<|latent|>')
+        self.start_id = tokenizer.convert_tokens_to_ids('<|start_latent|>')
+        self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
+        self.embedding = base_model.get_input_embeddings()
+
+    def __getattr__(self, name):
+        """Delegate attribute access to the base model for compatibility"""
+        if hasattr(self, '__dict__') and 'base_model' in self.__dict__:
+            try:
+                return getattr(self.base_model, name)
+            except AttributeError:
+                pass
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+    def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
+        """Generate with proper latent injection support"""
+        if not self._has_latent_spans(input_ids):
+            return self.base_model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
         
-        # Get embedding layer for CoCoNut algorithm
-        if hasattr(self.model, 'language_model'):
-            self.embedding = self.model.language_model.model.embed_tokens
+        # Extract generation parameters from kwargs
+        max_new_tokens = kwargs.get('max_new_tokens', kwargs.get('max_length', 50))
+        if 'max_length' in kwargs and 'max_new_tokens' not in kwargs:
+            # Convert max_length to max_new_tokens
+            max_new_tokens = max(1, kwargs['max_length'] - input_ids.shape[1])
+        
+        generation_kwargs = {
+            'max_new_tokens': max_new_tokens,
+            'do_sample': kwargs.get('do_sample', False),
+            'temperature': kwargs.get('temperature', 1.0),
+            'top_p': kwargs.get('top_p', 1.0),
+            'top_k': kwargs.get('top_k', 50),
+            'pad_token_id': kwargs.get('pad_token_id'),
+            'eos_token_id': kwargs.get('eos_token_id')
+        }
+        
+        return self._generate_with_latent_injection(
+            input_ids=input_ids, 
+            attention_mask=attention_mask, 
+            pixel_values=pixel_values, 
+            **generation_kwargs
+        )
+
+    def _has_latent_spans(self, input_ids: torch.Tensor) -> bool:
+        """Check if input contains latent token spans"""
+        return any(self.start_id in ids.tolist() and self.end_id in ids.tolist() for ids in input_ids)
+
+    def _generate_with_latent_injection(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, max_new_tokens: int = 50, do_sample: bool = False, temperature: float = 1.0, top_p: float = 1.0, top_k: int = 50, pad_token_id: Optional[int] = None, eos_token_id: Optional[int] = None, **kwargs) -> torch.Tensor:
+        """Custom generation loop with latent injection"""
+        device = input_ids.device
+        batch_size = input_ids.shape[0]
+        generation_state = self._initialize_generation_state(batch_size, device, input_ids, attention_mask, pad_token_id, eos_token_id)
+        image_embeds = self._get_cached_vision_embeddings(pixel_values, device)
+        
+        for _ in range(max_new_tokens):
+            with torch.no_grad():
+                outputs = self.forward(
+                    input_ids=generation_state['generated_ids'],
+                    attention_mask=generation_state['attention_mask'],
+                    pixel_values=None,
+                    image_embeds=image_embeds
+                )
+            next_token = self._sample_and_update_token(outputs['logits'], generation_state, temperature, top_k, top_p, do_sample)
+            if generation_state['unfinished_sequences'].max() == 0:
+                break
+        return generation_state['generated_ids']
+
+    def _initialize_generation_state(self, batch_size: int, device: torch.device, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pad_token_id: Optional[int], eos_token_id: Optional[int]) -> dict:
+        """Initialize state for generation"""
+        pad_token_id = pad_token_id or self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
+        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
+        return {
+            'generated_ids': input_ids.clone(),
+            'attention_mask': attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+            'unfinished_sequences': torch.ones(batch_size, dtype=torch.long, device=device),
+            'pad_token_id': pad_token_id,
+            'eos_token_id': eos_token_id
+        }
+
+    def _sample_and_update_token(self, logits: torch.Tensor, generation_state: dict, temperature: float, top_k: int, top_p: float, do_sample: bool) -> torch.Tensor:
+        """Sample next token and update generation state"""
+        current_logits = logits[:, -1, :]
+        current_logits = self._apply_generation_filters(current_logits, temperature, top_k, top_p)
+        next_token_id = self._sample_next_token(current_logits, do_sample)
+        next_token_id = self._handle_finished_sequences(next_token_id, generation_state['unfinished_sequences'], generation_state['pad_token_id'])
+        
+        generation_state['generated_ids'] = torch.cat([generation_state['generated_ids'], next_token_id], dim=1)
+        generation_state['attention_mask'] = torch.cat([generation_state['attention_mask'], generation_state['unfinished_sequences'].unsqueeze(-1)], dim=1)
+        
+        if generation_state['eos_token_id'] is not None:
+            newly_finished = (next_token_id.squeeze(-1) == generation_state['eos_token_id']) & (generation_state['unfinished_sequences'] == 1)
+            generation_state['unfinished_sequences'].mul_((~newly_finished).long())
+        
+        return next_token_id
+
+    def _get_cached_vision_embeddings(self, pixel_values: Optional[torch.Tensor], device: torch.device) -> Optional[torch.Tensor]:
+        """Compute and cache vision embeddings"""
+        if pixel_values is None:
+            return None
+        
+        with torch.inference_mode():
+            vision_embeds = self.base_model.model.vision_tower(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
+            return self.base_model.model.projector(vision_embeds)
+
+    def _apply_generation_filters(self, logits: torch.Tensor, temperature: float, top_k: int, top_p: float) -> torch.Tensor:
+        """Apply temperature, top-k, and top-p filtering"""
+        if temperature != 1.0:
+            logits = logits / temperature
+        
+        if top_k > 0:
+            top_k_logits, top_k_indices = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits = torch.full_like(logits, float('-inf'))
+            logits.scatter_(1, top_k_indices, top_k_logits)
+        
+        if top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+            sorted_indices_to_remove = cumulative_probs > top_p
+            sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
+            sorted_indices_to_remove[:, 0] = 0
+            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+            logits[indices_to_remove] = float('-inf')
+        
+        return logits
+
+    def _sample_next_token(self, logits: torch.Tensor, do_sample: bool) -> torch.Tensor:
+        """Sample or greedily select next token"""
+        if do_sample:
+            probs = torch.softmax(logits, dim=-1)
+            return torch.multinomial(probs, num_samples=1)
         else:
-            self.embedding = self.model.get_input_embeddings()
+            return torch.argmax(logits, dim=-1, keepdim=True)
 
-    @property
-    def model(self):
-        """Access the wrapped model through PyTorch's module system"""
-        return self._modules['base_model']
+    def _handle_finished_sequences(self, next_token_id: torch.Tensor, unfinished_sequences: torch.Tensor, pad_token_id: int) -> torch.Tensor:
+        """Handle padding for finished sequences"""
+        return next_token_id * unfinished_sequences.unsqueeze(-1) + pad_token_id * (1 - unfinished_sequences.unsqueeze(-1))
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, labels: Optional[torch.Tensor]=None, **kwargs):
-        # Check if there are latent spans to process
+    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, image_embeds: Optional[torch.Tensor] = None, **kwargs):
+        """Main forward pass implementing CoCoNut algorithm"""
         spans = self._extract_latent_spans(input_ids)
         if not any(spans):
             # No latent tokens, use standard forward
-            return self.model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
+            return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
         
         # CoCoNut algorithm: hidden state injection
-        image_embeds = self._compute_vision_embeddings(pixel_values)
+        image_embeds = self._compute_vision_embeddings(pixel_values, image_embeds)
         last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
         inputs_embeds = self._build_modified_embeddings(input_ids, spans, last_hidden)
         return self._second_pass_forward(input_ids, attention_mask, inputs_embeds, image_embeds, labels)
@@ -63,49 +184,40 @@ class LatentWrapper(nn.Module):
             spans.append(sample_spans)
         return spans
 
-    def _compute_vision_embeddings(self, pixel_values: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+    def _compute_vision_embeddings(self, pixel_values: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         """Compute vision embeddings using InternVL's vision tower and projector"""
-        if pixel_values is None:
-            return None
+        if image_embeds is not None:
+            return image_embeds
         
-        # Ensure correct dtype
-        if hasattr(self.model, 'model'):
-            model_dtype = next(self.model.model.parameters()).dtype
-            pixel_values = pixel_values.to(dtype=model_dtype)
-        
-        # Use InternVL's vision processing
-        if hasattr(self.model, 'model') and hasattr(self.model.model, 'vision_tower'):
-            vision_embeds = self.model.model.vision_tower(pixel_values)
-            if hasattr(self.model.model, 'projector'):
-                return self.model.model.projector(vision_embeds)
-            return vision_embeds
+        if pixel_values is not None:
+            vision_embeds = self.base_model.model.vision_tower(pixel_values.to(dtype=self.base_model.model.dtype))
+            return self.base_model.model.projector(vision_embeds)
         
         return None
 
     def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> torch.Tensor:
         """First pass to get hidden states before injecting into latent tokens"""
         with torch.inference_mode():
-            # Use InternVL's multimodal preparation
-            if hasattr(self.model, 'model') and hasattr(self.model.model, 'prepare_inputs_for_multimodal'):
-                first_pass_embeds = self.model.model.prepare_inputs_for_multimodal(
-                    input_ids=input_ids, 
-                    pixel_values=None, 
-                    image_embeds=image_embeds
-                )
-                first_out = self.model.model.language_model(
-                    inputs_embeds=first_pass_embeds, 
-                    attention_mask=attention_mask, 
-                    output_hidden_states=True
-                )
-            else:
-                # Fallback for models without prepare_inputs_for_multimodal
-                first_out = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    output_hidden_states=True
-                )
+            img_token_positions = None
+            if self.enable_norm_logging and hasattr(self.base_model.model, 'img_context_token_id'):
+                img_token_positions = self._get_image_token_positions(input_ids)
             
-            return first_out.hidden_states[-1]
+            first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+                input_ids=input_ids,
+                pixel_values=None,
+                image_embeds=image_embeds
+            )
+            first_out = self.base_model.model.language_model(
+                inputs_embeds=first_pass_embeds,
+                attention_mask=attention_mask,
+                output_hidden_states=True
+            )
+            hidden_states = first_out.hidden_states[-1]
+            
+            if self.enable_norm_logging and img_token_positions is not None and image_embeds is not None:
+                self._log_vision_text_norms(hidden_states, img_token_positions)
+        
+        return hidden_states
 
     def _build_modified_embeddings(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """Replace latent token embeddings with hidden states from previous token position"""
@@ -122,28 +234,86 @@ class LatentWrapper(nn.Module):
         
         return inputs_embeds
 
+    def _get_image_token_positions(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Get positions of image tokens for logging"""
+        img_context_token_id = getattr(self.base_model.model, 'img_context_token_id', None)
+        if img_context_token_id is None:
+            return torch.empty(0, dtype=torch.bool, device=input_ids.device)
+        return input_ids == img_context_token_id
+
+    def _log_vision_text_norms(self, hidden_states: torch.Tensor, img_token_positions: torch.Tensor) -> None:
+        """Log vision and text token norms for analysis"""
+        try:
+            batch_size, seq_len, hidden_size = hidden_states.shape
+            token_norms = torch.norm(hidden_states, p=2, dim=-1)
+            
+            for batch_idx in range(batch_size):
+                batch_img_positions = img_token_positions[batch_idx]
+                batch_norms = token_norms[batch_idx]
+                
+                if batch_img_positions.any():
+                    self._log_vision_and_text_norms(batch_norms, batch_img_positions, batch_idx)
+                else:
+                    self._log_text_only_norms(batch_norms, batch_idx)
+        except Exception as e:
+            logger.warning(f'Failed to log vision-text norms: {e}')
+
+    def _log_vision_and_text_norms(self, batch_norms: torch.Tensor, batch_img_positions: torch.Tensor, batch_idx: int) -> None:
+        """Log separate vision and text norms"""
+        vision_norms = batch_norms[batch_img_positions]
+        text_norms = batch_norms[~batch_img_positions]
+        
+        vision_mean = vision_norms.mean().item()
+        vision_std = vision_norms.std().item() if len(vision_norms) > 1 else 0.0
+        text_mean = text_norms.mean().item()
+        text_std = text_norms.std().item() if len(text_norms) > 1 else 0.0
+        ratio = vision_mean / text_mean if text_mean != 0 else 0.0
+        
+        logger.info(f'Hidden state norms - Batch {batch_idx}: Vision tokens: {len(vision_norms)} tokens, '
+                   f'mean={vision_mean:.4f}, std={vision_std:.4f} | Text tokens: {len(text_norms)} tokens, '
+                   f'mean={text_mean:.4f}, std={text_std:.4f} | Ratio (vision/text): {ratio:.4f}')
+        
+        self._log_to_wandb({
+            'model/vision_norm_mean': vision_mean,
+            'model/text_norm_mean': text_mean,
+            'model/vision_text_ratio': ratio
+        })
+
+    def _log_text_only_norms(self, batch_norms: torch.Tensor, batch_idx: int) -> None:
+        """Log text-only norms when no vision tokens present"""
+        text_mean = batch_norms.mean().item()
+        text_std = batch_norms.std().item() if len(batch_norms) > 1 else 0.0
+        
+        logger.info(f'Hidden state norms - Batch {batch_idx}: No vision tokens, Text only: '
+                   f'{len(batch_norms)} tokens, mean={text_mean:.4f}, std={text_std:.4f}')
+        
+        self._log_to_wandb({
+            'model/text_only_norm_mean': text_mean,
+            'model/text_only_norm_std': text_std
+        })
+
+    def _log_to_wandb(self, metrics: dict) -> None:
+        """Log metrics to wandb if available"""
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.log(metrics)
+        except ImportError:
+            pass
+
     def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]) -> dict:
         """Second pass with modified embeddings containing injected hidden states"""
-        # Use InternVL's multimodal preparation with modified embeddings
-        if hasattr(self.model, 'model') and hasattr(self.model.model, 'prepare_inputs_for_multimodal'):
-            second_pass_embeds = self.model.model.prepare_inputs_for_multimodal(
-                input_ids=input_ids,
-                pixel_values=None,
-                image_embeds=image_embeds,
-                inputs_embeds=inputs_embeds
-            )
-            second_out = self.model.model.language_model(
-                inputs_embeds=second_pass_embeds,
-                attention_mask=attention_mask,
-                use_cache=True
-            )
-        else:
-            # Fallback for models without prepare_inputs_for_multimodal
-            second_out = self.model(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                use_cache=True
-            )
+        second_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+            input_ids=input_ids,
+            pixel_values=None,
+            image_embeds=image_embeds,
+            inputs_embeds=inputs_embeds
+        )
+        second_out = self.base_model.model.language_model(
+            inputs_embeds=second_pass_embeds,
+            attention_mask=attention_mask,
+            use_cache=True
+        )
         
         logits = second_out.logits
         loss = None
@@ -157,61 +327,30 @@ class LatentWrapper(nn.Module):
         
         return {'loss': loss, 'logits': logits}
 
-    def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
-        # Check if there are latent spans to process
-        spans = self._extract_latent_spans(input_ids)
-        if not any(spans):
-            # No latent tokens, use standard generation
-            return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
-        
-        # For generation with latent tokens, we need to implement custom generation
-        # This is more complex and would require implementing the full generation loop
-        # For now, fall back to standard generation (this could be improved)
-        logger.warning("Generation with latent tokens is not fully implemented. Using standard generation.")
-        return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
-
     # Explicit delegation for commonly used attributes to maintain compatibility
     @property
+    def model(self):
+        """Provide compatibility with code that expects model attribute"""
+        return self.base_model
+    
+    @property
     def device(self):
-        return self.model.device
+        return self.base_model.device
     
     def get_input_embeddings(self):
-        return self.model.get_input_embeddings()
+        return self.base_model.get_input_embeddings()
     
     def resize_token_embeddings(self, new_num_tokens):
-        return self.model.resize_token_embeddings(new_num_tokens)
+        return self.base_model.resize_token_embeddings(new_num_tokens)
     
     def train(self, mode=True):
-        self.model.train(mode)
+        self.base_model.train(mode)
         return super().train(mode)
     
     def eval(self):
-        self.model.eval()
+        self.base_model.eval()
         return super().eval()
     
     def to(self, *args, **kwargs):
-        self._modules['base_model'] = self.model.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
-
-    # Explicit delegation for commonly used attributes to maintain compatibility
-    @property
-    def device(self):
-        return self.model.device
-    
-    def get_input_embeddings(self):
-        return self.model.get_input_embeddings()
-    
-    def resize_token_embeddings(self, new_num_tokens):
-        return self.model.resize_token_embeddings(new_num_tokens)
-    
-    def train(self, mode=True):
-        self.model.train(mode)
-        return super().train(mode)
-    
-    def eval(self):
-        self.model.eval()
-        return super().eval()
-    
-    def to(self, *args, **kwargs):
-        self._modules['base_model'] = self.model.to(*args, **kwargs)
+        self._modules['base_model'] = self.base_model.to(*args, **kwargs)
         return super().to(*args, **kwargs)
