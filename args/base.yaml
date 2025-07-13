@@ -24,6 +24,7 @@ greater_is_better: true
 # Evaluation Strategy Configuration
 # skip_eval_during_training: false  # Set to true to skip all evaluations between epochs
 # eval_strategy: "epoch"             # Options: "epoch", "steps", "no"
+save_strategy: "epoch"             # Options: "epoch", "steps", "no"
 
 # Generation Configuration
 generation:
@@ -63,4 +64,3 @@ logging:
 keep_best_checkpoints: true
 max_checkpoints_to_keep: 50
 use_run_name_in_output_dir: true
-save_strategy: "epoch"
