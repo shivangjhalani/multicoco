@@ -49,11 +49,11 @@ def test_latent_span_detection():
         print(f"✓ Input IDs shape: {input_ids.shape}")
         
         # Test span detection
-        spans = wrapper._extract_latent_spans(input_ids[0])
-        print(f"✓ Detected {len(spans)} latent spans: {spans}")
+        spans = wrapper._extract_latent_spans(input_ids)  # Pass full tensor, not input_ids[0]
+        print(f"✓ Detected {len(spans)} batch items with spans: {spans}")
         
-        if len(spans) > 0:
-            start_pos, end_pos = spans[0]
+        if len(spans) > 0 and len(spans[0]) > 0:
+            start_pos, end_pos = spans[0][0]  # First span of first batch item
             span_tokens = input_ids[0][start_pos:end_pos+1]
             span_text = tokenizer.decode(span_tokens)
             print(f"✓ First span tokens: {span_text}")
@@ -152,7 +152,7 @@ def test_latent_injection():
         class MockModel(torch.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.embed_tokens = torch.nn.Embedding(1000, 64)
+                self.embed_tokens = torch.nn.Embedding(100000, 64)  # Much larger vocab
                 
             def get_input_embeddings(self):
                 return self.embed_tokens
@@ -174,9 +174,9 @@ def test_latent_injection():
         print(f"✓ Input embeddings shape: {embeds.shape}")
         
         # Test latent injection
-        spans = wrapper._extract_latent_spans(input_ids[0])
-        if len(spans) > 0:
-            injected_embeds = wrapper.latent_injection(embeds, spans)
+        spans = wrapper._extract_latent_spans(input_ids)  # Pass full tensor
+        if len(spans) > 0 and len(spans[0]) > 0:
+            injected_embeds = wrapper.latent_injection(embeds, input_ids)
             print(f"✓ Latent injection completed, output shape: {injected_embeds.shape}")
             
             # Verify the injection modified the embeddings

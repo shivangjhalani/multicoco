@@ -55,15 +55,19 @@ class LatentWrapperV2(nn.Module):
         """
         if pixel_values is None:
             # No images, return standard text embeddings
-            return self.embedding(input_ids)
+            return self.base_model.get_input_embeddings()(input_ids)
         
         # Use InternVL's multimodal preparation
-        return self.base_model.prepare_inputs_embeds(
-            input_ids=input_ids,
-            pixel_values=pixel_values,
-            attention_mask=attention_mask,
-            **kwargs
-        )
+        if hasattr(self.base_model, 'prepare_inputs_embeds'):
+            return self.base_model.prepare_inputs_embeds(
+                input_ids=input_ids,
+                pixel_values=pixel_values,
+                attention_mask=attention_mask,
+                **kwargs
+            )
+        else:
+            # Fallback: just return text embeddings
+            return self.base_model.get_input_embeddings()(input_ids)
     
     def latent_injection(self, embeddings: torch.Tensor, input_ids: torch.Tensor):
         """
