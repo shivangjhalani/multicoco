@@ -56,8 +56,11 @@ logging:
   use_wandb: true
   run_name: null
   log_to_file: true
+  console_output: true
+  verbose: false
 
 # Checkpoint Management
 keep_best_checkpoints: true
 max_checkpoints_to_keep: 50
 use_run_name_in_output_dir: true
+save_strategy: "epoch"

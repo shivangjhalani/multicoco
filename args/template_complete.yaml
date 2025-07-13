@@ -23,6 +23,9 @@ warmup_steps: 500
 logging_steps: 10
 save_steps: 1000
 eval_steps: 1000
+eval_strategy: "epoch"             # Options: "epoch", "steps", "no"
+save_strategy: "epoch"             # Options: "epoch", "steps", "no"
+skip_eval_during_training: false  # Set to true to skip all evaluations between epochs
 save_total_limit: 2
 max_checkpoints_to_keep: 3
 keep_best_checkpoints: true
@@ -69,6 +72,8 @@ log_level: "INFO"
 verbose: false
 use_wandb: true
 run_name: "my-experiment-run"
+log_to_file: true
+project: "multicoco"
 
 # CoCoNut Configuration
 coconut:
@@ -87,3 +92,4 @@ eval_config:
   coconut: false
   eval_latent_tokens: null
   log_per_sample: true
+  detailed_logging: false

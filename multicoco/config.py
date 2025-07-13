@@ -86,6 +86,7 @@ class TrainingConfig:
     save_steps: int = 1000
     eval_steps: int = 1000
     eval_strategy: str = 'epoch'
+    save_strategy: str = 'epoch'
     skip_eval_during_training: bool = False
     save_total_limit: int = 2
     load_best_model_at_end: bool = True
@@ -151,6 +152,7 @@ class MultiCoCoConfig:
         self._validate_coconut()
         self._validate_data_requirements()
         self._validate_file_existence()
+        self._validate_generation_config()
 
     def _validate_training(self) -> None:
         if self.training.learning_rate <= 0:
@@ -161,6 +163,16 @@ class MultiCoCoConfig:
             raise ValueError('num_epochs must be positive')
         if self.training.bf16 and self.training.fp16:
             raise ValueError('Cannot enable both bf16 and fp16 simultaneously')
+        
+        # Validate lr_scheduler_type
+        valid_schedulers = ['linear', 'cosine', 'cosine_with_restarts', 'polynomial', 'constant', 'constant_with_warmup']
+        if self.training.lr_scheduler_type not in valid_schedulers:
+            raise ValueError(f'lr_scheduler_type must be one of: {valid_schedulers}')
+        
+        # Validate log_level
+        valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        if self.logging.log_level.upper() not in valid_log_levels:
+            raise ValueError(f'log_level must be one of: {valid_log_levels}')
 
     def _validate_coconut(self) -> None:
         if self.coconut.c_thought < 0:
@@ -186,6 +198,32 @@ class MultiCoCoConfig:
             raise FileNotFoundError(f'Training data not found: {self.data.train_data_path}')
         if self.data.eval_data_path and (not os.path.exists(self.data.eval_data_path)):
             raise FileNotFoundError(f'Evaluation data not found: {self.data.eval_data_path}')
+
+    def _validate_generation_config(self) -> None:
+        """Validate generation configuration parameters."""
+        if not isinstance(self.generation, dict):
+            raise ValueError('generation config must be a dictionary')
+        
+        # Validate specific generation parameters if present
+        if 'max_new_tokens' in self.generation:
+            if not isinstance(self.generation['max_new_tokens'], int) or self.generation['max_new_tokens'] <= 0:
+                raise ValueError('max_new_tokens must be a positive integer')
+        
+        if 'temperature' in self.generation:
+            if not isinstance(self.generation['temperature'], (int, float)) or self.generation['temperature'] <= 0:
+                raise ValueError('temperature must be a positive number')
+        
+        if 'top_p' in self.generation:
+            if not isinstance(self.generation['top_p'], (int, float)) or not (0 < self.generation['top_p'] <= 1):
+                raise ValueError('top_p must be a number between 0 and 1')
+        
+        if 'top_k' in self.generation:
+            if not isinstance(self.generation['top_k'], int) or self.generation['top_k'] < 0:
+                raise ValueError('top_k must be a non-negative integer')
+        
+        if 'num_beams' in self.generation:
+            if not isinstance(self.generation['num_beams'], int) or self.generation['num_beams'] <= 0:
+                raise ValueError('num_beams must be a positive integer')
 
     @classmethod
     def load_with_base(cls, config_path: str, base_config_path: str='args/base.yaml') -> 'MultiCoCoConfig':
@@ -233,7 +271,7 @@ class MultiCoCoConfig:
     @staticmethod
     def _build_training_config(config_dict: Dict[str, Any]) -> TrainingConfig:
         name = config_dict.get('name') or config_dict.get('run_name')
-        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), max_grad_norm=config_dict.get('max_grad_norm', 1.0), lr_scheduler_type=config_dict.get('lr_scheduler_type', 'linear'), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), eval_strategy=config_dict.get('eval_strategy', 'epoch'), skip_eval_during_training=config_dict.get('skip_eval_during_training', False), save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=config_dict.get('load_best_model_at_end', True), metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), dataloader_num_workers=config_dict.get('dataloader_num_workers', 4), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
+        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), max_grad_norm=config_dict.get('max_grad_norm', 1.0), lr_scheduler_type=config_dict.get('lr_scheduler_type', 'linear'), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), eval_strategy=config_dict.get('eval_strategy', 'epoch'), save_strategy=config_dict.get('save_strategy', 'epoch'), skip_eval_during_training=config_dict.get('skip_eval_during_training', False), save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=config_dict.get('load_best_model_at_end', True), metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), dataloader_num_workers=config_dict.get('dataloader_num_workers', 4), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
 
     @staticmethod
     def _build_data_config(config_dict: Dict[str, Any]) -> DataConfig:
