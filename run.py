@@ -212,8 +212,8 @@ class MultiCoCoRunner:
                 state_dict = torch.load(model_file, map_location='cpu')
                 logger.info(f'Loading checkpoint from pytorch: {model_file}')
             
-            # Load into the model (access the underlying model if wrapped)
-            target_model = getattr(self.model, 'model', self.model)
+            # Load into the model (use the outer MultiCoCo wrapper to match saved prefix)
+            target_model = self.model
             missing_keys, unexpected_keys = target_model.load_state_dict(state_dict, strict=False)
             
             if missing_keys:
@@ -271,8 +271,6 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)
-            # Pass generation config to trainer
-            setattr(self.trainer.args, 'generation_config', self.config.generation)
             logger.info('Trainer created successfully')
         except Exception as e:
             raise ModelInitializationError(f'Trainer creation failed: {e}') from e
