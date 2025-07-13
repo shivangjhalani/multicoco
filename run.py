@@ -271,8 +271,6 @@ class MultiCoCoRunner:
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)
-            # Pass generation config to trainer
-            setattr(self.trainer.args, 'generation_config', self.config.generation)
             logger.info('Trainer created successfully')
         except Exception as e:
             raise ModelInitializationError(f'Trainer creation failed: {e}') from e
@@ -306,8 +304,7 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
             raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
-        # Use evaluate() method which properly reads log_per_sample from args
-        metrics = self.trainer.evaluate()
+        metrics = self.trainer.perform_evaluation()
         self._log_evaluation_results(metrics)
         return metrics
 
