@@ -617,8 +617,16 @@ class CoCoTrainer(Trainer):
             del self._last_train_dataloader
         logger.info('Dataloader will be refreshed for updated curriculum')
         if hasattr(self.args, 'reset_optimizer') and self.args.reset_optimizer:
-            logger.info('Resetting optimizer for new stage')
-            self.create_optimizer()
+            logger.info('Resetting optimizer and scheduler for new stage')
+            # Calculate remaining training steps for the new stage
+            train_dataloader = self.get_train_dataloader()
+            steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
+            remaining_epochs = int(self.args.num_train_epochs) - (self.state.epoch if hasattr(self.state, 'epoch') else 0)
+            remaining_steps = steps_per_epoch * max(1, remaining_epochs)
+            
+            # Recreate both optimizer and scheduler for the new stage
+            self.create_optimizer_and_scheduler(remaining_steps)
+            logger.info(f'Reset optimizer and scheduler with {remaining_steps} remaining training steps')
         if 'wandb' in self.args.report_to:
             try:
                 import wandb

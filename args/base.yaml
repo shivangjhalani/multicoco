@@ -16,7 +16,7 @@ warmup_steps: 500
 max_grad_norm: 1.0
 lr_scheduler_type: "cosine"
 limit_for_testing: false
-resume_from_checkpoint: true
+resume_from_checkpoint: false
 load_best_model_at_end: true
 metric_for_best_model: "accuracy"
 greater_is_better: true
