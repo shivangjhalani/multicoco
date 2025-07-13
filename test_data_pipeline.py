@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from multicoco.data import SupervisedDataset
-from multicoco.config import CoconutConfig
+from multicoco.config import CoCoNutConfig
 from multicoco.constants import IMAGE_TOKEN, COCONUT_SPECIAL_TOKENS
 
 def test_data_pipeline_end_to_end():
@@ -44,14 +44,14 @@ def test_data_pipeline_end_to_end():
     
     try:
         # Test with Coconut configuration
-        coconut_config = CoconutConfig(
+        coconut_config = CoCoNutConfig(
             enabled=True,
-            n_latent_tokens=4,
-            progressive_stages=[1, 2],
-            current_stage=1
+            c_thought=4,  # Use c_thought instead of n_latent_tokens
+            max_latent_stage=2,
+            epochs_per_stage=1
         )
         
-        # Create dataset with progressive curriculum
+        # Create dataset with correct parameters
         dataset = SupervisedDataset(
             data_path=test_file,
             data_dir="/tmp"  # Dummy path
@@ -59,9 +59,9 @@ def test_data_pipeline_end_to_end():
         
         # Apply coconut progressive curriculum
         dataset.apply_progressive_curriculum(
-            scheduled_stage=coconut_config.current_stage,
-            c_thought=coconut_config.n_latent_tokens,
-            max_latent_stage=max(coconut_config.progressive_stages),
+            scheduled_stage=1,
+            c_thought=coconut_config.c_thought,
+            max_latent_stage=coconut_config.max_latent_stage,
             uniform_prob=0.0,
             pad_latent_to_max=False,
             no_cot=False
