@@ -168,6 +168,8 @@ def _select_random_stage_with_bias(steps: List[str], max_latent_stage: int, samp
     """
     IMPROVEMENT: Select random stage with bias towards image-related reasoning.
     """
+    import random  # Import at function start to avoid scoping issues
+    
     # Check if steps contain visual reasoning keywords
     visual_keywords = ['see', 'look', 'image', 'picture', 'visual', 'color', 'shape', 'object', 'appears', 'shows']
     
@@ -189,7 +191,6 @@ def _select_random_stage_with_bias(steps: List[str], max_latent_stage: int, samp
         weights = [w / total_weight for w in weights]
         
         # Weighted random selection
-        import random
         return random.choices(range(len(steps) + 1), weights=weights)[0]
     else:
         # Standard uniform selection for non-visual samples

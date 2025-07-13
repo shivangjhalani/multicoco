@@ -246,9 +246,6 @@ class LatentWrapper(nn.Module):
         # Convert back to proper tensor format
         # Note: In real implementation, we'd need to properly track the original input_ids
         return torch.tensor([tokens], device=device)
-            current_embeds = torch.cat([current_embeds, new_token_embed], dim=1)
-        
-        return torch.tensor(tokens).unsqueeze(0).to(device)
 
     def _initialize_generation_state(self, batch_size: int, device: torch.device, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pad_token_id: Optional[int], eos_token_id: Optional[int]) -> dict:
         """Initialize state for generation"""
@@ -376,7 +373,7 @@ class LatentWrapper(nn.Module):
                 if start == 0:
                     continue  # Skip if latent span starts at position 0
                 
-                # Sequential injection: each latent token gets evolved state from previous position
+                # Sequential injection: each latent token gets the hidden state from the previous position
                 for pos in range(start + 1, end):  # Skip start/end markers, only process actual latent tokens
                     # Each latent token gets hidden state from the immediately previous position
                     source_pos = pos - 1
@@ -537,61 +534,59 @@ class LatentWrapper(nn.Module):
 
     def _log_coconut_metrics(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], stage_info: Optional[Dict] = None) -> None:
         """
-        IMPROVEMENT: Log Coconut-specific metrics for better monitoring.
+        IMPROVEMENT: Log Coconut-specific metrics for training analysis.
         """
         if not self.enable_norm_logging:
             return
             
         try:
-            # Calculate latent span statistics
+            # Calculate metrics
             total_latent_tokens = 0
-            span_lengths = []
-            num_spans = 0
+            spans_per_batch = [len(batch_spans) for batch_spans in spans]
+            avg_spans_per_batch = sum(spans_per_batch) / len(spans_per_batch) if spans_per_batch else 0
             
+            # Calculate span lengths
+            span_lengths = []
             for batch_spans in spans:
                 for start, end in batch_spans:
-                    span_length = end - start - 2  # Exclude start/end markers
-                    if span_length > 0:
-                        span_lengths.append(span_length)
-                        total_latent_tokens += span_length
-                        num_spans += 1
+                    span_lengths.append(end - start - 2)  # Subtract 2 for start/end markers
             
-            if span_lengths:
-                avg_span_length = sum(span_lengths) / len(span_lengths)
-                max_span_length = max(span_lengths)
-                min_span_length = min(span_lengths)
+            avg_span_length = sum(span_lengths) / len(span_lengths) if span_lengths else 0
+            max_span_length = max(span_lengths) if span_lengths else 0
+            
+            metrics = {
+                'coconut/total_latent_tokens': total_latent_tokens,
+                'coconut/avg_spans_per_batch': avg_spans_per_batch,
+                'coconut/avg_span_length': avg_span_length,
+                'coconut/max_span_length': max_span_length,
+                'coconut/num_batches_with_latents': sum(1 for spans in spans_per_batch if spans > 0)
+            }
+            
+            self._log_to_wandb(metrics)
+            
+            if self.enable_norm_logging:
+                logger.info(f"Coconut metrics: {metrics}")
                 
-                # Calculate sequence statistics
-                total_sequence_length = input_ids.shape[1]
-                latent_ratio = total_latent_tokens / total_sequence_length
-                
-                coconut_metrics = {
-                    'coconut/total_latent_tokens': total_latent_tokens,
-                    'coconut/num_latent_spans': num_spans,
-                    'coconut/avg_span_length': avg_span_length,
-                    'coconut/max_span_length': max_span_length,
-                    'coconut/min_span_length': min_span_length,
-                    'coconut/latent_token_ratio': latent_ratio,
-                    'coconut/sequence_length': total_sequence_length,
-                }
-                
-                # Add stage information if available
-                if stage_info:
-                    coconut_metrics.update({
-                        f'coconut/stage_{k}': v for k, v in stage_info.items()
-                    })
-                
-                # Log efficiency metrics
-                if hasattr(self, '_last_forward_time'):
-                    coconut_metrics['coconut/forward_time_ms'] = self._last_forward_time * 1000
-                
-                self._log_to_wandb(coconut_metrics)
-                
-                logger.info(f"Coconut metrics - Spans: {num_spans}, Avg length: {avg_span_length:.2f}, "
-                           f"Latent ratio: {latent_ratio:.3f}, Total tokens: {total_latent_tokens}")
-        
         except Exception as e:
             logger.warning(f'Failed to log Coconut metrics: {e}')
+    
+    def _calculate_latent_efficiency_metrics(self, forward_time: float, total_tokens: int, latent_tokens: int) -> Dict[str, float]:
+        """
+        IMPROVEMENT: Calculate efficiency metrics for latent processing.
+        """
+        if total_tokens == 0:
+            return {}
+        
+        latent_ratio = latent_tokens / total_tokens
+        tokens_per_second = total_tokens / forward_time if forward_time > 0 else 0
+        
+        return {
+            'coconut/efficiency/latent_ratio': latent_ratio,
+            'coconut/efficiency/tokens_per_second': tokens_per_second,
+            'coconut/efficiency/forward_time_ms': forward_time * 1000,
+            'coconut/efficiency/total_tokens': total_tokens,
+            'coconut/efficiency/latent_tokens': latent_tokens,
+        }
 
     def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]) -> dict:
         """Second pass with modified embeddings containing injected hidden states"""
@@ -619,6 +614,49 @@ class LatentWrapper(nn.Module):
         
         return {'loss': loss, 'logits': logits, 'inputs_embeds': second_pass_embeds}
 
+    def _generate_with_huggingface_optimizations(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **generation_kwargs) -> torch.Tensor:
+        """
+        IMPROVEMENT: Use HuggingFace's optimized generation with custom prepare_inputs function.
+        This leverages built-in KV caching and other optimizations.
+        """
+        device = input_ids.device
+        
+        # Process latents once before generation
+        if self._has_latent_spans(input_ids):
+            # Get image embeddings
+            image_embeds = self._get_cached_vision_embeddings(pixel_values, device)
+            
+            # Process latent spans
+            spans = self._extract_latent_spans(input_ids)
+            last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
+            processed_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
+            
+            # Apply multimodal processing to final embeddings
+            if image_embeds is not None:
+                processed_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+                    input_ids=input_ids,
+                    pixel_values=None,
+                    image_embeds=image_embeds,
+                    inputs_embeds=processed_embeds
+                )
+            
+            # Use HuggingFace generation with our processed embeddings
+            return self.base_model.generate(
+                inputs_embeds=processed_embeds,
+                attention_mask=attention_mask,
+                use_cache=True,  # Enable KV caching for efficiency
+                **generation_kwargs
+            )
+        else:
+            # No latent tokens, use standard generation
+            return self.base_model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                use_cache=True,
+                **generation_kwargs
+            )
+    
     # Explicit delegation for commonly used attributes to maintain compatibility
     @property
     def model(self):

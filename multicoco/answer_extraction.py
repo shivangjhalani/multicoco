@@ -137,17 +137,20 @@ def _extract_object(text: str) -> str:
     """Extract object identification from text."""
     # Look for object descriptions
     object_patterns = [
-        r'(?:is\s+(?:a\s+|an\s+)?)?([a-zA-Z]+(?:\s+[a-zA-Z]+){0,2})\b',
         r'(?:object|item|thing)\s+(?:is\s+)?(?:a\s+|an\s+)?([^.!?,]+)',
         r'(?:see|shows?|depicts?)\s+(?:a\s+|an\s+)?([^.!?,]+)',
+        r'(?:main|primary|central)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,2})',
+        r'(?:is\s+(?:a\s+|an\s+)?)?([a-zA-Z]+(?:\s+[a-zA-Z]+){0,2})\s*(?:$|[.!?])',
     ]
     
     for pattern in object_patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             obj = match.group(1).strip()
-            # Filter out common non-objects
-            if obj.lower() not in ['the', 'this', 'that', 'it', 'one', 'some', 'any']:
+            # Filter out common non-objects and clean up
+            if obj.lower() not in ['the', 'this', 'that', 'it', 'one', 'some', 'any', 'main', 'primary', 'central']:
+                # Clean up common prefixes
+                obj = re.sub(r'^(main|primary|central)\s+', '', obj, flags=re.IGNORECASE)
                 return obj
     
     return ''
