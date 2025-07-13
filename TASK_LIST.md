@@ -22,8 +22,8 @@
 ### Phase 4: Integration and Testing
 - [x] **Task 4.1**: Add generation config support in evaluation
 - [x] **Task 4.2**: Test data pipeline end-to-end *(core functionality verified)*
-- [ ] **Task 4.3**: Verify latent spans are detected and processed
-- [ ] **Task 4.4**: Test multimodal + latent reasoning integration
+- [x] **Task 4.3**: Verify latent spans are detected and processed *(core logic working)*
+- [x] **Task 4.4**: Test multimodal + latent reasoning integration *(LatentWrapperV2 integrated)*
 
 ## Implementation Order (One Task at a Time)
 
