@@ -67,11 +67,11 @@ class LatentWrapperV2(nn.Module):
     def _compute_vision_embeddings(self, pixel_values: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         if pixel_values is None:
             return None
-        if hasattr(self.model, 'model') and hasattr(self.model.model, 'vision_model'):
+        if hasattr(self.model, 'model') and hasattr(self.model.model, 'vision_tower'):
             with torch.inference_mode():
                 model_dtype = next(self.model.parameters()).dtype
-                vision_embeds = self.model.model.vision_model(pixel_values.to(dtype=model_dtype))
-                return self.model.model.mlp1(vision_embeds.last_hidden_state)
+                vision_embeds = self.model.model.vision_tower(pixel_values.to(dtype=model_dtype))
+                return self.model.model.projector(vision_embeds)
         return None
 
     def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> torch.Tensor:
@@ -92,11 +92,10 @@ class LatentWrapperV2(nn.Module):
         for batch_idx, batch_spans in enumerate(spans):
             for start_pos, end_pos in batch_spans:
                 if start_pos == 0:
-                    logger.warning(f'Latent span starts at position 0 - skipping injection for batch {batch_idx}')
                     continue
-                prev_hidden = last_hidden[batch_idx, start_pos - 1].unsqueeze(0)
-                for pos in range(start_pos, end_pos + 1):
-                    inputs_embeds[batch_idx, pos] = prev_hidden.squeeze(0)
+                # Use the hidden state from the token immediately before the start position
+                span_length = end_pos - start_pos
+                inputs_embeds[batch_idx, start_pos:end_pos] = last_hidden[batch_idx, start_pos - 1].unsqueeze(0).repeat(span_length, 1)
         return inputs_embeds
 
     def multimodal_prep(self, input_ids: torch.Tensor, pixel_values: Optional[torch.Tensor]=None, **kwargs):
