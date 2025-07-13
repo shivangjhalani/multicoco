@@ -22,7 +22,55 @@ class LatentWrapper(nn.Module):
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
         self.embedding = base_model.get_input_embeddings()
 
-    # Remove __getattr__ completely - use explicit delegation only
+    def chat(self, tokenizer, pixel_values: Optional[torch.Tensor] = None, question: str = "", generation_config: Optional[dict] = None, **kwargs):
+        """Chat method that handles latent injection when needed"""
+        # Check if we have latent tokens in the question
+        question_tokens = tokenizer.encode(question, add_special_tokens=False)
+        has_latents = self.start_id in question_tokens and self.end_id in question_tokens
+        
+        if not has_latents:
+            # No latent tokens, use base model's chat directly
+            return self.base_model.chat(tokenizer=tokenizer, pixel_values=pixel_values, question=question, generation_config=generation_config, **kwargs)
+        
+        # Has latent tokens, need custom generation with latent injection
+        # Convert chat interface to generate interface
+        if pixel_values is not None:
+            # For multimodal input, we need to format the question properly
+            # This mimics what InternVL's chat method does internally
+            formatted_question = f"<image>\n{question}"
+            input_ids = tokenizer.encode(formatted_question, add_special_tokens=True, return_tensors="pt")
+            
+            if pixel_values.dim() == 3:
+                pixel_values = pixel_values.unsqueeze(0)
+            
+            generation_config = generation_config or {}
+            
+            # Use our custom generation with latent injection
+            generated_ids = self.generate(
+                input_ids=input_ids.to(pixel_values.device),
+                pixel_values=pixel_values,
+                **generation_config
+            )
+            
+            # Decode only the generated part
+            input_length = input_ids.shape[1]
+            generated_tokens = generated_ids[:, input_length:]
+            response = tokenizer.decode(generated_tokens[0], skip_special_tokens=True).strip()
+            return response
+        else:
+            # Text-only generation
+            input_ids = tokenizer.encode(question, add_special_tokens=True, return_tensors="pt")
+            generation_config = generation_config or {}
+            
+            generated_ids = self.generate(
+                input_ids=input_ids,
+                **generation_config
+            )
+            
+            input_length = input_ids.shape[1]
+            generated_tokens = generated_ids[:, input_length:]
+            response = tokenizer.decode(generated_tokens[0], skip_special_tokens=True).strip()
+            return response
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
         """Generate with proper latent injection support"""
@@ -57,24 +105,89 @@ class LatentWrapper(nn.Module):
         return any(self.start_id in ids.tolist() and self.end_id in ids.tolist() for ids in input_ids)
 
     def _generate_with_latent_injection(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, max_new_tokens: int = 50, do_sample: bool = False, temperature: float = 1.0, top_p: float = 1.0, top_k: int = 50, pad_token_id: Optional[int] = None, eos_token_id: Optional[int] = None, **kwargs) -> torch.Tensor:
-        """Custom generation loop with latent injection"""
+        """
+        Efficient generation with latent injection following original Coconut approach.
+        Latent injection happens only once during prompt processing, then standard generation.
+        """
         device = input_ids.device
         batch_size = input_ids.shape[0]
-        generation_state = self._initialize_generation_state(batch_size, device, input_ids, attention_mask, pad_token_id, eos_token_id)
+        
+        # Ensure we're working with the right batch size
+        assert batch_size == 1, "Currently only supports batch_size=1 for latent generation"
+        
+        # Step 1: Process the prompt with latent injection (this is the expensive part)
         image_embeds = self._get_cached_vision_embeddings(pixel_values, device)
         
-        for _ in range(max_new_tokens):
+        # Create dummy labels for forward pass (not used in generation)
+        labels = input_ids.clone()
+        
+        # Run forward pass with latent injection to get the injected embeddings
+        with torch.no_grad():
+            outputs = self.forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=None,  # We already computed image_embeds
+                image_embeds=image_embeds,
+                labels=labels
+            )
+        
+        # Get the injected embeddings from the forward pass
+        inputs_embeds = outputs['inputs_embeds'] if isinstance(outputs, dict) else outputs.inputs_embeds
+        
+        # Step 2: Generate the first token using the latent-injected embeddings
+        next_token_logits = outputs['logits'] if isinstance(outputs, dict) else outputs.logits
+        next_token_logits = next_token_logits[:, -1, :]  # Last position logits
+        
+        # Apply generation filters and sample
+        filtered_logits = self._apply_generation_filters(next_token_logits, temperature, top_k, top_p)
+        if do_sample:
+            probs = torch.softmax(filtered_logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1)
+        else:
+            next_token = torch.argmax(filtered_logits, dim=-1, keepdim=True)
+        
+        # Build the tokens list starting with input + first generated token
+        tokens = input_ids[0].tolist() + [next_token.item()]
+        
+        # Check for early termination
+        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
+        if next_token.item() == eos_token_id:
+            return torch.tensor(tokens).unsqueeze(0).to(device)
+        
+        # Create new input embeddings by appending the first generated token embedding
+        new_token_embed = self.embedding(next_token).view(1, 1, -1)
+        current_embeds = torch.cat([inputs_embeds, new_token_embed], dim=1)
+        
+        # Step 3: Continue generation using the base model with the pre-injected embeddings
+        # This follows the original Coconut approach of not re-injecting latents
+        for _ in range(max_new_tokens - 1):
             with torch.no_grad():
-                outputs = self.forward(
-                    input_ids=generation_state['generated_ids'],
-                    attention_mask=generation_state['attention_mask'],
-                    pixel_values=None,
-                    image_embeds=image_embeds
+                # Use base model directly to avoid re-running latent injection
+                base_outputs = self.base_model.model.language_model(
+                    inputs_embeds=current_embeds
                 )
-            next_token = self._sample_and_update_token(outputs['logits'], generation_state, temperature, top_k, top_p, do_sample)
-            if generation_state['unfinished_sequences'].max() == 0:
+            
+            # Sample next token
+            next_logits = base_outputs.logits[:, -1, :]
+            filtered_logits = self._apply_generation_filters(next_logits, temperature, top_k, top_p)
+            
+            if do_sample:
+                probs = torch.softmax(filtered_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = torch.argmax(filtered_logits, dim=-1, keepdim=True)
+            
+            tokens.append(next_token.item())
+            
+            # Check for early termination
+            if next_token.item() == eos_token_id:
                 break
-        return generation_state['generated_ids']
+            
+            # Append new token embedding for next iteration
+            new_token_embed = self.embedding(next_token).view(1, 1, -1)
+            current_embeds = torch.cat([current_embeds, new_token_embed], dim=1)
+        
+        return torch.tensor(tokens).unsqueeze(0).to(device)
 
     def _initialize_generation_state(self, batch_size: int, device: torch.device, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pad_token_id: Optional[int], eos_token_id: Optional[int]) -> dict:
         """Initialize state for generation"""
@@ -318,7 +431,7 @@ class LatentWrapper(nn.Module):
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         
-        return {'loss': loss, 'logits': logits}
+        return {'loss': loss, 'logits': logits, 'inputs_embeds': second_pass_embeds}
 
     # Explicit delegation for commonly used attributes to maintain compatibility
     @property

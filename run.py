@@ -164,12 +164,23 @@ class MultiCoCoRunner:
         self._log_model_info(checkpoint_path, training_mode, coconut_config)
 
     def _get_special_tokens(self, coconut_config, training_mode) -> list:
-        if coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN:
-            special_tokens = list(set(self.config.model.get_special_tokens(coconut_config)) | set(COCONUT_SPECIAL_TOKENS))
-            logger.info(f'Adding latent special tokens: {special_tokens}')
+        # For training modes, use coconut config
+        if training_mode != TrainingMode.EVAL_ONLY:
+            if coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN:
+                special_tokens = list(set(self.config.model.get_special_tokens(coconut_config)) | set(COCONUT_SPECIAL_TOKENS))
+                logger.info(f'Adding latent special tokens: {special_tokens}')
+            else:
+                special_tokens = self.config.model.get_special_tokens(coconut_config)
+                logger.info('CoT training phase - no latent tokens added')
         else:
-            special_tokens = self.config.model.get_special_tokens(coconut_config)
-            logger.info('CoT training phase - no latent tokens added')
+            # For evaluation-only mode, add latent tokens only for coconut evaluation
+            base_tokens = self.config.model.get_special_tokens(coconut_config)
+            if self.config.evaluation.coconut:
+                special_tokens = list(set(base_tokens) | set(COCONUT_SPECIAL_TOKENS))
+                logger.info(f'CoCoNut evaluation - adding latent special tokens: {special_tokens}')
+            else:
+                special_tokens = base_tokens
+                logger.info(f'{self.config.evaluation.get_eval_type().upper()} evaluation - no latent tokens added')
         return special_tokens
 
     def _get_model_source(self) -> tuple[str, Optional[str]]:
@@ -185,7 +196,12 @@ class MultiCoCoRunner:
         return any((tok in special_tokens for tok in COCONUT_SPECIAL_TOKENS))
 
     def _needs_latent_wrapper(self, coconut_config, training_mode) -> bool:
-        return coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN
+        # For training modes, use the standard logic
+        if training_mode != TrainingMode.EVAL_ONLY:
+            return coconut_config.enabled or training_mode == TrainingMode.COCONUT_TRAIN
+        
+        # For evaluation-only mode, only use LatentWrapper if we're doing coconut evaluation
+        return self.config.evaluation.coconut
 
     def _log_model_info(self, checkpoint_path: Optional[str], training_mode, coconut_config) -> None:
         source_info = f'checkpoint: {checkpoint_path}' if checkpoint_path else f'base model: {self.config.model.model_name}'
@@ -293,6 +309,33 @@ class MultiCoCoRunner:
                 logger.info(f'Training dataset: {len(self.train_dataset)} samples')
             if data_config.eval_data_path:
                 self.eval_dataset = SupervisedDataset(data_path=data_config.eval_data_path, data_dir=data_config.data_dir, test_limit=test_limit)
+                
+                # Apply evaluation-specific preprocessing for coconut mode
+                if self.config.evaluation.coconut and self.config.evaluation.eval_latent_tokens is not None:
+                    from multicoco.data import create_progressive_latent_dataset
+                    logger.info(f'Preprocessing evaluation dataset for CoCoNut evaluation with {self.config.evaluation.eval_latent_tokens} latent tokens')
+                    
+                    # Convert to base format for preprocessing
+                    base_data = []
+                    for i in range(len(self.eval_dataset)):
+                        item = self.eval_dataset.data[i]
+                        base_data.append(item)
+                    
+                    # Apply latent preprocessing - use max stage to get the specified number of latent tokens
+                    processed_data = create_progressive_latent_dataset(
+                        scheduled_stage=self.config.evaluation.eval_latent_tokens,  # Stage determines number of latent tokens
+                        base_dataset=base_data,
+                        c_thought=0,  # Not used for evaluation
+                        max_latent_stage=self.config.evaluation.eval_latent_tokens,
+                        uniform_prob=0.0,  # Deterministic for evaluation
+                        pad_latent_to_max=False,
+                        no_cot=True  # Skip CoT steps, just add latent tokens
+                    )
+                    
+                    # Update the dataset with processed data
+                    self.eval_dataset.data = processed_data
+                    logger.info(f'Applied CoCoNut preprocessing to evaluation dataset: {len(processed_data)} samples with latent tokens')
+                
                 logger.info(f'Evaluation dataset: {len(self.eval_dataset)} samples')
         except Exception as e:
             raise DataLoadingError(f'Dataset loading failed: {e}') from e

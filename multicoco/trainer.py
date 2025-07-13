@@ -447,17 +447,37 @@ class CoCoTrainer(Trainer):
             return ([''] * batch_size, [''] * batch_size, [0] * batch_size)
         generation_config = self._get_generation_config(max_new_tokens)
         batch_predictions, batch_generated_texts, batch_generated_tokens = ([], [], [])
-        if hasattr(self.model.model, 'chat') and pixel_values is not None:
+        
+        # Check if we have a LatentWrapper (CoCoNut mode)
+        from .latent_wrapper import LatentWrapper
+        is_latent_wrapper = isinstance(self.model, LatentWrapper)
+        
+        if hasattr(self.model, 'chat') and pixel_values is not None:
+            # Use chat interface - this will handle latent injection if needed
             for i in range(batch_size):
                 sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
                 question = device_batch['questions'][i] if 'questions' in device_batch else ''
-                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
+                
+                if is_latent_wrapper:
+                    # Use LatentWrapper's chat method which handles latent injection
+                    response = self.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
+                else:
+                    # Use base model's chat method for vanilla/CoT modes
+                    response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
+                
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
                 response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
                 batch_generated_tokens.append(len(response_tokens))
         else:
-            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=device_batch.get('attention_mask'), pad_token_id=self.tokenizer.eos_token_id, **generation_config)
+            # Use generate interface - this will also handle latent injection if needed
+            if is_latent_wrapper:
+                # Use LatentWrapper's generate method
+                generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=device_batch.get('attention_mask'), pad_token_id=self.tokenizer.eos_token_id, **generation_config)
+            else:
+                # Use base model's generate method
+                generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=device_batch.get('attention_mask'), pad_token_id=self.tokenizer.eos_token_id, **generation_config)
+            
             input_length = input_ids.shape[1]
             for i in range(batch_size):
                 gen_part = generated_ids[i, input_length:]
