@@ -26,7 +26,7 @@ generation:
   top_k: 50
 
 # Model Configuration
-load_model_path: "checkpoints/aokvqa_cot"
+load_model_path: "checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8"
 
 # Logging Configuration
 use_wandb: true
