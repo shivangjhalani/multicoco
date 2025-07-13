@@ -129,6 +129,14 @@ def test_our_wrapper():
         # Test our wrapper's functionality
         pixel_values = model.image_processor(test_image, return_tensors='pt')['pixel_values']
         print(f"Processed image shape: {pixel_values.shape}")
+        print(f"Image dtype: {pixel_values.dtype}")
+        print(f"Model dtype: {next(model.parameters()).dtype}")
+        print(f"Model device: {model.device}")
+        
+        # Ensure dtype and device consistency
+        pixel_values = pixel_values.to(dtype=next(model.parameters()).dtype, device=model.device)
+        print(f"Corrected image dtype: {pixel_values.dtype}")
+        print(f"Corrected image device: {pixel_values.device}")
         
         generation_config = {
             'max_new_tokens': 32,
@@ -139,7 +147,7 @@ def test_our_wrapper():
         # Try the chat method through our wrapper
         response = model.model.chat(
             tokenizer=model.tokenizer,
-            pixel_values=pixel_values.to(model.device),
+            pixel_values=pixel_values,
             question=question,
             generation_config=generation_config
         )

@@ -129,9 +129,14 @@ class MultiCoCo(nn.Module):
 
     def _ensure_dtype_consistency(self, **kwargs) -> Dict[str, Any]:
         model_dtype = next(self.model.parameters()).dtype
+        model_device = next(self.model.parameters()).device
+        
         if (pixel_values := kwargs.get('pixel_values')) is not None:
             if pixel_values.dtype != model_dtype:
                 kwargs['pixel_values'] = pixel_values.to(dtype=model_dtype)
+            if pixel_values.device != model_device:
+                kwargs['pixel_values'] = kwargs['pixel_values'].to(device=model_device)
+                
         return kwargs
 
     def _clean_forward_kwargs(self, **kwargs) -> Dict[str, Any]:
@@ -154,8 +159,11 @@ class MultiCoCo(nn.Module):
     def generate(self, pixel_values: Optional[torch.Tensor], input_ids: torch.Tensor, attention_mask: torch.Tensor, **kwargs) -> torch.Tensor:
         if pixel_values is not None:
             model_dtype = next(self.model.parameters()).dtype
+            model_device = next(self.model.parameters()).device
             if pixel_values.dtype != model_dtype:
                 pixel_values = pixel_values.to(dtype=model_dtype)
+            if pixel_values.device != model_device:
+                pixel_values = pixel_values.to(device=model_device)
         generation_kwargs = {k: v for k, v in kwargs.items() if k != 'image_flags'}
         with suppress_internvl_messages():
             return self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, **generation_kwargs)
