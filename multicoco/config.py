@@ -134,17 +134,9 @@ class GenerationConfig:
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 50
-    
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for use with transformers generation methods"""
-        return {
-            'do_sample': self.do_sample,
-            'max_new_tokens': self.max_new_tokens,
-            'num_beams': self.num_beams,
-            'temperature': self.temperature,
-            'top_p': self.top_p,
-            'top_k': self.top_k,
-        }
+        return {'do_sample': self.do_sample, 'max_new_tokens': self.max_new_tokens, 'num_beams': self.num_beams, 'temperature': self.temperature, 'top_p': self.top_p, 'top_k': self.top_k}
 
 @dataclass
 class MultiCoCoConfig:
@@ -278,14 +270,7 @@ class MultiCoCoConfig:
     @staticmethod
     def _build_generation_config(config_dict: Dict[str, Any]) -> GenerationConfig:
         generation_dict = config_dict.get('generation', {})
-        return GenerationConfig(
-            do_sample=generation_dict.get('do_sample', True),
-            max_new_tokens=generation_dict.get('max_new_tokens', 256),
-            num_beams=generation_dict.get('num_beams', 1),
-            temperature=generation_dict.get('temperature', 0.7),
-            top_p=generation_dict.get('top_p', 0.9),
-            top_k=generation_dict.get('top_k', 50)
-        )
+        return GenerationConfig(do_sample=generation_dict.get('do_sample', True), max_new_tokens=generation_dict.get('max_new_tokens', 256), num_beams=generation_dict.get('num_beams', 1), temperature=generation_dict.get('temperature', 0.7), top_p=generation_dict.get('top_p', 0.9), top_k=generation_dict.get('top_k', 50))
 
     def get_wandb_report_to(self) -> List[str]:
         return ['wandb'] if self.logging.use_wandb else []

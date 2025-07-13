@@ -76,7 +76,6 @@ class MultiCoCo(nn.Module):
             self.model.resize_token_embeddings(len(tokenizer))
 
     def _resize_special_token_embeddings(self) -> None:
-        """Resize token embeddings to account for newly added special tokens."""
         if hasattr(self.model, 'language_model'):
             self.model.language_model.resize_token_embeddings(len(self.tokenizer))
         else:

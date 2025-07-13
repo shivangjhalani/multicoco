@@ -319,19 +319,12 @@ class CoCoTrainer(Trainer):
         checkpoint_dir = os.path.join(self.args.output_dir, f'epoch-{epoch + 1}')
         self.save_model(checkpoint_dir)
         if self.is_world_process_zero():
-            # Save tokenizer information for consistent loading
             if hasattr(self.model, 'tokenizer'):
-                tokenizer_info = {
-                    'vocab_size': len(self.model.tokenizer),
-                    'special_tokens': self.model.tokenizer.get_added_vocab(),
-                    'pad_token_id': self.model.tokenizer.pad_token_id,
-                    'eos_token_id': self.model.tokenizer.eos_token_id,
-                }
+                tokenizer_info = {'vocab_size': len(self.model.tokenizer), 'special_tokens': self.model.tokenizer.get_added_vocab(), 'pad_token_id': self.model.tokenizer.pad_token_id, 'eos_token_id': self.model.tokenizer.eos_token_id}
                 tokenizer_info_path = os.path.join(checkpoint_dir, 'tokenizer_info.json')
                 with open(tokenizer_info_path, 'w') as f:
                     json.dump(tokenizer_info, f, indent=4)
                 logger.debug(f'Saved tokenizer info to {tokenizer_info_path}')
-                
             if hasattr(self, 'optimizer') and self.optimizer is not None:
                 optimizer_path = os.path.join(checkpoint_dir, 'optimizer.pt')
                 torch.save(self.optimizer.state_dict(), optimizer_path)
