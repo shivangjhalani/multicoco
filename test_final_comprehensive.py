@@ -133,12 +133,8 @@ def create_test_model():
                 loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
                 loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             
-            class ModelOutput:
-                def __init__(self, loss, logits):
-                    self.loss = loss
-                    self.logits = logits
-            
-            return ModelOutput(loss, output.logits)
+            # Return dictionary format that LatentWrapper expects
+            return {'loss': loss, 'logits': output.logits}
         
         def generate(self, input_ids, **kwargs):
             # Simple mock generation
@@ -148,7 +144,7 @@ def create_test_model():
             generated = input_ids.clone()
             for _ in range(max_new_tokens):
                 outputs = self.forward(input_ids=generated)
-                next_token = torch.argmax(outputs.logits[:, -1, :], dim=-1, keepdim=True)
+                next_token = torch.argmax(outputs['logits'][:, -1, :], dim=-1, keepdim=True)
                 generated = torch.cat([generated, next_token], dim=1)
             
             return generated
