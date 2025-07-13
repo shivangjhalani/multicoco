@@ -19,10 +19,11 @@ class LatentWrapperV2(nn.Module):
     """
 
     def __init__(self, model: nn.Module, tokenizer):
-        super().__init__()
+        # Set base_model BEFORE calling super().__init__() to avoid __getattr__ issues
         self.base_model = model  # Keep internal name as base_model for consistency
         self.tokenizer = tokenizer
         self.enable_norm_logging = False  # Default to False for compatibility
+        super().__init__()
         
         # Validate that model is initialized
         if self.base_model is None:
