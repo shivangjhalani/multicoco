@@ -55,7 +55,6 @@ class SupervisedDataset(Dataset):
         result = {'image': image, 'question': question, 'answer': answer}
         if (steps := item.get('steps')):
             result['steps'] = steps
-        # Preserve reasoning field which contains latent tokens for curriculum training
         if (reasoning := item.get('reasoning')):
             result['reasoning'] = reasoning
         return result
@@ -67,27 +66,20 @@ class SupervisedDataset(Dataset):
             raise DatasetError(f'Sample {index} missing fields: {missing_fields}')
 
     def _load_image(self, image_file: str) -> Image.Image:
-        # Handle both absolute paths and relative paths to data_dir
         if os.path.isabs(image_file):
             image_path = image_file
         else:
             image_path = os.path.join(self.data_dir, image_file)
-        
         try:
-            # Check if file exists first to give a more specific error message
             if not os.path.exists(image_path):
                 logger.warning(f'Image file not found: {image_path}')
                 return Image.new('RGB', (FALLBACK_IMAGE_SIZE, FALLBACK_IMAGE_SIZE), color=(0, 0, 0))
-            
-            # Try to load and convert the image
             image = Image.open(image_path)
             return image.convert('RGB')
         except (OSError, IOError) as e:
-            # Handle specific file I/O errors
             logger.warning(f'Failed to load image {image_path}: {e}')
             return Image.new('RGB', (FALLBACK_IMAGE_SIZE, FALLBACK_IMAGE_SIZE), color=(0, 0, 0))
         except Exception as e:
-            # Handle any other unexpected errors
             logger.warning(f'Unexpected error loading image {image_path}: {e}')
             return Image.new('RGB', (FALLBACK_IMAGE_SIZE, FALLBACK_IMAGE_SIZE), color=(0, 0, 0))
 
@@ -149,7 +141,6 @@ def create_progressive_latent_dataset(scheduled_stage: int, base_dataset: List[D
         n_skip_steps, n_latent_tokens = _calculate_curriculum_params(stage_to_train, max_latent_stage, steps, pad_latent_to_max, no_cot)
         total_latent_tokens = n_latent_tokens * c_thought
         reasoning_text = _build_reasoning_text(total_latent_tokens, steps, n_skip_steps)
-        # Preserve all original fields (especially 'image') and add curriculum-specific fields
         processed_sample = {**sample, 'reasoning': reasoning_text, 'stage': stage_to_train, 'n_latent_tokens': total_latent_tokens, 'n_skip_steps': n_skip_steps}
         processed_samples.append(processed_sample)
     return processed_samples

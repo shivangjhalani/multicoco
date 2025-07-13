@@ -47,15 +47,12 @@ class MultiCoCoRunner:
         np.random.seed(seed)
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-        # Enable deterministic operations for reproducibility
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         logger.info(f'Set random seed to {seed} with deterministic operations enabled')
 
     def _setup_cuda(self) -> None:
         if torch.cuda.is_available():
-            # Only enable cudnn.benchmark if deterministic operations are not enabled
-            # If a seed was set, we prioritize reproducibility over performance
             if not getattr(torch.backends.cudnn, 'deterministic', False):
                 torch.backends.cudnn.benchmark = True
                 logger.info(f'CUDA available with {torch.cuda.device_count()} devices (performance optimized)')
@@ -75,7 +72,6 @@ class MultiCoCoRunner:
         self.run_log_dir = os.path.join(log_cfg.log_dir, f'{run_name}_{timestamp}')
         os.makedirs(self.run_log_dir, exist_ok=True)
         root_logger = logging.getLogger()
-        # Set log level with fallback for invalid levels
         try:
             log_level = getattr(logging, log_cfg.log_level.upper())
         except AttributeError:
@@ -248,7 +244,6 @@ class MultiCoCoRunner:
             self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.model.tokenizer, self.model.image_processor), runner=self)
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
-            # Set evaluation configuration
             setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)
             logger.info('Trainer created successfully')
         except Exception as e:
@@ -274,7 +269,6 @@ class MultiCoCoRunner:
             raise DataLoadingError('Training dataset is empty or not loaded')
         logger.info('Starting training...')
         self._log_model_config_to_wandb()
-        # Pass resume_from_checkpoint parameter from config to trainer
         resume_from_checkpoint = self.config.training.resume_from_checkpoint if self.config.training.resume_from_checkpoint else None
         self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         if hasattr(self.trainer, '_log_performance_summary'):
@@ -284,7 +278,6 @@ class MultiCoCoRunner:
         if self.trainer is None or self.eval_dataset is None or len(self.eval_dataset) == 0:
             raise EvaluationError('Evaluation dataset is empty or not initialized')
         logger.info('Starting evaluation...')
-        # Now both eval-only and training between epochs use the same evaluation path
         metrics = self.trainer.perform_evaluation()
         self._log_evaluation_results(metrics)
         return metrics
@@ -326,7 +319,6 @@ class MultiCoCoRunner:
             coconut_config = {'coconut/max_latent_stage': self.config.coconut.max_latent_stage, 'coconut/epochs_per_stage': self.config.coconut.epochs_per_stage, 'coconut/c_thought': self.config.coconut.c_thought, 'coconut/total_stages': self.config.coconut.max_latent_stage + 1, 'coconut/uniform_prob': self.config.coconut.uniform_prob}
             self.wandb_run.log(coconut_config)
             logger.info(f'Logged CoCoNut configuration to wandb: {coconut_config}')
-        # Pass resume_from_checkpoint parameter from config to trainer
         resume_from_checkpoint = self.config.training.resume_from_checkpoint if self.config.training.resume_from_checkpoint else None
         self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         logger.info('Running final CoCoNut evaluation...')

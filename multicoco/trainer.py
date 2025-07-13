@@ -35,23 +35,15 @@ class CoCoTrainer(Trainer):
 
     def _train_standard(self, resume_from_checkpoint: Optional[Union[str, bool]]=None, **kwargs) -> TrainOutput:
         self._setup_epoch_training()
-        
-        # Get checkpoint info but don't load optimizer/scheduler states yet
         start_epoch, checkpoint_path = self._handle_checkpoint_resumption(resume_from_checkpoint)
-        
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
         self._log_training_setup(steps_per_epoch, total_steps)
         model = self._wrap_model(self.model_wrapped)
-        
-        # Create optimizer and scheduler first
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
-        
-        # Now load optimizer/scheduler states if resuming from checkpoint
         if checkpoint_path:
             self._load_optimizer_scheduler_states(checkpoint_path)
-        
         for epoch in range(start_epoch, int(self.args.num_train_epochs)):
             self._train_single_epoch(model, train_dataloader, epoch, steps_per_epoch)
             gc.collect()
@@ -62,24 +54,16 @@ class CoCoTrainer(Trainer):
     def _train_with_coconut_stages(self, resume_from_checkpoint: Optional[Union[str, bool]]=None, **kwargs) -> TrainOutput:
         logger.info('Starting CoCoNut multi-stage training with stage transitions')
         self._setup_epoch_training()
-        
-        # Get checkpoint info but don't load optimizer/scheduler states yet
         start_epoch, checkpoint_path = self._handle_checkpoint_resumption(resume_from_checkpoint)
-        
         self._last_stage = -1
         train_dataloader = self.get_train_dataloader()
         steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         total_steps = steps_per_epoch * int(self.args.num_train_epochs)
         self._log_training_setup(steps_per_epoch, total_steps)
         model = self._wrap_model(self.model_wrapped)
-        
-        # Create optimizer and scheduler first
         self.create_optimizer_and_scheduler(num_training_steps=total_steps)
-        
-        # Now load optimizer/scheduler states if resuming from checkpoint
         if checkpoint_path:
             self._load_optimizer_scheduler_states(checkpoint_path)
-        
         for epoch in range(start_epoch, int(self.args.num_train_epochs)):
             current_stage = min(epoch // self.args.epochs_per_stage, self.args.max_latent_stage)
             if current_stage != self._last_stage:
@@ -106,12 +90,9 @@ class CoCoTrainer(Trainer):
         epoch_start_time = time.time()
         logger.info(f'\nStarting Epoch {epoch + 1}/{int(self.args.num_train_epochs)}')
         self._train_one_epoch(model, train_dataloader, epoch, steps_per_epoch)
-        
-        # Clean up memory before evaluation for better performance
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
-        
         if self.runner and hasattr(self.runner, 'setup_epoch_evaluation_logger'):
             self.runner.setup_epoch_evaluation_logger(epoch)
             logger.info(f'Running evaluation after epoch {epoch + 1}...')
@@ -124,93 +105,71 @@ class CoCoTrainer(Trainer):
         self._log_epoch_summary(epoch, eval_metrics, checkpoint_dir, epoch_time)
 
     def _handle_checkpoint_resumption(self, resume_from_checkpoint: Optional[Union[str, bool]]) -> Tuple[int, Optional[str]]:
-        """Handle checkpoint resumption and return the starting epoch (0-indexed) and checkpoint path."""
         start_epoch = 0
         checkpoint_path = None
-        
         if resume_from_checkpoint:
             if resume_from_checkpoint is True:
                 checkpoint_path = self._get_last_epoch_checkpoint(self.args.output_dir)
             else:
                 checkpoint_path = str(resume_from_checkpoint)
-                
             if checkpoint_path and os.path.exists(checkpoint_path):
                 logger.info(f'Resuming training from checkpoint: {checkpoint_path}')
                 start_epoch = self._load_model_and_training_state(checkpoint_path)
             else:
                 logger.warning('`resume_from_checkpoint` is set but no checkpoint found. Starting from scratch.')
                 checkpoint_path = None
-                
-        return start_epoch, checkpoint_path
+        return (start_epoch, checkpoint_path)
 
     def _get_last_epoch_checkpoint(self, output_dir: str) -> Optional[str]:
-        """Get the latest epoch checkpoint from the specified output directory."""
         if not os.path.exists(output_dir):
             logger.warning(f'Output directory does not exist: {output_dir}')
             return None
-            
         epoch_dirs = [d for d in os.listdir(output_dir) if d.startswith('epoch-')]
         if not epoch_dirs:
             logger.warning(f'No epoch directories found in: {output_dir}')
             return None
-            
         epoch_nums = [int(d.split('-')[1]) for d in epoch_dirs if d.split('-')[1].isdigit()]
         if not epoch_nums:
             logger.warning(f'No valid epoch numbers found in: {output_dir}')
             return None
-            
         latest_epoch = max(epoch_nums)
         checkpoint_path = os.path.join(output_dir, f'epoch-{latest_epoch}')
         logger.info(f'Found latest checkpoint: {checkpoint_path}')
         return checkpoint_path
 
     def _load_model_and_training_state(self, checkpoint_path: str) -> int:
-        """Load model weights and training state, return next epoch to train (0-indexed)."""
         try:
-            # Validate checkpoint directory exists and has required files
             if not os.path.exists(checkpoint_path):
                 logger.error(f'Checkpoint directory does not exist: {checkpoint_path}')
                 return 0
-            
-            # Check for essential checkpoint files
             model_files = ['pytorch_model.bin', 'model.safetensors', 'config.json']
-            has_model_file = any(os.path.exists(os.path.join(checkpoint_path, f)) for f in model_files)
+            has_model_file = any((os.path.exists(os.path.join(checkpoint_path, f)) for f in model_files))
             if not has_model_file:
                 logger.error(f'No model files found in checkpoint directory: {checkpoint_path}')
                 return 0
-            
-            # Extract epoch number from checkpoint name (1-indexed)
             epoch_num = int(os.path.basename(checkpoint_path).split('-')[1])
             logger.info(f'Loading model and training state from epoch {epoch_num}: {checkpoint_path}')
-            
-            # Load model state dict
             model_file = None
             for f in model_files:
                 full_path = os.path.join(checkpoint_path, f)
                 if os.path.exists(full_path) and f in ['pytorch_model.bin', 'model.safetensors']:
                     model_file = full_path
                     break
-            
             if model_file:
                 if model_file.endswith('.safetensors'):
                     from safetensors.torch import load_file
                     state_dict = load_file(model_file)
                 else:
                     state_dict = torch.load(model_file, map_location='cpu')
-                
-                # Load state dict into the model
                 missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
                 if missing_keys:
                     logger.warning(f'Missing keys when loading checkpoint: {missing_keys[:5]}...' if len(missing_keys) > 5 else missing_keys)
                 if unexpected_keys:
                     logger.warning(f'Unexpected keys when loading checkpoint: {unexpected_keys[:5]}...' if len(unexpected_keys) > 5 else unexpected_keys)
-                
                 logger.info(f'Successfully loaded model weights from {model_file}')
             else:
                 logger.error(f'No valid model file found in {checkpoint_path}')
                 return 0
-            
-            # Load training state
             state_file = os.path.join(checkpoint_path, 'training_state.pt')
             if os.path.exists(state_file):
                 try:
@@ -220,12 +179,9 @@ class CoCoTrainer(Trainer):
                     logger.info(f'Restored training state: global_step={self.state.global_step}, total_train_steps={self.total_train_steps}')
                 except Exception as e:
                     logger.warning(f'Failed to load training state: {e}')
-            
-            # Return the epoch number as 0-indexed for training loop
             next_epoch = epoch_num
             logger.info(f'Model and training state loaded successfully. Next training epoch: {next_epoch} (0-indexed)')
             return next_epoch
-            
         except ValueError as e:
             logger.error(f'Invalid checkpoint path format {checkpoint_path}: {e}')
             return 0
@@ -235,28 +191,23 @@ class CoCoTrainer(Trainer):
             return 0
 
     def _load_optimizer_scheduler_states(self, checkpoint_path: str) -> None:
-        """Load optimizer and scheduler states from checkpoint."""
         try:
-            # Load optimizer state if available
             optimizer_file = os.path.join(checkpoint_path, 'optimizer.pt')
-            if os.path.exists(optimizer_file) and hasattr(self, 'optimizer') and self.optimizer is not None:
+            if os.path.exists(optimizer_file) and hasattr(self, 'optimizer') and (self.optimizer is not None):
                 try:
                     optimizer_state = torch.load(optimizer_file, map_location='cpu')
                     self.optimizer.load_state_dict(optimizer_state)
                     logger.info('Successfully loaded optimizer state')
                 except Exception as e:
                     logger.warning(f'Failed to load optimizer state: {e}')
-            
-            # Load scheduler state if available
             scheduler_file = os.path.join(checkpoint_path, 'scheduler.pt')
-            if os.path.exists(scheduler_file) and hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+            if os.path.exists(scheduler_file) and hasattr(self, 'lr_scheduler') and (self.lr_scheduler is not None):
                 try:
                     scheduler_state = torch.load(scheduler_file, map_location='cpu')
                     self.lr_scheduler.load_state_dict(scheduler_state)
                     logger.info('Successfully loaded scheduler state')
                 except Exception as e:
                     logger.warning(f'Failed to load scheduler state: {e}')
-                    
         except Exception as e:
             logger.warning(f'Failed to load optimizer/scheduler states from {checkpoint_path}: {e}')
 
@@ -365,33 +316,21 @@ class CoCoTrainer(Trainer):
         return self.optimizer.param_groups[0]['lr']
 
     def _save_checkpoint_with_metrics(self, epoch: int, metrics: Dict[str, float]) -> str:
-        # Use 1-indexed naming for consistency with display messages
         checkpoint_dir = os.path.join(self.args.output_dir, f'epoch-{epoch + 1}')
         self.save_model(checkpoint_dir)
         if self.is_world_process_zero():
-            # Save optimizer state
             if hasattr(self, 'optimizer') and self.optimizer is not None:
                 optimizer_path = os.path.join(checkpoint_dir, 'optimizer.pt')
                 torch.save(self.optimizer.state_dict(), optimizer_path)
                 logger.debug(f'Saved optimizer state to {optimizer_path}')
-            
-            # Save scheduler state
             if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
                 scheduler_path = os.path.join(checkpoint_dir, 'scheduler.pt')
                 torch.save(self.lr_scheduler.state_dict(), scheduler_path)
                 logger.debug(f'Saved scheduler state to {scheduler_path}')
-            
-            # Save training state
-            training_state = {
-                'epoch': epoch + 1,  # 1-indexed for consistency
-                'global_step': self.state.global_step,
-                'total_train_steps': self.total_train_steps,
-            }
+            training_state = {'epoch': epoch + 1, 'global_step': self.state.global_step, 'total_train_steps': self.total_train_steps}
             state_path = os.path.join(checkpoint_dir, 'training_state.pt')
             torch.save(training_state, state_path)
             logger.debug(f'Saved training state to {state_path}')
-            
-            # Save metrics
             metrics_path = os.path.join(checkpoint_dir, 'metrics.json')
             with open(metrics_path, 'w') as f:
                 json.dump(metrics, f, indent=4)
@@ -399,10 +338,7 @@ class CoCoTrainer(Trainer):
         return checkpoint_dir
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix='eval') -> Dict[str, float]:
-        # Use config's log_per_sample setting for consistent behavior
         log_per_sample = getattr(self.args, 'log_per_sample', False)
-        # Note: We allow per-sample logging during epoch evaluations even when model is in training mode
-        # The model.eval() call in perform_evaluation will set the model to evaluation mode anyway
         return self.perform_evaluation(eval_dataset, metric_key_prefix, log_per_sample=log_per_sample)
 
     def perform_evaluation(self, eval_dataset=None, metric_key_prefix='eval', log_per_sample=False) -> Dict[str, float]:
@@ -489,12 +425,9 @@ class CoCoTrainer(Trainer):
 
     def _log_per_sample_details(self, questions, labels, generated_texts, extracted, generated_tokens, correctness):
         eval_logger = logging.getLogger('evaluation_details')
-        
-        # Check if logger has handlers configured (should be set up by runner.setup_epoch_evaluation_logger)
         if not eval_logger.hasHandlers():
             logger.warning('evaluation_details logger has no handlers configured. Per-sample logs may not be written to file.')
             return
-            
         for i in range(len(questions)):
             details = {'question': questions[i], 'ground_truth': labels[i], 'generated_answer': generated_texts[i], 'extracted_answer': extracted[i], 'generated_tokens': generated_tokens[i], 'correct': bool(correctness[i])}
             eval_logger.info(json.dumps(details))
@@ -502,64 +435,31 @@ class CoCoTrainer(Trainer):
     def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int]]:
         device_batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         batch_size = find_batch_size(batch)
-        
         pixel_values = device_batch.get('pixel_values')
         input_ids = device_batch.get('input_ids')
-        
-        # Handle empty batch or missing input_ids
         if input_ids is None or batch_size == 0:
             return ([''] * batch_size, [''] * batch_size, [0] * batch_size)
-        
         batch_predictions, batch_generated_texts, batch_generated_tokens = ([], [], [])
-        
-        # Check if we can use the chat interface for the entire batch
         if hasattr(self.model.model, 'chat') and pixel_values is not None:
-            # For chat interface, we need to process samples individually due to API constraints
             for i in range(batch_size):
                 sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
-                question = device_batch['questions'][i] if 'questions' in device_batch else ""
-                
-                response = self.model.model.chat(
-                    tokenizer=self.tokenizer, 
-                    pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), 
-                    question=question, 
-                    generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False}
-                )
-                
+                question = device_batch['questions'][i] if 'questions' in device_batch else ''
+                response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config={'max_new_tokens': max_new_tokens, 'do_sample': False})
                 batch_predictions.append(extract_answer_choice(response))
                 batch_generated_texts.append(response)
                 response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
                 batch_generated_tokens.append(len(response_tokens))
         else:
-            # True batch processing using model.generate
             attention_mask = device_batch.get('attention_mask')
-            
-            # Generate for the entire batch at once
-            generated_ids = self.model.generate(
-                pixel_values=pixel_values,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                pad_token_id=self.tokenizer.eos_token_id
-            )
-            
+            generated_ids = self.model.generate(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
             input_length = input_ids.shape[1]
-            
-            # Process all samples in the batch
             for i in range(batch_size):
-                # Extract generated part (excluding input)
                 gen_part = generated_ids[i, input_length:]
-                
-                # Decode full text and generated text
                 full_text = self.tokenizer.decode(generated_ids[i], skip_special_tokens=True)
                 gen_text = self.tokenizer.decode(gen_part, skip_special_tokens=True)
-                
-                # Extract answer and count tokens
                 batch_predictions.append(extract_answer_choice(gen_text))
                 batch_generated_texts.append(full_text)
                 batch_generated_tokens.append(len(gen_part.tolist()))
-        
         return (batch_predictions, batch_generated_texts, batch_generated_tokens)
 
     def _compute_evaluation_metrics(self, predictions: List[str], labels: List[str], prefix: str) -> Dict[str, float]:

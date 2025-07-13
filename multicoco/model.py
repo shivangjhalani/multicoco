@@ -54,21 +54,15 @@ class MultiCoCo(nn.Module):
 
     def _create_tokenizer(self, tokenizer_id: str, special_tokens: List[str]) -> AutoTokenizer:
         from .constants import PROMPT_TOKENS
-        
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_id, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
             logger.info('Set pad_token to eos_token')
-        
-        # Combine provided special tokens with prompt tokens, but filter out tokens that already exist
         all_special_tokens = special_tokens.copy() if special_tokens else []
         existing_tokens = set(tokenizer.get_vocab().keys())
-        
-        # Add prompt tokens if they don't already exist in the tokenizer
         for token in PROMPT_TOKENS:
             if token not in existing_tokens and token not in all_special_tokens:
                 all_special_tokens.append(token)
-        
         if all_special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': all_special_tokens})
             self._resize_token_embeddings(tokenizer)

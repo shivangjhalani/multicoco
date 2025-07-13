@@ -164,76 +164,33 @@ class LatentWrapper(nn.Module):
 
     def _build_modified_embeddings(self, input_ids: torch.Tensor, spans: list[list[tuple[int, int]]], last_hidden: torch.Tensor, image_embeds: Optional[torch.Tensor]=None, attention_mask: Optional[torch.Tensor]=None) -> torch.Tensor:
         inputs_embeds = self.embedding(input_ids).clone()
-        
         for batch_idx, span_pairs in enumerate(spans):
-            # Process each span independently to avoid interference between spans
             for start, end in span_pairs:
                 if start == 0:
                     continue
-                
-                # Get the initial hidden state from the previous position
                 prev_hidden = last_hidden[batch_idx, start - 1].unsqueeze(0)
-                
-                # Use KV caching for efficient computation within this span
                 past_key_values = None
-                
                 for pos in range(start, end):
                     inputs_embeds[batch_idx, pos] = prev_hidden.squeeze(0)
-                    
                     if self.enable_kv_caching:
-                        # Optimized path with KV caching
                         if pos == start:
-                            # First position in span: need full context from beginning
-                            partial_embeds = self.base_model.model.prepare_inputs_for_multimodal(
-                                input_ids=input_ids[batch_idx:batch_idx + 1, :pos + 1], 
-                                pixel_values=None, 
-                                image_embeds=image_embeds[batch_idx:batch_idx + 1] if image_embeds is not None else None, 
-                                inputs_embeds=inputs_embeds[batch_idx:batch_idx + 1, :pos + 1]
-                            )
-                            partial_out = self.base_model.model.language_model(
-                                inputs_embeds=partial_embeds, 
-                                attention_mask=attention_mask[batch_idx:batch_idx + 1, :pos + 1] if attention_mask is not None else None,
-                                use_cache=True,
-                                output_hidden_states=True
-                            )
+                            partial_embeds = self.base_model.model.prepare_inputs_for_multimodal(input_ids=input_ids[batch_idx:batch_idx + 1, :pos + 1], pixel_values=None, image_embeds=image_embeds[batch_idx:batch_idx + 1] if image_embeds is not None else None, inputs_embeds=inputs_embeds[batch_idx:batch_idx + 1, :pos + 1])
+                            partial_out = self.base_model.model.language_model(inputs_embeds=partial_embeds, attention_mask=attention_mask[batch_idx:batch_idx + 1, :pos + 1] if attention_mask is not None else None, use_cache=True, output_hidden_states=True)
                             past_key_values = partial_out.past_key_values
                         else:
-                            # Subsequent positions: use KV cache for efficiency
-                            # Only process the new token with cached context
                             new_token_embeds = inputs_embeds[batch_idx:batch_idx + 1, pos:pos + 1]
                             new_attention_mask = attention_mask[batch_idx:batch_idx + 1, pos:pos + 1] if attention_mask is not None else None
-                            
-                            partial_out = self.base_model.model.language_model(
-                                inputs_embeds=new_token_embeds,
-                                attention_mask=new_attention_mask,
-                                past_key_values=past_key_values,
-                                use_cache=True,
-                                output_hidden_states=True
-                            )
+                            partial_out = self.base_model.model.language_model(inputs_embeds=new_token_embeds, attention_mask=new_attention_mask, past_key_values=past_key_values, use_cache=True, output_hidden_states=True)
                             past_key_values = partial_out.past_key_values
                     else:
-                        # Original implementation without KV caching (fallback)
-                        partial_embeds = self.base_model.model.prepare_inputs_for_multimodal(
-                            input_ids=input_ids[batch_idx:batch_idx + 1, :pos + 1], 
-                            pixel_values=None, 
-                            image_embeds=image_embeds[batch_idx:batch_idx + 1] if image_embeds is not None else None, 
-                            inputs_embeds=inputs_embeds[batch_idx:batch_idx + 1, :pos + 1]
-                        )
-                        partial_out = self.base_model.model.language_model(
-                            inputs_embeds=partial_embeds, 
-                            attention_mask=attention_mask[batch_idx:batch_idx + 1, :pos + 1] if attention_mask is not None else None,
-                            output_hidden_states=True
-                        )
-                    
-                    # Extract the hidden state from the last position
+                        partial_embeds = self.base_model.model.prepare_inputs_for_multimodal(input_ids=input_ids[batch_idx:batch_idx + 1, :pos + 1], pixel_values=None, image_embeds=image_embeds[batch_idx:batch_idx + 1] if image_embeds is not None else None, inputs_embeds=inputs_embeds[batch_idx:batch_idx + 1, :pos + 1])
+                        partial_out = self.base_model.model.language_model(inputs_embeds=partial_embeds, attention_mask=attention_mask[batch_idx:batch_idx + 1, :pos + 1] if attention_mask is not None else None, output_hidden_states=True)
                     prev_hidden = partial_out.hidden_states[-1][:, -1:]
-                    
                     if self.enable_norm_logging:
                         hidden_norm = prev_hidden.norm().item()
                         logger.debug(f'Batch {batch_idx}, pos {pos}, hidden norm: {hidden_norm:.4f}')
                         if self.enable_kv_caching and pos > start:
                             logger.debug(f'Used KV cache for position {pos}')
-        
         return inputs_embeds
 
     def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]) -> dict:
