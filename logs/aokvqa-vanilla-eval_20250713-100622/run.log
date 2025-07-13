@@ -1,0 +1,21 @@
+2025-07-13 10:06:22,622 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-vanilla-eval_20250713-100622
+2025-07-13 10:06:22,686 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-13 10:06:25,255 - __main__ - INFO - Initialized wandb run: project=multicoco, name=aokvqa-vanilla-eval, tags=['eval_only', 'cot']
+2025-07-13 10:06:25,255 - __main__ - INFO - MultiCoCoRunner initialized for evaluation
+2025-07-13 10:06:25,255 - __main__ - INFO - CoT training phase - no latent tokens added
+2025-07-13 10:06:25,255 - __main__ - INFO - Loading base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-13 10:06:25,996 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-13 10:06:25,996 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-13 10:06:25,996 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-13 10:06:25,996 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-13 10:06:25,998 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-13 10:06:25,998 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-13 10:06:25,998 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-13 10:06:25,998 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-13 10:06:25,998 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-13 10:06:25,999 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-13 10:06:26,635 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-13 10:06:26,636 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-13 10:06:28,532 - __main__ - ERROR - Pipeline failed: Model initialization failed: Failed to initialize MultiCoCo model: 'MultiCoCo' object has no attribute 'model'
+2025-07-13 10:06:28,532 - __main__ - INFO - Finishing wandb run...
+2025-07-13 10:06:29,641 - __main__ - INFO - MultiCoCo runner cleanup complete

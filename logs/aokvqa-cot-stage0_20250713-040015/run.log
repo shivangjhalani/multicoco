@@ -1,0 +1,196 @@
+2025-07-13 04:00:15,375 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-cot-stage0_20250713-040015
+2025-07-13 04:00:15,439 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-13 04:00:18,026 - __main__ - INFO - Initialized wandb run: project=multicoco, name=aokvqa-cot-stage0, tags=['cot_train', 'cot']
+2025-07-13 04:00:18,026 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-13 04:00:18,026 - __main__ - INFO - CoT training phase - no latent tokens added
+2025-07-13 04:00:18,026 - __main__ - INFO - Loading base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-13 04:00:19,842 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-13 04:00:19,842 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-13 04:00:19,842 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-13 04:00:19,842 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-13 04:00:19,844 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-13 04:00:19,844 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-13 04:00:19,844 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-13 04:00:19,844 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-13 04:00:19,845 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-13 04:00:19,845 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-13 04:00:20,757 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-13 04:00:20,757 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-13 04:00:23,796 - multicoco.model - INFO - MultiCoCo model initialized with 938193024 parameters
+2025-07-13 04:00:23,796 - __main__ - INFO - Model initialized from base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-13 04:00:23,796 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-13 04:00:23,796 - __main__ - INFO - Mode: cot_train, CoCoNut: False
+2025-07-13 04:00:23,834 - multicoco.data - INFO - Loaded 17056 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-13 04:00:23,834 - __main__ - INFO - Training dataset: 17056 samples
+2025-07-13 04:00:23,837 - multicoco.data - INFO - Loaded 1145 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-13 04:00:23,837 - __main__ - INFO - Evaluation dataset: 1145 samples
+2025-07-13 04:00:23,837 - __main__ - INFO - Starting CoT training...
+2025-07-13 04:00:25,655 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-13 04:00:25,655 - __main__ - INFO - Trainer created successfully
+2025-07-13 04:00:25,655 - __main__ - INFO - Starting training...
+2025-07-13 04:00:25,656 - __main__ - INFO - Logged comprehensive configuration to wandb
+2025-07-13 04:00:25,656 - multicoco.trainer - INFO - Training state initialized for epoch-based training
+2025-07-13 04:00:25,656 - multicoco.trainer - INFO - Found latest checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-6
+2025-07-13 04:00:25,656 - multicoco.trainer - INFO - Resuming training from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-6
+2025-07-13 04:00:25,656 - multicoco.trainer - INFO - Loading model and training state from epoch 6: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-6
+2025-07-13 04:00:25,657 - multicoco.trainer - ERROR - Failed to load model and training state checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-6: Error while deserializing header: HeaderTooLarge
+2025-07-13 04:00:25,657 - multicoco.trainer - ERROR - Exception type: SafetensorError
+2025-07-13 04:00:25,657 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-13 04:00:25,657 - multicoco.trainer - INFO -   Steps per epoch: 533
+2025-07-13 04:00:25,657 - multicoco.trainer - INFO -   Total epochs: 8
+2025-07-13 04:00:25,657 - multicoco.trainer - INFO -   Total steps: 4264
+2025-07-13 04:00:25,674 - multicoco.trainer - INFO - Using default linear scheduler with warmup_steps=500, total_steps=4264
+2025-07-13 04:00:25,674 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-13 04:00:25,674 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=4264
+2025-07-13 04:00:25,674 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-13 04:00:25,674 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-13 04:00:25,674 - multicoco.trainer - INFO - 
+Starting Epoch 1/8
+2025-07-13 04:18:46,895 - multicoco.trainer - INFO - Epoch 1 training complete. Average loss: 1.2150
+2025-07-13 04:18:47,174 - multicoco.trainer - INFO - Running evaluation after epoch 1...
+2025-07-13 04:37:50,839 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7082969432314411, 'eval_num_samples': 1145, 'eval_correct': 811}
+2025-07-13 04:37:50,840 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7082969432314411, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 811, 'eval/acc': 0.7082969432314411, 'eval/total_samples': 1145, 'eval/correct_predictions': 811, 'eval/cot_em': 0.7100436681222707}
+2025-07-13 04:37:51,075 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-1
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO - 
+EPOCH 1 SUMMARY
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-1
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO - Epoch time: 2255.05s
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO -   eval_accuracy: 0.7083
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 04:38:00,724 - multicoco.trainer - INFO -   eval_correct: 811.0000
+2025-07-13 04:38:00,943 - multicoco.trainer - INFO - 
+Starting Epoch 2/8
+2025-07-13 04:56:17,789 - multicoco.trainer - INFO - Epoch 2 training complete. Average loss: 0.6303
+2025-07-13 04:56:18,076 - multicoco.trainer - INFO - Running evaluation after epoch 2...
+2025-07-13 05:06:42,344 - multicoco.answer_extraction - WARNING - Could not extract valid choice from: The time is 1220. The time is 1220. The time is 1220.
+2025-07-13 05:15:41,461 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7021834061135371, 'eval_num_samples': 1145, 'eval_correct': 804}
+2025-07-13 05:15:41,461 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7021834061135371, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 804, 'eval/acc': 0.7021834061135371, 'eval/total_samples': 1145, 'eval/correct_predictions': 804, 'eval/cot_em': 0.7074235807860262}
+2025-07-13 05:15:41,713 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 05:15:51,300 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-2
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO - 
+EPOCH 2 SUMMARY
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-2
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO - Epoch time: 2270.36s
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO -   eval_accuracy: 0.7022
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 05:15:51,301 - multicoco.trainer - INFO -   eval_correct: 804.0000
+2025-07-13 05:15:51,537 - multicoco.trainer - INFO - 
+Starting Epoch 3/8
+2025-07-13 05:34:11,175 - multicoco.trainer - INFO - Epoch 3 training complete. Average loss: 0.6080
+2025-07-13 05:34:11,470 - multicoco.trainer - INFO - Running evaluation after epoch 3...
+2025-07-13 05:45:01,892 - multicoco.answer_extraction - WARNING - Could not extract valid choice from: The time is 1220. The time is 1220. The time is 1220.
+2025-07-13 05:54:20,415 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7065502183406114, 'eval_num_samples': 1145, 'eval_correct': 809}
+2025-07-13 05:54:20,416 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7065502183406114, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 809, 'eval/acc': 0.7065502183406114, 'eval/total_samples': 1145, 'eval/correct_predictions': 809, 'eval/cot_em': 0.7135371179039302}
+2025-07-13 05:54:20,655 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 05:54:32,452 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-3
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO - 
+EPOCH 3 SUMMARY
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-3
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO - Epoch time: 2320.92s
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO -   eval_accuracy: 0.7066
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 05:54:32,453 - multicoco.trainer - INFO -   eval_correct: 809.0000
+2025-07-13 05:54:32,723 - multicoco.trainer - INFO - 
+Starting Epoch 4/8
+2025-07-13 06:12:50,544 - multicoco.trainer - INFO - Epoch 4 training complete. Average loss: 0.5970
+2025-07-13 06:12:50,847 - multicoco.trainer - INFO - Running evaluation after epoch 4...
+2025-07-13 06:32:50,579 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7126637554585152, 'eval_num_samples': 1145, 'eval_correct': 816}
+2025-07-13 06:32:50,580 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7126637554585152, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 816, 'eval/acc': 0.7126637554585152, 'eval/total_samples': 1145, 'eval/correct_predictions': 816, 'eval/cot_em': 0.7152838427947599}
+2025-07-13 06:32:50,828 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-4
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO - 
+EPOCH 4 SUMMARY
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-4
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO - Epoch time: 2308.78s
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO -   eval_accuracy: 0.7127
+2025-07-13 06:33:01,503 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 06:33:01,504 - multicoco.trainer - INFO -   eval_correct: 816.0000
+2025-07-13 06:33:01,736 - multicoco.trainer - INFO - 
+Starting Epoch 5/8
+2025-07-13 06:51:19,402 - multicoco.trainer - INFO - Epoch 5 training complete. Average loss: 0.5927
+2025-07-13 06:51:19,705 - multicoco.trainer - INFO - Running evaluation after epoch 5...
+2025-07-13 07:02:14,633 - multicoco.answer_extraction - WARNING - Could not extract valid choice from: The time is 1220. The time is 1220. The time is 1220.
+2025-07-13 07:11:31,534 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7048034934497817, 'eval_num_samples': 1145, 'eval_correct': 807}
+2025-07-13 07:11:31,535 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7048034934497817, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 807, 'eval/acc': 0.7048034934497817, 'eval/total_samples': 1145, 'eval/correct_predictions': 807, 'eval/cot_em': 0.7100436681222707}
+2025-07-13 07:11:31,798 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-5
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO - 
+EPOCH 5 SUMMARY
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-5
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO - Epoch time: 2320.51s
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO -   eval_accuracy: 0.7048
+2025-07-13 07:11:42,243 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 07:11:42,244 - multicoco.trainer - INFO -   eval_correct: 807.0000
+2025-07-13 07:11:42,493 - multicoco.trainer - INFO - 
+Starting Epoch 6/8
+2025-07-13 07:29:58,846 - multicoco.trainer - INFO - Epoch 6 training complete. Average loss: 0.5903
+2025-07-13 07:29:59,158 - multicoco.trainer - INFO - Running evaluation after epoch 6...
+2025-07-13 07:49:49,032 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7065502183406114, 'eval_num_samples': 1145, 'eval_correct': 809}
+2025-07-13 07:49:49,033 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7065502183406114, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 809, 'eval/acc': 0.7065502183406114, 'eval/total_samples': 1145, 'eval/correct_predictions': 809, 'eval/cot_em': 0.7117903930131004}
+2025-07-13 07:49:49,285 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 07:50:00,149 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-6
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO - 
+EPOCH 6 SUMMARY
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-6
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO - Epoch time: 2297.66s
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO -   eval_accuracy: 0.7066
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 07:50:00,150 - multicoco.trainer - INFO -   eval_correct: 809.0000
+2025-07-13 07:50:00,386 - multicoco.trainer - INFO - 
+Starting Epoch 7/8
+2025-07-13 08:08:20,080 - multicoco.trainer - INFO - Epoch 7 training complete. Average loss: 0.5885
+2025-07-13 08:08:20,367 - multicoco.trainer - INFO - Running evaluation after epoch 7...
+2025-07-13 08:19:33,555 - multicoco.answer_extraction - WARNING - Could not extract valid choice from: The time is 1220. The time is 1220. The time is 1220.
+2025-07-13 08:28:52,177 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7100436681222707, 'eval_num_samples': 1145, 'eval_correct': 813}
+2025-07-13 08:28:52,178 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7100436681222707, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 813, 'eval/acc': 0.7100436681222707, 'eval/total_samples': 1145, 'eval/correct_predictions': 813, 'eval/cot_em': 0.714410480349345}
+2025-07-13 08:28:52,421 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 08:29:02,959 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-7
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO - 
+EPOCH 7 SUMMARY
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-7
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO - Epoch time: 2342.57s
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO -   eval_accuracy: 0.7100
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 08:29:02,960 - multicoco.trainer - INFO -   eval_correct: 813.0000
+2025-07-13 08:29:03,192 - multicoco.trainer - INFO - 
+Starting Epoch 8/8
+2025-07-13 08:47:22,399 - multicoco.trainer - INFO - Epoch 8 training complete. Average loss: 0.5897
+2025-07-13 08:47:22,698 - multicoco.trainer - INFO - Running evaluation after epoch 8...
+2025-07-13 08:58:27,747 - multicoco.answer_extraction - WARNING - Could not extract valid choice from: The time is 1220. The time is 1220. The time is 1220.
+2025-07-13 09:07:36,300 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7109170305676856, 'eval_num_samples': 1145, 'eval_correct': 814}
+2025-07-13 09:07:36,301 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7109170305676856, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 814, 'eval/acc': 0.7109170305676856, 'eval/total_samples': 1145, 'eval/correct_predictions': 814, 'eval/cot_em': 0.7170305676855895}
+2025-07-13 09:07:36,552 - multicoco.trainer - INFO - Logging 1145 per-sample evaluation details to file...
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO - 
+EPOCH 8 SUMMARY
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO - Epoch time: 2323.81s
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO -   eval_accuracy: 0.7109
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO -   eval_num_samples: 1145.0000
+2025-07-13 09:07:47,003 - multicoco.trainer - INFO -   eval_correct: 814.0000
+2025-07-13 09:07:47,275 - multicoco.trainer - INFO - Training completed!
+2025-07-13 09:07:47,404 - __main__ - INFO - Running final evaluation...
+2025-07-13 09:07:47,404 - __main__ - INFO - Starting evaluation...
+2025-07-13 09:18:56,267 - multicoco.answer_extraction - WARNING - Could not extract valid choice from: The time is 1220. The time is 1220. The time is 1220.
+2025-07-13 09:28:06,823 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.7109170305676856, 'eval_num_samples': 1145, 'eval_correct': 814}
+2025-07-13 09:28:06,824 - multicoco.trainer - INFO - Logged comprehensive evaluation metrics to wandb: {'eval/eval_accuracy': 0.7109170305676856, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 814, 'eval/acc': 0.7109170305676856, 'eval/total_samples': 1145, 'eval/correct_predictions': 814, 'eval/cot_em': 0.7170305676855895}
+2025-07-13 09:28:06,824 - __main__ - INFO - 
+==================================================
+2025-07-13 09:28:06,824 - __main__ - INFO - EVALUATION SUMMARY
+2025-07-13 09:28:06,824 - __main__ - INFO - ==================================================
+2025-07-13 09:28:06,825 - __main__ - INFO -   eval_accuracy: 0.7109
+2025-07-13 09:28:06,825 - __main__ - INFO -   eval_num_samples: 1145.0000
+2025-07-13 09:28:06,825 - __main__ - INFO -   eval_correct: 814.0000
+2025-07-13 09:28:06,825 - __main__ - INFO - ==================================================
+2025-07-13 09:28:06,825 - __main__ - INFO - Logged evaluation metrics to wandb: {'eval/eval_accuracy': 0.7109170305676856, 'eval/eval_num_samples': 1145, 'eval/eval_correct': 814}
+2025-07-13 09:28:06,825 - __main__ - INFO - Finishing wandb run...
+2025-07-13 09:28:08,270 - __main__ - INFO - MultiCoCo runner cleanup complete
