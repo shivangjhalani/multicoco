@@ -5,6 +5,12 @@ Test script to verify the simplified LatentWrapper works correctly.
 import sys
 import os
 import torch
+
+# Clear any cached modules to ensure we get the latest version
+modules_to_clear = [k for k in sys.modules.keys() if k.startswith('multicoco')]
+for module in modules_to_clear:
+    del sys.modules[module]
+
 sys.path.insert(0, '/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco')
 
 def test_latent_wrapper_import():
