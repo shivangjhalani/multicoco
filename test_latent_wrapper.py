@@ -62,6 +62,15 @@ def test_wrapper_creation():
                 
             def decode(self, ids):
                 return "dummy text"
+                
+            def convert_tokens_to_ids(self, token):
+                # Return dummy IDs for latent tokens
+                token_map = {
+                    '<|latent|>': 998,
+                    '<|start_latent|>': 997,
+                    '<|end_latent|>': 996
+                }
+                return token_map.get(token, 999)
         
         tokenizer = DummyTokenizer()
         

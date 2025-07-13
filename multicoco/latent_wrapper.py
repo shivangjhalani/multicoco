@@ -42,8 +42,11 @@ class LatentWrapper(nn.Module):
 
     def __getattr__(self, name):
         """Delegate all other attributes to the wrapped model."""
-        if name in ['model', 'tokenizer']:
-            return super().__getattribute__(name)
-        if hasattr(self.model, name):
-            return getattr(self.model, name)
+        # Only delegate to model for attributes that aren't core LatentWrapper attributes
+        try:
+            model = super().__getattribute__('model')
+            if hasattr(model, name):
+                return getattr(model, name)
+        except AttributeError:
+            pass
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
