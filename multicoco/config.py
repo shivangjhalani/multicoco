@@ -65,6 +65,42 @@ class ModelConfig:
     torch_compile: bool = False
     use_flash_attention_2: bool = False
 
+    def __post_init__(self):
+        """IMPROVEMENT: Add multimodal-specific validation."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Validate multimodal configuration
+        if self._is_multimodal_model():
+            if not self.image_processor_id:
+                logger.warning(f"Multimodal model {self.model_name} detected but no image_processor_id specified. Using model_name as fallback.")
+                self.image_processor_id = self.model_name
+            
+            # InternVL-specific validation
+            if 'internvl' in self.model_name.lower():
+                if not self.trust_remote_code:
+                    raise ValueError("InternVL models require trust_remote_code=True")
+                
+                # Recommend optimal settings
+                if self.torch_dtype not in ['bfloat16', 'float16']:
+                    logger.warning(f"For InternVL models, torch_dtype='{self.torch_dtype}' may not be optimal. Consider 'bfloat16' or 'float16'")
+        
+        # Validate torch_dtype
+        valid_dtypes = ['auto', 'float16', 'bfloat16', 'float32']
+        if self.torch_dtype not in valid_dtypes:
+            raise ValueError(f"torch_dtype must be one of {valid_dtypes}, got {self.torch_dtype}")
+    
+    def _is_multimodal_model(self) -> bool:
+        """Check if the model is multimodal based on name patterns."""
+        multimodal_patterns = ['internvl', 'llava', 'qwen-vl', 'blip', 'flamingo', 'clip']
+        return any(pattern in self.model_name.lower() for pattern in multimodal_patterns)
+    
+    def get_model_type(self) -> str:
+        """Get the model type for logging purposes."""
+        if self._is_multimodal_model():
+            return 'multimodal'
+        return 'text-only'
+
     def get_special_tokens(self, coconut_config: CoCoNutConfig) -> List[str]:
         return []
 

@@ -138,17 +138,97 @@ def _create_training_labels(input_ids: torch.Tensor, prompts: List[str], tokeniz
     return labels
 
 def create_progressive_latent_dataset(scheduled_stage: int, base_dataset: List[Dict], c_thought: int, max_latent_stage: int, uniform_prob: float=0.0, pad_latent_to_max: bool=False, no_cot: bool=False) -> List[Dict]:
+    """
+    IMPROVEMENT: Enhanced progressive dataset creation with image-aware logic and randomness.
+    """
     logger.info(f'Creating progressive latent dataset for stage {scheduled_stage}')
     processed_samples = []
+    
     for sample in base_dataset:
         steps = _parse_reasoning_steps(sample.get('steps', []))
-        stage_to_train = random.choice(range(len(steps) + 1)) if random.random() < uniform_prob else scheduled_stage
+        
+        # IMPROVEMENT: Add randomness to curriculum based on content type
+        if random.random() < uniform_prob:
+            # Random stage selection with bias towards visual reasoning steps
+            stage_to_train = _select_random_stage_with_bias(steps, max_latent_stage, sample)
+        else:
+            stage_to_train = scheduled_stage
+            
         n_skip_steps, n_latent_tokens = _calculate_curriculum_params(stage_to_train, max_latent_stage, steps, pad_latent_to_max, no_cot)
-        total_latent_tokens = n_latent_tokens * c_thought
+        
+        # IMPROVEMENT: Apply image-aware latent token adjustment
+        total_latent_tokens = _adjust_latent_tokens_for_multimodal(n_latent_tokens * c_thought, sample, steps)
+        
         reasoning_text = _build_reasoning_text(total_latent_tokens, steps, n_skip_steps)
         processed_sample = {**sample, 'reasoning': reasoning_text, 'stage': stage_to_train, 'n_latent_tokens': total_latent_tokens, 'n_skip_steps': n_skip_steps}
         processed_samples.append(processed_sample)
     return processed_samples
+
+def _select_random_stage_with_bias(steps: List[str], max_latent_stage: int, sample: Dict) -> int:
+    """
+    IMPROVEMENT: Select random stage with bias towards image-related reasoning.
+    """
+    # Check if steps contain visual reasoning keywords
+    visual_keywords = ['see', 'look', 'image', 'picture', 'visual', 'color', 'shape', 'object', 'appears', 'shows']
+    
+    # Count visual reasoning steps
+    visual_steps = []
+    for i, step in enumerate(steps):
+        if any(keyword in step.lower() for keyword in visual_keywords):
+            visual_steps.append(i)
+    
+    # If we have visual reasoning steps, bias towards later stages that can handle more visual complexity
+    if visual_steps:
+        # Bias towards higher stages for visual reasoning
+        weights = [1.0] * (len(steps) + 1)
+        for i in range(len(visual_steps), len(steps) + 1):
+            weights[i] *= 2.0  # Double weight for stages that include visual reasoning
+        
+        # Normalize weights
+        total_weight = sum(weights)
+        weights = [w / total_weight for w in weights]
+        
+        # Weighted random selection
+        import random
+        return random.choices(range(len(steps) + 1), weights=weights)[0]
+    else:
+        # Standard uniform selection for non-visual samples
+        return random.choice(range(len(steps) + 1))
+
+def _adjust_latent_tokens_for_multimodal(base_latent_tokens: int, sample: Dict, steps: List[str]) -> int:
+    """
+    IMPROVEMENT: Adjust latent token count based on multimodal complexity.
+    """
+    if base_latent_tokens == 0:
+        return 0
+    
+    # Check for visual complexity indicators
+    question = sample.get('question', '').lower()
+    visual_complexity_indicators = [
+        'describe', 'detail', 'analyze', 'compare', 'identify', 'count', 
+        'relationship', 'interaction', 'scene', 'complex'
+    ]
+    
+    complexity_bonus = 0
+    
+    # Add bonus tokens for visually complex questions
+    for indicator in visual_complexity_indicators:
+        if indicator in question:
+            complexity_bonus += 1
+    
+    # Add bonus for multi-step visual reasoning
+    visual_reasoning_steps = sum(1 for step in steps if any(
+        word in step.lower() for word in ['see', 'look', 'observe', 'notice', 'visual']
+    ))
+    
+    if visual_reasoning_steps > 2:
+        complexity_bonus += min(2, visual_reasoning_steps - 2)  # Cap at 2 extra tokens
+    
+    # Apply complexity adjustment (max 50% increase)
+    max_bonus = max(1, base_latent_tokens // 2)
+    final_bonus = min(complexity_bonus, max_bonus)
+    
+    return base_latent_tokens + final_bonus
 
 def _parse_reasoning_steps(steps: Union[List[str], str]) -> List[str]:
     if isinstance(steps, str):
