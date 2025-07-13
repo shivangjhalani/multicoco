@@ -22,12 +22,17 @@ def test_logging_configuration():
     """Test the logging configuration setup."""
     print("\n=== Testing Logging Configuration ===")
     
-    from multicoco.config import MultiCoCoConfig, LoggingConfig, TrainingConfig, ModelConfig
+    from multicoco.config import MultiCoCoConfig, LoggingConfig, TrainingConfig, ModelConfig, DataConfig, TrainingMode
     from run import MultiCoCoRunner
     
     # Create test config
     temp_dir = tempfile.mkdtemp()
     print(f"Using temp directory: {temp_dir}")
+    
+    # Create a dummy data file
+    dummy_data_file = os.path.join(temp_dir, "dummy_data.json")
+    with open(dummy_data_file, 'w') as f:
+        json.dump([{"question": "test", "answer": "test", "image": "test.jpg"}], f)
     
     try:
         config = MultiCoCoConfig(
@@ -42,10 +47,15 @@ def test_logging_configuration():
             ),
             training=TrainingConfig(
                 name="test_training",
-                seed=42
+                seed=42,
+                mode=TrainingMode.EVAL_ONLY  # Use eval mode to avoid training requirements
             ),
             model=ModelConfig(
                 model_name="OpenGVLab/InternVL3-1B-Pretrained"
+            ),
+            data=DataConfig(
+                eval_data_path=dummy_data_file,
+                images_dir=temp_dir
             )
         )
         
@@ -114,21 +124,24 @@ def test_checkpoint_structure():
         model = MockModel()
         
         # Create training arguments
-        args = TrainingArguments(
-            output_dir=temp_dir,
-            per_device_train_batch_size=1,
-            per_device_eval_batch_size=1,
-            num_train_epochs=1,
-            save_steps=1,
-            logging_steps=1,
-            report_to=[]  # Disable wandb for testing
-        )
+        args = Mock()
+        args.output_dir = temp_dir
+        args.per_device_train_batch_size = 1
+        args.per_device_eval_batch_size = 1
+        args.num_train_epochs = 1
+        args.save_steps = 1
+        args.logging_steps = 1
+        args.report_to = []  # Disable wandb for testing
         
-        # Create trainer
+        # Create trainer with mock tokenizer
+        mock_tokenizer = Mock()
+        mock_tokenizer.pad_token_id = 0
+        mock_tokenizer.eos_token_id = 1
+        
         trainer = CoCoTrainer(
             model=model,
             args=args,
-            tokenizer=model.tokenizer
+            tokenizer=mock_tokenizer
         )
         
         # Test checkpoint saving
@@ -201,29 +214,23 @@ def test_checkpoint_resumption():
             torch.save({"epoch": epoch, "global_step": epoch * 100}, 
                       os.path.join(epoch_dir, "training_state.pt"))
         
-        # Create mock trainer
-        class MockModel(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(10, 5)
+        # Create mock trainer with mock args
+        mock_args = Mock()
+        mock_args.output_dir = temp_dir
+        mock_args.per_device_train_batch_size = 1
+        mock_args.num_train_epochs = 5
+        mock_args.report_to = []
         
-        model = MockModel()
-        args = TrainingArguments(
-            output_dir=temp_dir,
-            per_device_train_batch_size=1,
-            num_train_epochs=5,
-            report_to=[]
-        )
+        trainer = CoCoTrainer(model=Mock(), args=mock_args)
         
-        trainer = CoCoTrainer(model=model, args=args)
-        
-        # Test resumption logic
+        # Test resumption logic - this should find the latest epoch (3) and return the next epoch (4) to start from
         start_epoch, checkpoint_path = trainer._handle_checkpoint_resumption(True)
         
-        # Should find the latest checkpoint (epoch-3)
+        # Should find the latest checkpoint (epoch-3)  
         expected_checkpoint = os.path.join(temp_dir, "epoch-3")
         assert checkpoint_path == expected_checkpoint, f"Wrong checkpoint selected: {checkpoint_path}"
-        assert start_epoch == 3, f"Wrong start epoch: {start_epoch}"
+        # The start_epoch should be 3 (0-indexed), meaning we'll start from epoch 4 (1-indexed)
+        assert start_epoch == 3, f"Wrong start epoch: {start_epoch} (expected 3 for 0-indexed next epoch)"
         
         print("✓ Latest checkpoint detection works")
         print("✓ Resume epoch calculation works")
@@ -346,7 +353,7 @@ def test_coconut_metrics_logging():
         
         print("✓ Latent span extraction works")
         
-        # Test metrics calculation
+        # Test metrics calculation - fix the reasoning quality test
         def calculate_coconut_metrics(generated_texts, questions):
             metrics = {
                 "avg_latent_spans": 0,
@@ -366,8 +373,9 @@ def test_coconut_metrics_logging():
                 for span in spans:
                     total_span_length += span["length"]
                 
-                # Simple reasoning quality metric
-                if "think" in text.lower() or "reason" in text.lower():
+                # Simple reasoning quality metric - check for reasoning keywords
+                reasoning_keywords = ["think", "reason", "consider", "analyze"]
+                if any(keyword in text.lower() for keyword in reasoning_keywords):
                     total_reasoning_quality += 1
             
             if generated_texts:
@@ -381,10 +389,10 @@ def test_coconut_metrics_logging():
             
             return metrics
         
-        # Test with sample data
+        # Test with sample data - fix the test expectations
         sample_texts = [
-            f"Let me think. {START_LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {END_LATENT_TOKEN} The answer is A.",
-            f"I need to reason about this. {START_LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {END_LATENT_TOKEN} It's clearly B.",
+            f"Let me think about this. {START_LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {END_LATENT_TOKEN} The answer is A.",
+            f"I need to reason carefully. {START_LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {LATENT_TOKEN} {END_LATENT_TOKEN} It's clearly B.",
             "This is a simple answer without latent reasoning."
         ]
         
@@ -392,11 +400,11 @@ def test_coconut_metrics_logging():
         
         metrics = calculate_coconut_metrics(sample_texts, sample_questions)
         
-        # Verify metrics
+        # Verify metrics - note only 2 out of 3 texts have reasoning keywords
         assert metrics["avg_latent_spans"] == 2/3, f"Wrong avg spans: {metrics['avg_latent_spans']}"
         assert metrics["avg_span_length"] == 3.0, f"Wrong avg span length: {metrics['avg_span_length']}"
         assert metrics["total_latent_tokens"] == 6, f"Wrong total tokens: {metrics['total_latent_tokens']}"
-        assert metrics["reasoning_quality"] == 2/3, f"Wrong reasoning quality: {metrics['reasoning_quality']}"
+        assert metrics["reasoning_quality"] == 2/3, f"Wrong reasoning quality: {metrics['reasoning_quality']} (expected 2/3)"
         
         print("✓ CoCoNut metrics calculation works")
         print("✓ Latent token counting works")
@@ -422,14 +430,26 @@ def test_wandb_integration():
             mock_run.config = Mock()
             mock_init.return_value = mock_run
             
-            from multicoco.config import MultiCoCoConfig, LoggingConfig
+            from multicoco.config import MultiCoCoConfig, LoggingConfig, DataConfig, TrainingConfig, TrainingMode
             from run import MultiCoCoRunner
+            
+            # Create dummy data for the config
+            dummy_data_file = "/tmp/dummy_eval.json"
+            with open(dummy_data_file, 'w') as f:
+                json.dump([{"question": "test", "answer": "test", "image": "test.jpg"}], f)
             
             config = MultiCoCoConfig(
                 logging=LoggingConfig(
                     use_wandb=True,
                     project="test_project",
                     run_name="test_run"
+                ),
+                training=TrainingConfig(
+                    mode=TrainingMode.EVAL_ONLY
+                ),
+                data=DataConfig(
+                    eval_data_path=dummy_data_file,
+                    images_dir="/tmp"
                 )
             )
             
@@ -446,23 +466,16 @@ def test_wandb_integration():
             
             # Test logging functionality
             from multicoco.trainer import CoCoTrainer
-            from transformers import TrainingArguments
-            import torch.nn as nn
             
-            class MockModel(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.linear = nn.Linear(10, 5)
+            # Mock model and args
+            mock_model = Mock()
+            mock_args = Mock()
+            mock_args.output_dir = "/tmp"
+            mock_args.per_device_train_batch_size = 1
+            mock_args.num_train_epochs = 1
+            mock_args.report_to = ["wandb"]
             
-            model = MockModel()
-            args = TrainingArguments(
-                output_dir="/tmp",
-                per_device_train_batch_size=1,
-                num_train_epochs=1,
-                report_to=["wandb"]
-            )
-            
-            trainer = CoCoTrainer(model=model, args=args)
+            trainer = CoCoTrainer(model=mock_model, args=mock_args)
             
             # Mock a training step log
             with patch('wandb.run', mock_run):
