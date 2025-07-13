@@ -17,6 +17,7 @@ class EvaluationConfig:
     coconut: bool = False
     eval_latent_tokens: Optional[int] = None
     log_per_sample: bool = False
+    detailed_logging: bool = False
 
     def get_eval_type(self) -> str:
         if self.coconut:
@@ -61,6 +62,8 @@ class ModelConfig:
     trust_remote_code: bool = True
     low_cpu_mem_usage: bool = True
     load_model_path: Optional[str] = None
+    torch_compile: bool = False
+    use_flash_attention_2: bool = False
 
     def get_special_tokens(self, coconut_config: CoCoNutConfig) -> List[str]:
         return []
@@ -77,6 +80,8 @@ class TrainingConfig:
     gradient_checkpointing_kwargs: Dict[str, Any] = field(default_factory=lambda: {'use_reentrant': False})
     learning_rate: float = DEFAULT_LEARNING_RATE
     warmup_steps: int = 500
+    max_grad_norm: float = 1.0
+    lr_scheduler_type: str = 'linear'
     logging_steps: int = 10
     save_steps: int = 1000
     eval_steps: int = 1000
@@ -136,6 +141,7 @@ class MultiCoCoConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     coconut: CoCoNutConfig = field(default_factory=CoCoNutConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    generation: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         self.validate()
@@ -198,7 +204,7 @@ class MultiCoCoConfig:
     @staticmethod
     def _merge_configs(base_dict: Dict[str, Any], config_dict: Dict[str, Any]) -> Dict[str, Any]:
         merged_dict = {**base_dict, **config_dict}
-        for key in ['eval_config', 'coconut']:
+        for key in ['eval_config', 'coconut', 'generation']:
             if key in base_dict and key in config_dict and isinstance(base_dict[key], dict) and isinstance(config_dict[key], dict):
                 merged_dict[key] = {**base_dict[key], **config_dict[key]}
         return merged_dict
@@ -209,6 +215,7 @@ class MultiCoCoConfig:
         config_builders = {'model': lambda: cls._build_model_config(config_dict, torch_dtype), 'training': lambda: cls._build_training_config(config_dict), 'data': lambda: cls._build_data_config(config_dict), 'evaluation': lambda: cls._build_evaluation_config(config_dict), 'coconut': lambda: cls._build_coconut_config(config_dict)}
         configs = {name: builder() for name, builder in config_builders.items()}
         configs['logging'] = cls._build_logging_config(config_dict, configs['training'])
+        configs['generation'] = config_dict.get('generation', {})
         return cls(**configs)
 
     @staticmethod
@@ -221,12 +228,12 @@ class MultiCoCoConfig:
 
     @staticmethod
     def _build_model_config(config_dict: Dict[str, Any], torch_dtype: str) -> ModelConfig:
-        return ModelConfig(model_name=config_dict.get('model_name', DEFAULT_MODEL_NAME), torch_dtype=torch_dtype, config_id=config_dict.get('config_id'), tokenizer_id=config_dict.get('tokenizer_id'), image_processor_id=config_dict.get('image_processor_id'), trust_remote_code=config_dict.get('trust_remote_code', True), low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True), load_model_path=config_dict.get('load_model_path'))
+        return ModelConfig(model_name=config_dict.get('model_name', DEFAULT_MODEL_NAME), torch_dtype=torch_dtype, config_id=config_dict.get('config_id'), tokenizer_id=config_dict.get('tokenizer_id'), image_processor_id=config_dict.get('image_processor_id'), trust_remote_code=config_dict.get('trust_remote_code', True), low_cpu_mem_usage=config_dict.get('low_cpu_mem_usage', True), load_model_path=config_dict.get('load_model_path'), torch_compile=config_dict.get('torch_compile', False), use_flash_attention_2=config_dict.get('use_flash_attention_2', False))
 
     @staticmethod
     def _build_training_config(config_dict: Dict[str, Any]) -> TrainingConfig:
         name = config_dict.get('name') or config_dict.get('run_name')
-        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=config_dict.get('load_best_model_at_end', True), metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
+        return TrainingConfig(output_dir=config_dict.get('output_dir', DEFAULT_OUTPUT_DIR), num_epochs=config_dict.get('num_epochs', DEFAULT_NUM_EPOCHS), batch_size=config_dict.get('batch_size', DEFAULT_BATCH_SIZE), eval_batch_size=config_dict.get('eval_batch_size', DEFAULT_EVAL_BATCH_SIZE), learning_rate=float(config_dict.get('learning_rate', DEFAULT_LEARNING_RATE)), gradient_accumulation_steps=config_dict.get('gradient_accumulation_steps', 1), eval_accumulation_steps=config_dict.get('eval_accumulation_steps', 1), resume_from_checkpoint=config_dict.get('resume_from_checkpoint', False), mode=TrainingMode(config_dict.get('mode', 'cot_train')), bf16=config_dict.get('bf16', True), fp16=config_dict.get('fp16', False), gradient_checkpointing=config_dict.get('gradient_checkpointing', True), gradient_checkpointing_kwargs=config_dict.get('gradient_checkpointing_kwargs', {'use_reentrant': False}), warmup_steps=config_dict.get('warmup_steps', 500), max_grad_norm=config_dict.get('max_grad_norm', 1.0), lr_scheduler_type=config_dict.get('lr_scheduler_type', 'linear'), logging_steps=config_dict.get('logging_steps', 10), save_steps=config_dict.get('save_steps', 1000), eval_steps=config_dict.get('eval_steps', 1000), eval_strategy=config_dict.get('eval_strategy', 'epoch'), skip_eval_during_training=config_dict.get('skip_eval_during_training', False), save_total_limit=config_dict.get('save_total_limit', 2), max_checkpoints_to_keep=config_dict.get('max_checkpoints_to_keep', 3), keep_best_checkpoints=config_dict.get('keep_best_checkpoints', True), use_run_name_in_output_dir=config_dict.get('use_run_name_in_output_dir', True), load_best_model_at_end=config_dict.get('load_best_model_at_end', True), metric_for_best_model=config_dict.get('metric_for_best_model', 'accuracy'), greater_is_better=config_dict.get('greater_is_better', False), dataloader_num_workers=config_dict.get('dataloader_num_workers', 4), weight_decay=config_dict.get('weight_decay', 0.01), seed=config_dict.get('seed'), data_seed=config_dict.get('data_seed'), name=name)
 
     @staticmethod
     def _build_data_config(config_dict: Dict[str, Any]) -> DataConfig:
@@ -236,7 +243,7 @@ class MultiCoCoConfig:
     @staticmethod
     def _build_evaluation_config(config_dict: Dict[str, Any]) -> EvaluationConfig:
         eval_config_dict = config_dict.get('eval_config', {})
-        return EvaluationConfig(vanilla=eval_config_dict.get('vanilla', True), coconut=eval_config_dict.get('coconut', False), cot=eval_config_dict.get('cot', False), eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'), log_per_sample=eval_config_dict.get('log_per_sample', False))
+        return EvaluationConfig(vanilla=eval_config_dict.get('vanilla', True), coconut=eval_config_dict.get('coconut', False), cot=eval_config_dict.get('cot', False), eval_latent_tokens=eval_config_dict.get('eval_latent_tokens'), log_per_sample=eval_config_dict.get('log_per_sample', False), detailed_logging=eval_config_dict.get('detailed_logging', False))
 
     @staticmethod
     def _build_coconut_config(config_dict: Dict[str, Any]) -> CoCoNutConfig:
