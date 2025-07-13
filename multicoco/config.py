@@ -192,8 +192,10 @@ class MultiCoCoConfig:
             raise ValueError('Training data path required for training modes')
         if self.training.mode == TrainingMode.EVAL_ONLY and (not self.data.eval_data_path):
             raise ValueError('Evaluation data path required for eval_only mode')
-        if self.coconut.enabled and (not any([self.evaluation.coconut, self.evaluation.cot])):
-            raise ValueError('CoCoNut enabled but no compatible evaluation configured')
+        
+        # Only validate coconut compatibility for training modes, not evaluation-only
+        if is_training and self.coconut.enabled and (not any([self.evaluation.coconut, self.evaluation.cot])):
+            raise ValueError('CoCoNut training enabled but no compatible evaluation configured')
 
     def _validate_file_existence(self) -> None:
         if self.data.train_data_path and (not os.path.exists(self.data.train_data_path)):
