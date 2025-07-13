@@ -24,6 +24,10 @@ class LatentWrapperV2(nn.Module):
         self.tokenizer = tokenizer
         self.enable_norm_logging = False  # Default to False for compatibility
         
+        # Debug: Make sure base_model is set
+        if not hasattr(self, 'base_model') or self.base_model is None:
+            raise ValueError("base_model not properly initialized")
+        
         # Get token IDs for latent spans
         self.latent_id = tokenizer.convert_tokens_to_ids(LATENT_TOKEN)
         self.start_id = tokenizer.convert_tokens_to_ids(START_LATENT_TOKEN)
@@ -42,7 +46,7 @@ class LatentWrapperV2(nn.Module):
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         
         try:
-            base_model = super().__getattribute__('base_model')
+            base_model = object.__getattribute__(self, 'base_model')
             return getattr(base_model, name)
         except AttributeError:
             pass
