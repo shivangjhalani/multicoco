@@ -93,7 +93,6 @@ class LatentWrapper(nn.Module):
         if pixel_values is None:
             return None
         with torch.inference_mode():
-            # Fix: Use correct InternVL3 structure
             vision_embeds = self.base_model.model.vision_model(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
             return self.base_model.model.mlp1(vision_embeds.last_hidden_state)
 
@@ -153,25 +152,20 @@ class LatentWrapper(nn.Module):
         if image_embeds is not None:
             return image_embeds
         if pixel_values is not None:
-            # Fix: Use correct InternVL3 structure
             vision_embeds = self.base_model.model.vision_model(pixel_values.to(dtype=self.base_model.model.dtype))
             return self.base_model.model.mlp1(vision_embeds.last_hidden_state)
         return None
 
     def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> torch.Tensor:
         with torch.inference_mode():
-            # Fix: Use safer approach for multimodal integration
             if hasattr(self.base_model.model, 'prepare_inputs_for_multimodal'):
                 first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(input_ids=input_ids, pixel_values=None, image_embeds=image_embeds)
             else:
-                # Fallback: manual embedding combination
                 text_embeds = self.base_model.model.language_model.model.embed_tokens(input_ids)
                 if image_embeds is not None:
-                    # Simple concatenation approach - needs proper attention mask handling
                     first_pass_embeds = torch.cat([image_embeds, text_embeds], dim=1)
                 else:
                     first_pass_embeds = text_embeds
-            
             first_out = self.base_model.model.language_model(inputs_embeds=first_pass_embeds, attention_mask=attention_mask, output_hidden_states=True)
             return first_out.hidden_states[-1]
 

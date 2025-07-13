@@ -80,8 +80,8 @@ class TrainingConfig:
     logging_steps: int = 10
     save_steps: int = 1000
     eval_steps: int = 1000
-    eval_strategy: str = 'epoch'  # 'epoch', 'steps', or 'no'
-    skip_eval_during_training: bool = False  # If True, sets eval_strategy to 'no'
+    eval_strategy: str = 'epoch'
+    skip_eval_during_training: bool = False
     save_total_limit: int = 2
     load_best_model_at_end: bool = True
     metric_for_best_model: str = 'accuracy'
