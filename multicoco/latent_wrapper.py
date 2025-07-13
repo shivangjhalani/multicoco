@@ -97,19 +97,6 @@ class LatentWrapper(nn.Module):
                 inputs_embeds[batch_idx, start_pos:end_pos] = last_hidden[batch_idx, start_pos - 1].unsqueeze(0).repeat(span_length, 1)
         return inputs_embeds
 
-    def multimodal_prep(self, input_ids: torch.Tensor, pixel_values: Optional[torch.Tensor]=None, **kwargs):
-        image_embeds = self._compute_vision_embeddings(pixel_values)
-        if hasattr(self.model, 'model') and hasattr(self.model.model, 'prepare_inputs_for_multimodal'):
-            return self.model.model.prepare_inputs_for_multimodal(input_ids=input_ids, pixel_values=None, image_embeds=image_embeds, **kwargs)
-        else:
-            return self.model.get_input_embeddings()(input_ids)
-
-    def latent_injection(self, embeddings: torch.Tensor, input_ids: torch.Tensor):
-        spans = self._extract_latent_spans(input_ids)
-        if not any(spans):
-            return embeddings
-        logger.warning('latent_injection called directly - using embeddings as hidden states proxy')
-        return self._build_modified_embeddings(input_ids, spans, embeddings)
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
         if not self._has_latent_spans(input_ids):
