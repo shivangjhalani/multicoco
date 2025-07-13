@@ -61,6 +61,7 @@ class TestLatentInjectionFix(unittest.TestCase):
             "seed": 42,
             "model_name": "test-model",
             "data_dir": self.data_dir,
+            "train_data_path": self.test_data_path,  # Add training data path
             "eval_data_path": self.test_data_path,
             "log_dir": os.path.join(self.temp_dir, "logs"),
             "use_wandb": False,
