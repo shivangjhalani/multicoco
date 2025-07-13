@@ -315,97 +315,94 @@ class LatentWrapper(nn.Module):
         # Start with original embeddings
         inputs_embeds = self.embedding(input_ids)
         
-        # Process sequence in chunks: non-latent, then each latent token sequentially
-        current_pos = 0
-        collected_outputs = []
-        past_key_values = None
+        # Process the entire sequence with sequential latent injection
+        # First, inject all latent tokens with evolved hidden states
+        current_hidden = None
         
         for batch_idx, latent_pos in latent_positions:
-            # Process tokens before this latent token
-            if current_pos < latent_pos:
-                chunk_embeds = inputs_embeds[:, current_pos:latent_pos]
-                chunk_attention = attention_mask[:, :latent_pos] if attention_mask is not None else None
+            # Process tokens up to this latent position to get evolved hidden states
+            if current_hidden is None:
+                # First time: process from beginning to this latent position
+                if latent_pos > 0:
+                    pre_embeds = inputs_embeds[:, :latent_pos]
+                    if image_embeds is not None:
+                        # Apply multimodal processing
+                        pre_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+                            input_ids=input_ids[:, :latent_pos],
+                            pixel_values=None,
+                            image_embeds=image_embeds
+                        )
+                    
+                    pre_attention = attention_mask[:, :latent_pos] if attention_mask is not None else None
+                    
+                    with torch.no_grad():
+                        pre_outputs = self.base_model.model.language_model(
+                            inputs_embeds=pre_embeds,
+                            attention_mask=pre_attention,
+                            output_hidden_states=True
+                        )
+                    current_hidden = pre_outputs.hidden_states[-1]
+                else:
+                    # Latent at position 0, use initial embedding
+                    current_hidden = inputs_embeds[:, :1]
+            
+            # Inject evolved hidden state into current latent position
+            if latent_pos > 0 and current_hidden.shape[1] > 0:
+                # Use the last hidden state as input for this latent token
+                prev_hidden = current_hidden[batch_idx, -1]
+                inputs_embeds[batch_idx, latent_pos] = prev_hidden
                 
-                if current_pos == 0:
-                    # First chunk: include multimodal setup
-                    chunk_embeds = self.base_model.model.prepare_inputs_for_multimodal(
-                        input_ids=input_ids[:, current_pos:latent_pos],
-                        pixel_values=None,
-                        image_embeds=image_embeds
+                # Process this latent token to get its evolved hidden state
+                latent_embed = inputs_embeds[:, latent_pos:latent_pos+1]
+                latent_attention = attention_mask[:, :latent_pos+1] if attention_mask is not None else None
+                
+                with torch.no_grad():
+                    latent_outputs = self.base_model.model.language_model(
+                        inputs_embeds=latent_embed,
+                        attention_mask=latent_attention,
+                        past_key_values=None,  # Don't use cache for individual latent tokens
+                        output_hidden_states=True
                     )
                 
-                outputs = self.base_model.model.language_model(
-                    inputs_embeds=chunk_embeds,
-                    attention_mask=chunk_attention,
-                    past_key_values=past_key_values,
-                    output_hidden_states=True,
-                    use_cache=True
-                )
-                
-                collected_outputs.append(outputs.logits)
-                past_key_values = outputs.past_key_values
-                last_hidden = outputs.hidden_states[-1]
-            
-            # Inject hidden state into current latent token
-            if latent_pos > 0 and last_hidden.shape[1] > 0:
-                # Use hidden state from the previous position
-                prev_hidden = last_hidden[batch_idx, -1]  # Last token's hidden state
-                inputs_embeds[batch_idx, latent_pos] = prev_hidden
-            
-            # Process the latent token
-            latent_embeds = inputs_embeds[:, latent_pos:latent_pos+1]
-            latent_attention = attention_mask[:, :latent_pos+1] if attention_mask is not None else None
-            
-            outputs = self.base_model.model.language_model(
-                inputs_embeds=latent_embeds,
-                attention_mask=latent_attention,
-                past_key_values=past_key_values,
-                output_hidden_states=True,
-                use_cache=True
-            )
-            
-            collected_outputs.append(outputs.logits)
-            past_key_values = outputs.past_key_values
-            last_hidden = outputs.hidden_states[-1]
-            current_pos = latent_pos + 1
+                # Update current_hidden to include this latent token's evolved state
+                current_hidden = torch.cat([current_hidden, latent_outputs.hidden_states[-1]], dim=1)
         
-        # Process remaining tokens after last latent token
-        if current_pos < seq_len:
-            remaining_embeds = inputs_embeds[:, current_pos:]
-            remaining_attention = attention_mask[:, :seq_len] if attention_mask is not None else None
-            
-            outputs = self.base_model.model.language_model(
-                inputs_embeds=remaining_embeds,
-                attention_mask=remaining_attention,
-                past_key_values=past_key_values,
-                output_hidden_states=True
+        # Now run a single forward pass with all the injected embeddings
+        if image_embeds is not None:
+            # Apply multimodal processing to the full sequence
+            final_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+                input_ids=input_ids,
+                pixel_values=None,
+                image_embeds=image_embeds,
+                inputs_embeds=inputs_embeds
             )
-            
-            collected_outputs.append(outputs.logits)
-            final_hidden = outputs.hidden_states[-1]
         else:
-            final_hidden = last_hidden
+            final_embeds = inputs_embeds
         
-        # Concatenate all logits
-        full_logits = torch.cat(collected_outputs, dim=1)
+        # Single forward pass for the entire sequence
+        outputs = self.base_model.model.language_model(
+            inputs_embeds=final_embeds,
+            attention_mask=attention_mask,
+            output_hidden_states=True
+        )
         
         # Compute loss if labels provided
         loss = None
         if labels is not None:
-            shift_logits = full_logits[..., :-1, :].contiguous()
+            shift_logits = outputs.logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             
             from torch.nn import CrossEntropyLoss
-            loss_fct = CrossEntropyLoss()
+            loss_fct = CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         
         # Return in expected format
         from types import SimpleNamespace
         return SimpleNamespace(
             loss=loss,
-            logits=full_logits,
-            hidden_states=final_hidden,
-            inputs_embeds=inputs_embeds
+            logits=outputs.logits,
+            hidden_states=outputs.hidden_states[-1] if outputs.hidden_states else None,
+            inputs_embeds=final_embeds
         )
 
     def _extract_latent_spans(self, input_ids: torch.Tensor) -> List[List[Tuple[int, int]]]:
