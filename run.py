@@ -12,10 +12,6 @@ import torch.distributed as dist
 import torch.utils.checkpoint as checkpoint_module
 from transformers import AutoModelForCausalLM, TrainingArguments
 from transformers import logging as transformers_logging
-
-# Increase recursion limit to handle deep model structures
-sys.setrecursionlimit(5000)
-
 transformers_logging.set_verbosity_error()
 from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_LOG_DIR, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR, IMAGE_TOKEN, TEST_DATASET_LIMIT
@@ -36,8 +32,6 @@ class MultiCoCoRunner:
         self.eval_dataset: Optional[SupervisedDataset] = None
         self.wandb_run: Optional[Any] = None
         self.run_log_dir: Optional[str] = None
-        self.tokenizer: Optional[Any] = None
-        self.image_processor: Optional[Any] = None
         self._initialize()
         mode_type = 'training' if config.training.mode != TrainingMode.EVAL_ONLY else 'evaluation'
         logger.info(f'MultiCoCoRunner initialized for {mode_type}')
@@ -157,13 +151,8 @@ class MultiCoCoRunner:
             self._load_checkpoint_weights(checkpoint_path)
         if self._has_latent_tokens(special_tokens):
             self._initialize_latent_token_embeddings()
-        
-        # Store references to tokenizer and image processor before wrapping
-        self.tokenizer = self.model.tokenizer
-        self.image_processor = self.model.image_processor
-        
         if self._needs_latent_wrapper(coconut_config, training_mode):
-            self.model = LatentWrapper(self.model, self.tokenizer)
+            self.model = LatentWrapper(self.model, self.model.tokenizer)
         self._log_model_info(checkpoint_path, training_mode, coconut_config)
 
     def _get_special_tokens(self, coconut_config, training_mode) -> list:
@@ -305,7 +294,7 @@ class MultiCoCoRunner:
             raise ModelInitializationError('Model must be initialized first')
         try:
             training_args = self._create_training_arguments()
-            self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.tokenizer, self.image_processor), runner=self)
+            self.trainer = CoCoTrainer(model=self.model, args=training_args, train_dataset=self.train_dataset, eval_dataset=self.eval_dataset, data_collator=lambda batch: collate_fn(batch, self.model.tokenizer, self.model.image_processor), runner=self)
             if self.config.coconut.enabled:
                 self._set_coconut_trainer_params()
             setattr(self.trainer.args, 'log_per_sample', self.config.evaluation.log_per_sample)
