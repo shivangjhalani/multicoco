@@ -31,6 +31,7 @@ class MultiCoCo(nn.Module):
         special_tokens = special_tokens or []
         try:
             self.model, self.tokenizer, self.image_processor = self._initialize_components(model_id, config_id, tokenizer_id, image_processor_id, special_tokens, torch_dtype, trust_remote_code, low_cpu_mem_usage)
+            self._resize_special_token_embeddings()
             self._setup_special_tokens()
         except Exception as e:
             raise ModelInitializationError(f'Failed to initialize MultiCoCo model: {e}') from e
@@ -65,7 +66,6 @@ class MultiCoCo(nn.Module):
                 all_special_tokens.append(token)
         if all_special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': all_special_tokens})
-            self._resize_token_embeddings(tokenizer)
             logger.info(f'Added {len(all_special_tokens)} special tokens: {all_special_tokens}')
         return tokenizer
 
@@ -74,6 +74,13 @@ class MultiCoCo(nn.Module):
             self.model.language_model.resize_token_embeddings(len(tokenizer))
         else:
             self.model.resize_token_embeddings(len(tokenizer))
+
+    def _resize_special_token_embeddings(self) -> None:
+        """Resize token embeddings to account for newly added special tokens."""
+        if hasattr(self.model, 'language_model'):
+            self.model.language_model.resize_token_embeddings(len(self.tokenizer))
+        else:
+            self.model.resize_token_embeddings(len(self.tokenizer))
 
     def _setup_special_tokens(self) -> None:
         img_token_id = self.tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)

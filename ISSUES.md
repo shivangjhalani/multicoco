@@ -15,12 +15,11 @@ These flaws mean latent tokens never (or incorrectly) reach the model during tra
    - **Comparison to CoCoNut**: They explicitly add all required specials (e.g., latent tokens) and ensure they're single-token IDs.
    - **Fix**: In _create_tokenizer, add chat/image tokens to special_tokens list (e.g., `special_tokens += ['<|im_start|>', '<|im_end|>', '<image>']`) and resize embeddings.
 
-3. **Image Token Mismatch Breaks Vision Embedding Injection**
-   - **Description**: Constants define `IMAGE_TOKEN = '<image>'` (used in collate_fn prompts) but `IMG_CONTEXT_TOKEN = '<img>'` (used in model.py's _setup_special_tokens to set `model.img_context_token_id`). If InternVL expects '<img>' for vision injection but the prompt uses '<image>', the model won't recognize where to insert image embeddings during forward/generate.
-   - **Why it's a flaw for latent reasoning**: Multimodal latent reasoning requires correct image conditioning (e.g., latent spans processing image-informed hidden states). This mismatch means vision embeds are never placed properly, so latents aren't image-aware—defeating the multimodal adaptation.
-   - **Code references**: `constants.py` (~10-15); `model.py` _setup_special_tokens (~130-140); `data.py` collate_fn (~220).
-   - **Comparison to CoCoNut**: N/A directly (text-only), but CoCoNut ensures all custom tokens are consistent across prompts and model config.
-   - **Fix**: Unify to one token (e.g., use '<image>' everywhere, including for img_context_token_id).
+3. Image Token Mismatch Between Codebase Constants, Prompts, and Model/Tokenizer Expectations
+- Description: Your constants define IMAGE_TOKEN = '<image>' (used in data.py's collate_fn to build prompts like <|im_start|>user\n<image>\n{question}<|im_end|>). However, the tokenizer's added_tokens_decoder shows "<img>" (token ID 151665) as the special token for images, not "<image>". The model (InternVLChatModel) likely expects "<img>" for vision embedding injection (based on its config and common patterns in similar models like LLaVA/InternVL, where "<img>" placeholders are replaced with vision embeds). In model.py's _setup_special_tokens, you set self.model.img_context_token_id to the ID of IMG_CONTEXT_TOKEN = '<img>' (which matches the tokenizer), but prompts use '<image>', so the model won't recognize the image placeholder during forward/generate. This leads to vision embeds not being injected properly (e.g., at the wrong positions), and '<image>' might be tokenized as subwords (e.g., ['<', 'image', '>']) since it's not a special token.
+- Impact: Multimodal inputs fail—images aren't conditioned correctly, breaking latent reasoning (latents won't be image-aware). In evaluation (trainer.py's _generate_batch_predictions_with_details), generation via model.generate or chat will produce garbage or ignore images.
+- Code references: constants.py (token defs); data.py collate_fn (~220-250, uses IMAGE_TOKEN); model.py _setup_special_tokens (~130-140, uses IMG_CONTEXT_TOKEN); tokenizer print shows "<img>" but no "<image>".
+- Fix: Unify to "<img>" everywhere: Set IMAGE_TOKEN = '<img>' in constants, update collate_fn to use it, and ensure it's in PROMPT_TOKENS. In model.py's _create_tokenizer, confirm it's added as a special token if missing (though it already is).
 
 ### Other Fundamental Issues (Non-Critical but Breaking Adaptation)
 These don't fully block training but prevent faithful CoCoNut-like behavior (e.g., configurable generation, proper evaluation).
