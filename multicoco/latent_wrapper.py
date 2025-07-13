@@ -97,7 +97,6 @@ class LatentWrapper(nn.Module):
                 inputs_embeds[batch_idx, start_pos:end_pos] = last_hidden[batch_idx, start_pos - 1].unsqueeze(0).repeat(span_length, 1)
         return inputs_embeds
 
-
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
         if not self._has_latent_spans(input_ids):
             return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)

@@ -164,24 +164,16 @@ class MultiCoCoConfig:
             raise ValueError('num_epochs must be positive')
         if self.training.bf16 and self.training.fp16:
             raise ValueError('Cannot enable both bf16 and fp16 simultaneously')
-        
-        # Validate save_strategy
         valid_save_strategies = ['epoch', 'steps', 'no']
         if self.training.save_strategy not in valid_save_strategies:
             raise ValueError(f'save_strategy must be one of {valid_save_strategies}, got {self.training.save_strategy}')
-        
-        # Validate eval_strategy
         valid_eval_strategies = ['epoch', 'steps', 'no']
         if self.training.eval_strategy not in valid_eval_strategies:
             raise ValueError(f'eval_strategy must be one of {valid_eval_strategies}, got {self.training.eval_strategy}')
-        
-        # Validate lr_scheduler_type
         valid_schedulers = ['linear', 'cosine', 'cosine_with_restarts', 'polynomial', 'constant', 'constant_with_warmup']
         if self.training.lr_scheduler_type not in valid_schedulers:
             raise ValueError(f'lr_scheduler_type must be one of {valid_schedulers}, got {self.training.lr_scheduler_type}')
-        
-        # Validate metric for best model
-        if self.training.load_best_model_at_end and not self.training.metric_for_best_model:
+        if self.training.load_best_model_at_end and (not self.training.metric_for_best_model):
             raise ValueError('metric_for_best_model must be specified when load_best_model_at_end is True')
 
     def _validate_coconut(self) -> None:
@@ -210,36 +202,27 @@ class MultiCoCoConfig:
             raise FileNotFoundError(f'Evaluation data not found: {self.data.eval_data_path}')
 
     def _validate_logging(self) -> None:
-        """Validate logging configuration."""
         valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
         if self.logging.log_level.upper() not in valid_log_levels:
             raise ValueError(f'log_level must be one of {valid_log_levels}, got {self.logging.log_level}')
-        
         if not self.logging.project or not isinstance(self.logging.project, str):
             raise ValueError('project name must be a non-empty string')
 
     def _validate_generation_config(self) -> None:
-        """Validate generation configuration parameters."""
         if not isinstance(self.generation, dict):
             raise ValueError('generation config must be a dictionary')
-        
-        # Validate specific generation parameters if present
         if 'max_new_tokens' in self.generation:
             if not isinstance(self.generation['max_new_tokens'], int) or self.generation['max_new_tokens'] <= 0:
                 raise ValueError('max_new_tokens must be a positive integer')
-        
         if 'temperature' in self.generation:
             if not isinstance(self.generation['temperature'], (int, float)) or self.generation['temperature'] <= 0:
                 raise ValueError('temperature must be a positive number')
-        
         if 'top_p' in self.generation:
-            if not isinstance(self.generation['top_p'], (int, float)) or not (0 < self.generation['top_p'] <= 1):
+            if not isinstance(self.generation['top_p'], (int, float)) or not 0 < self.generation['top_p'] <= 1:
                 raise ValueError('top_p must be a number between 0 and 1')
-        
         if 'top_k' in self.generation:
             if not isinstance(self.generation['top_k'], int) or self.generation['top_k'] < 0:
                 raise ValueError('top_k must be a non-negative integer')
-        
         if 'num_beams' in self.generation:
             if not isinstance(self.generation['num_beams'], int) or self.generation['num_beams'] <= 0:
                 raise ValueError('num_beams must be a positive integer')

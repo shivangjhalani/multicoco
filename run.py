@@ -81,8 +81,6 @@ class MultiCoCoRunner:
         root_logger.setLevel(log_level)
         if root_logger.hasHandlers():
             root_logger.handlers.clear()
-        
-        # Add console handler if console_output is enabled
         if log_cfg.console_output:
             console_handler = logging.StreamHandler()
             if log_cfg.verbose:
@@ -91,7 +89,6 @@ class MultiCoCoRunner:
                 console_formatter = logging.Formatter('%(levelname)s - %(message)s')
             console_handler.setFormatter(console_formatter)
             root_logger.addHandler(console_handler)
-            
         if log_cfg.log_to_file:
             run_log_path = os.path.join(self.run_log_dir, 'run.log')
             handler = logging.FileHandler(run_log_path)
