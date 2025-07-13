@@ -18,11 +18,11 @@ class LatentWrapperV2(nn.Module):
     3. Uses clean multi-pass forward without complex KV caching
     """
 
-    def __init__(self, model: nn.Module, tokenizer, enable_norm_logging: bool = False):
+    def __init__(self, model: nn.Module, tokenizer):
         super().__init__()
         self.base_model = model  # Keep internal name as base_model for consistency
         self.tokenizer = tokenizer
-        self.enable_norm_logging = enable_norm_logging
+        self.enable_norm_logging = False  # Default to False for compatibility
         
         # Get token IDs for latent spans
         self.latent_id = tokenizer.convert_tokens_to_ids(LATENT_TOKEN)

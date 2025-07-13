@@ -24,6 +24,9 @@ def test_latent_wrapper_v2_import():
             super().__init__()
             self.embed_tokens = torch.nn.Embedding(100, 64)
         
+        def get_input_embeddings(self):
+            return self.embed_tokens
+        
         def forward(self, input_ids, **kwargs):
             return type('obj', (object,), {'hidden_states': self.embed_tokens(input_ids)})
     
