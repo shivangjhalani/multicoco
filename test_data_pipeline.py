@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from multicoco.data import AOKVQADataset
+from multicoco.data import SupervisedDataset
 from multicoco.config import CoconutConfig
 from multicoco.constants import IMAGE_TOKEN, COCONUT_SPECIAL_TOKENS
 
@@ -52,11 +52,19 @@ def test_data_pipeline_end_to_end():
         )
         
         # Create dataset with progressive curriculum
-        dataset = AOKVQADataset(
+        dataset = SupervisedDataset(
             data_path=test_file,
-            image_dir="/tmp",  # Dummy path
-            coconut_config=coconut_config,
-            training_mode="coconut_train"
+            data_dir="/tmp"  # Dummy path
+        )
+        
+        # Apply coconut progressive curriculum
+        dataset.apply_progressive_curriculum(
+            scheduled_stage=coconut_config.current_stage,
+            c_thought=coconut_config.n_latent_tokens,
+            max_latent_stage=max(coconut_config.progressive_stages),
+            uniform_prob=0.0,
+            pad_latent_to_max=False,
+            no_cot=False
         )
         
         print(f"✓ Dataset created with {len(dataset)} samples")
