@@ -18,9 +18,9 @@ class LatentWrapperV2(nn.Module):
     3. Uses clean multi-pass forward without complex KV caching
     """
 
-    def __init__(self, base_model: nn.Module, tokenizer, enable_norm_logging: bool = False):
+    def __init__(self, model: nn.Module, tokenizer, enable_norm_logging: bool = False):
         super().__init__()
-        self.base_model = base_model
+        self.base_model = model  # Keep internal name as base_model for consistency
         self.tokenizer = tokenizer
         self.enable_norm_logging = enable_norm_logging
         
@@ -30,7 +30,7 @@ class LatentWrapperV2(nn.Module):
         self.end_id = tokenizer.convert_tokens_to_ids(END_LATENT_TOKEN)
         
         # Get embedding layer for token replacement
-        self.embedding = base_model.get_input_embeddings()
+        self.embedding = model.get_input_embeddings()
         
         if self.latent_id is None or self.start_id is None or self.end_id is None:
             logger.warning("Some latent tokens not found in tokenizer vocabulary")
@@ -43,6 +43,40 @@ class LatentWrapperV2(nn.Module):
             pass
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
+    def get_input_embeddings(self):
+        """Get input embeddings layer from base model"""
+        return self.base_model.get_input_embeddings()
+    
+    def multimodal_prep(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, 
+                       pixel_values: Optional[torch.Tensor] = None, **kwargs):
+        """
+        Prepare multimodal embeddings using InternVL's native method.
+        This is a compatibility method that exposes the multimodal preparation step.
+        """
+        if pixel_values is None:
+            # No images, return standard text embeddings
+            return self.embedding(input_ids)
+        
+        # Use InternVL's multimodal preparation
+        return self.base_model.prepare_inputs_embeds(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            attention_mask=attention_mask,
+            **kwargs
+        )
+    
+    def latent_injection(self, embeddings: torch.Tensor, input_ids: torch.Tensor):
+        """
+        Apply latent injection to prepared embeddings.
+        This is a compatibility method that exposes the latent injection step.
+        """
+        spans = self._extract_latent_spans(input_ids)
+        if not any(spans):
+            return embeddings
+        
+        # Apply Coconut-style latent injection
+        return self._inject_latent_representations(embeddings, input_ids, spans)
+    
     def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, 
                 pixel_values: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, 
                 image_embeds: Optional[torch.Tensor] = None, **kwargs):
@@ -196,6 +230,42 @@ class LatentWrapperV2(nn.Module):
             labels=labels,
             **kwargs
         )
+
+    def _inject_latent_representations(self, embeddings: torch.Tensor, input_ids: torch.Tensor, 
+                                     spans: List[List[Tuple[int, int]]]) -> torch.Tensor:
+        """
+        Inject latent representations into embeddings at specified positions.
+        This is a simplified version for the compatibility API.
+        """
+        max_n_latents = max(len(span_list) for span_list in spans) if spans else 0
+        if max_n_latents == 0:
+            return embeddings
+            
+        # Get positions of all latent tokens across the batch  
+        latent_positions = self._get_all_latent_positions(input_ids, spans)
+        
+        # For each latent position, do a forward pass to get hidden states
+        current_embeds = embeddings.clone()
+        
+        for pass_idx in range(max_n_latents):
+            # Get hidden states from current embeddings
+            with torch.no_grad():
+                outputs = self.base_model.model.language_model(
+                    inputs_embeds=current_embeds,
+                    attention_mask=None,  # Simplified for compatibility
+                    output_hidden_states=True
+                )
+                hidden_states = outputs.hidden_states[-1]  # Last layer
+            
+            # Replace latent tokens with hidden states from previous positions
+            for batch_idx, positions in enumerate(latent_positions):
+                if pass_idx < len(positions):
+                    pos = positions[pass_idx]
+                    if pos > 0:  # Use hidden state from previous position
+                        prev_hidden = hidden_states[batch_idx, pos - 1]
+                        current_embeds[batch_idx, pos] = prev_hidden
+        
+        return current_embeds
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, 
                 pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
