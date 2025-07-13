@@ -5,7 +5,13 @@ IMAGE_TOKEN = '<image>'
 IMG_CONTEXT_TOKEN = '<img>'
 LATENT_TOKEN = '<|latent|>'
 START_LATENT_TOKEN = '<|start_latent|>'
+# Chat format tokens used in prompts
+CHAT_START_TOKEN = '<|im_start|>'
+CHAT_END_TOKEN = '<|im_end|>'
+# Core CoCoNut tokens for latent reasoning
 COCONUT_SPECIAL_TOKENS = [START_LATENT_TOKEN, LATENT_TOKEN, END_LATENT_TOKEN]
+# Additional tokens needed for proper prompt tokenization (may already exist in base tokenizer)
+PROMPT_TOKENS = [CHAT_START_TOKEN, CHAT_END_TOKEN, IMAGE_TOKEN]
 
 class AnswerChoice(Enum):
     A = '0'
@@ -24,6 +30,8 @@ DEFAULT_LEARNING_RATE = 1e-05
 DEFAULT_NUM_EPOCHS = 3
 DEFAULT_C_THOUGHT = 0
 DEFAULT_MAX_LATENT_STAGE = 0
+FALLBACK_IMAGE_SIZE = 448  # Size for fallback black images when image loading fails
+ENABLE_KV_CACHING = True  # Enable KV caching optimization in latent wrapper
 LOSS_IGNORE_INDEX = -100
 TEST_DATASET_LIMIT = 20
 DEFAULT_LOG_DIR = 'logs'

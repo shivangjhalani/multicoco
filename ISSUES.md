@@ -1,0 +1,35 @@
+### Critical Issues Preventing Latent Reasoning
+These flaws mean latent tokens never (or incorrectly) reach the model during training/evaluation, so the model can't learn to "reason in latent space" like CoCoNut. Training falls back to vanilla CoT or direct answering without latent curriculum.
+
+1. **Curriculum Application Drops Images and Fails to Preserve/Inject Latent Reasoning into Batches**
+   - **Description**: In CoCoNut, the progressive curriculum (e.g., `progressive_latent_dataset` in their data utils) preserves original dataset fields (e.g., question, answer) while injecting latent tokens into the "reasoning" field via a curriculum (replacing explicit CoT steps with latent blocks). This ensures latent spans reach tokenization and the `LatentWrapper`'s injection logic. In MultiCoCo, `create_progressive_latent_dataset` (in `data.py`) generates new dicts with `'question'`, `'reasoning'` (containing latent tokens), `'answer'`, etc., but **drops the `'image'` field** from the original data. Then `apply_progressive_curriculum` overwrites `self.data` with these dicts. In `__getitem__`, `image = self._load_image(item['image'])` will raise a KeyError (no `'image'` key). Even if patched, the returned dict only includes `'image'`, `'question'`, `'answer'`, and optionally `'steps'`—it **drops `'reasoning'`**, so latent tokens never reach `collate_fn` for tokenization. In `collate_fn`'s `_build_assistant_response`, it checks for `'reasoning'` or `'steps'`, but since `'reasoning'` is dropped, latent blocks are ignored.
+   - **Why it's a flaw for latent reasoning**: No images mean no multimodal training (vision embeddings aren't computed/injected). No latent tokens mean `LatentWrapper` never detects spans (via `_extract_latent_spans`) or injects hidden states (via `_build_modified_embeddings`), breaking CoCoNut's core latent injection mechanism. Curriculum stages advance, but the model trains on plain Q&A without latents.
+   - **Code references**: `data.py` lines ~300-350 (create_progressive_latent_dataset returns dict without 'image'); ~170-200 (__getitem__ drops 'reasoning'); trainer.py calls apply_progressive_curriculum in _train_with_coconut_stages.
+   - **Comparison to CoCoNut**: Their curriculum preserves all fields and injects latents directly into the text (e.g., via string replacement), ensuring they reach the tokenizer and wrapper.
+   - **Fix**: In create_progressive_latent_dataset, copy 'image' from sample: `processed_sample = {**sample, 'reasoning': reasoning_text, ...}`. In __getitem__, include `'reasoning'` in the return dict if present. Ensure collate_fn uses it to build prompts with latent blocks.
+
+2. **Prompt Tokens (Chat/Image Markers) Are Not Added as Special Tokens, Leading to Incorrect Tokenization**
+   - **Description**: collate_fn hardcodes prompts with `<|im_start|>user\n<image>\n{question}<|im_end|><|im_start|>assistant\n`, but these tokens (e.g., `<|im_start|>`, `<|im_end|>`, `<image>`) are **not added as special tokens** in MultiCoCo's tokenizer (in model.py's _create_tokenizer). Only coconut specials (e.g., `<|start_latent|>`) are added if enabled. If InternVL's tokenizer doesn't natively support them, they'll be split into subwords (e.g., `<|im_start|>` might become multiple tokens), corrupting prompt structure, attention masks, and vision embedding injection points.
+   - **Why it's a flaw for latent reasoning**: Latent spans rely on clean tokenization (e.g., for `LatentWrapper` to detect intact `<|start_latent|>` IDs). Multimodal injection (e.g., replacing `<image>` with vision embeds) fails if the token is split, preventing the model from learning image-conditioned latent reasoning. CoCoNut avoids this by adding all specials upfront.
+   - **Code references**: `data.py` collate_fn (~220-250); `model.py` _create_tokenizer (~100-120, only adds coconut specials).
+   - **Comparison to CoCoNut**: They explicitly add all required specials (e.g., latent tokens) and ensure they're single-token IDs.
+   - **Fix**: In _create_tokenizer, add chat/image tokens to special_tokens list (e.g., `special_tokens += ['<|im_start|>', '<|im_end|>', '<image>']`) and resize embeddings.
+
+3. **Image Token Mismatch Breaks Vision Embedding Injection**
+   - **Description**: Constants define `IMAGE_TOKEN = '<image>'` (used in collate_fn prompts) but `IMG_CONTEXT_TOKEN = '<img>'` (used in model.py's _setup_special_tokens to set `model.img_context_token_id`). If InternVL expects '<img>' for vision injection but the prompt uses '<image>', the model won't recognize where to insert image embeddings during forward/generate.
+   - **Why it's a flaw for latent reasoning**: Multimodal latent reasoning requires correct image conditioning (e.g., latent spans processing image-informed hidden states). This mismatch means vision embeds are never placed properly, so latents aren't image-aware—defeating the multimodal adaptation.
+   - **Code references**: `constants.py` (~10-15); `model.py` _setup_special_tokens (~130-140); `data.py` collate_fn (~220).
+   - **Comparison to CoCoNut**: N/A directly (text-only), but CoCoNut ensures all custom tokens are consistent across prompts and model config.
+   - **Fix**: Unify to one token (e.g., use '<image>' everywhere, including for img_context_token_id).
+
+### Other Fundamental Issues (Non-Critical but Breaking Adaptation)
+These don't fully block training but prevent faithful CoCoNut-like behavior (e.g., configurable generation, proper evaluation).
+
+4. **Generation Hyperparameters from Config Are Ignored in Evaluation/Generation**
+   - **Description**: YAML configs specify generation params (e.g., num_beams, temperature, top_p, top_k, do_sample), but in trainer.py's _generate_batch_predictions_with_details, model.generate/chat calls hardcode do_sample=False and ignore others (only max_new_tokens is used). This means eval uses greedy decoding regardless of config, and training doesn't benefit from diverse sampling if needed.
+   - **Why it's a flaw for latent reasoning**: CoCoNut uses configurable generation (e.g., for eval diversity). In MultiCoCo, eval can't test latent reasoning under varied conditions (e.g., beam search for better answers), leading to inaccurate metrics for curriculum progress.
+   - **Code references**: `trainer.py` ~500-550 (_generate_batch_predictions_with_details hardcodes params); YAML files (e.g., args/aokvqa_coconut.yaml has generation block).
+   - **Comparison to CoCoNut**: Their eval scripts use configurable generation args.
+   - **Fix**: Pass config params (from self.args or runner.config) into generate/chat calls.
+
+If these issues are fixed, MultiCoCo should align better with CoCoNut's latent reasoning (e.g., curriculum injecting latents, wrapper handling spans multimodally).
