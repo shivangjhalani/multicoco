@@ -455,20 +455,32 @@ class CoCoTrainer(Trainer):
         if hasattr(self.model, 'chat') and pixel_values is not None:
             # Use chat interface - this will handle latent injection if needed
             for i in range(batch_size):
-                sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
-                question = device_batch['questions'][i] if 'questions' in device_batch else ''
-                
-                if is_latent_wrapper:
-                    # Use LatentWrapper's chat method which handles latent injection
-                    response = self.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
-                else:
-                    # Use base model's chat method for vanilla/CoT modes
-                    response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
-                
-                batch_predictions.append(extract_answer_choice(response))
-                batch_generated_texts.append(response)
-                response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
-                batch_generated_tokens.append(len(response_tokens))
+                try:
+                    sample_pixel_values = pixel_values[i:i + 1] if pixel_values is not None else None
+                    question = device_batch['questions'][i] if 'questions' in device_batch else ''
+                    
+                    if is_latent_wrapper:
+                        # Use LatentWrapper's chat method which handles latent injection
+                        response = self.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
+                    else:
+                        # Use base model's chat method for vanilla/CoT modes
+                        # Debug: Check tensor shapes before calling chat
+                        logger.debug(f"Sample {i}: pixel_values shape = {sample_pixel_values.shape if sample_pixel_values is not None else 'None'}")
+                        logger.debug(f"Sample {i}: question = {question[:50]}...")
+                        
+                        response = self.model.model.chat(tokenizer=self.tokenizer, pixel_values=sample_pixel_values.to(dtype=next(self.model.parameters()).dtype), question=question, generation_config=generation_config)
+                    
+                    batch_predictions.append(extract_answer_choice(response))
+                    batch_generated_texts.append(response)
+                    response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
+                    batch_generated_tokens.append(len(response_tokens))
+                    
+                except Exception as e:
+                    logger.error(f"Error processing sample {i}: {e}")
+                    logger.error(f"Pixel values shape: {pixel_values.shape if pixel_values is not None else 'None'}")
+                    logger.error(f"Input IDs shape: {input_ids.shape if input_ids is not None else 'None'}")
+                    logger.error(f"Batch size: {batch_size}")
+                    raise e
         else:
             # Use generate interface - this will also handle latent injection if needed
             if is_latent_wrapper:
