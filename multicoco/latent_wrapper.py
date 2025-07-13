@@ -22,14 +22,7 @@ class LatentWrapper(nn.Module):
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
         self.embedding = base_model.get_input_embeddings()
 
-    def __getattr__(self, name):
-        """Delegate attribute access to the base model for compatibility"""
-        # Use try/except to avoid infinite recursion when base_model doesn't exist
-        try:
-            base_model = object.__getattribute__(self, 'base_model')
-            return getattr(base_model, name)
-        except AttributeError:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+    # Remove __getattr__ completely - use explicit delegation only
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
         """Generate with proper latent injection support"""
