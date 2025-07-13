@@ -17,7 +17,7 @@ from multicoco.config import MultiCoCoConfig, TrainingMode
 from multicoco.constants import COCONUT_SPECIAL_TOKENS, DEFAULT_BATCH_SIZE, DEFAULT_EVAL_BATCH_SIZE, DEFAULT_LEARNING_RATE, DEFAULT_LOG_DIR, DEFAULT_MODEL_NAME, DEFAULT_NUM_EPOCHS, DEFAULT_OUTPUT_DIR, IMAGE_TOKEN, TEST_DATASET_LIMIT
 from multicoco.data import SupervisedDataset, collate_fn
 from multicoco.exceptions import ConfigurationError, DataLoadingError, EvaluationError, ModelInitializationError
-from multicoco.latent_wrapper import LatentWrapper
+from multicoco.latent_wrapper_v2 import LatentWrapperV2
 from multicoco.model import MultiCoCo
 from multicoco.trainer import CoCoTrainer
 logger = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ class MultiCoCoRunner:
         if self._has_latent_tokens(special_tokens):
             self._initialize_latent_token_embeddings()
         if self._needs_latent_wrapper(coconut_config, training_mode):
-            self.model = LatentWrapper(self.model, self.model.tokenizer)
+            self.model = LatentWrapperV2(self.model, self.model.tokenizer)
         self._log_model_info(checkpoint_path, training_mode, coconut_config)
 
     def _get_special_tokens(self, coconut_config, training_mode) -> list:
