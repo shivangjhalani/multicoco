@@ -93,7 +93,6 @@ class LatentWrapper(nn.Module):
             for start_pos, end_pos in batch_spans:
                 if start_pos == 0:
                     continue
-                # Use the hidden state from the token immediately before the start position
                 span_length = end_pos - start_pos
                 inputs_embeds[batch_idx, start_pos:end_pos] = last_hidden[batch_idx, start_pos - 1].unsqueeze(0).repeat(span_length, 1)
         return inputs_embeds
@@ -125,7 +124,6 @@ class LatentWrapper(nn.Module):
         batch_size = input_ids.shape[0]
         generation_state = self._initialize_generation_state(batch_size, device, input_ids, attention_mask, pad_token_id, eos_token_id)
         image_embeds = self._compute_vision_embeddings(pixel_values)
-        
         for _ in range(max_new_tokens):
             with torch.no_grad():
                 outputs = self.forward(input_ids=generation_state['generated_ids'], attention_mask=generation_state['attention_mask'], pixel_values=None)
@@ -137,23 +135,15 @@ class LatentWrapper(nn.Module):
     def _initialize_generation_state(self, batch_size: int, device: torch.device, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pad_token_id: Optional[int], eos_token_id: Optional[int]) -> dict:
         pad_token_id = pad_token_id or self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         eos_token_id = eos_token_id or self.tokenizer.eos_token_id
-        return {
-            'generated_ids': input_ids.clone(),
-            'attention_mask': attention_mask if attention_mask is not None else torch.ones_like(input_ids),
-            'unfinished_sequences': torch.ones(batch_size, dtype=torch.long, device=device),
-            'pad_token_id': pad_token_id,
-            'eos_token_id': eos_token_id
-        }
+        return {'generated_ids': input_ids.clone(), 'attention_mask': attention_mask if attention_mask is not None else torch.ones_like(input_ids), 'unfinished_sequences': torch.ones(batch_size, dtype=torch.long, device=device), 'pad_token_id': pad_token_id, 'eos_token_id': eos_token_id}
 
     def _sample_and_update_token(self, logits: torch.Tensor, generation_state: dict, temperature: float, top_k: int, top_p: float, do_sample: bool) -> torch.Tensor:
         current_logits = logits[:, -1, :]
         current_logits = self._apply_generation_filters(current_logits, temperature, top_k, top_p)
         next_token_id = self._sample_next_token(current_logits, do_sample)
         next_token_id = self._handle_finished_sequences(next_token_id, generation_state['unfinished_sequences'], generation_state['pad_token_id'])
-        
         generation_state['generated_ids'] = torch.cat([generation_state['generated_ids'], next_token_id], dim=1)
         generation_state['attention_mask'] = torch.cat([generation_state['attention_mask'], generation_state['unfinished_sequences'].unsqueeze(-1)], dim=1)
-        
         if generation_state['eos_token_id'] is not None:
             newly_finished = (next_token_id.squeeze(-1) == generation_state['eos_token_id']) & (generation_state['unfinished_sequences'] == 1)
             generation_state['unfinished_sequences'].mul_((~newly_finished).long())
