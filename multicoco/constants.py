@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Dict, List
 END_LATENT_TOKEN = '<|end_latent|>'
-IMAGE_TOKEN = '<image>'
+IMAGE_TOKEN = '<img>'  # Changed to match InternVL's expectation
 IMG_CONTEXT_TOKEN = '<img>'
 LATENT_TOKEN = '<|latent|>'
 START_LATENT_TOKEN = '<|start_latent|>'

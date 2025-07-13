@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
-from .constants import DEFAULT_MAX_LENGTH, END_LATENT_TOKEN, FALLBACK_IMAGE_SIZE, LATENT_TOKEN, LOSS_IGNORE_INDEX, START_LATENT_TOKEN
+from .constants import DEFAULT_MAX_LENGTH, END_LATENT_TOKEN, FALLBACK_IMAGE_SIZE, IMAGE_TOKEN, LATENT_TOKEN, LOSS_IGNORE_INDEX, START_LATENT_TOKEN
 from .exceptions import DataLoadingError, DatasetError, ImageProcessingError
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[st
     prompts = []
     for i, (question, answer) in enumerate(zip(questions, answers)):
         assistant_part = _build_assistant_response(batch[i], answer)
-        prompt = f'<|im_start|>user\n<image>\n{question}<|im_end|><|im_start|>assistant\n'
+        prompt = f'<|im_start|>user\n{IMAGE_TOKEN}\n{question}<|im_end|><|im_start|>assistant\n'
         full_text = f'{prompt}{assistant_part}'
         full_texts.append(full_text)
         prompts.append(prompt)
