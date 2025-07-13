@@ -42,7 +42,11 @@ class LatentWrapper(nn.Module):
 
     def __getattr__(self, name):
         """Delegate all other attributes to the wrapped model."""
-        # Check if model exists and has the requested attribute
-        if hasattr(self, 'model') and hasattr(self.model, name):
-            return getattr(self.model, name)
+        # Use object.__getattribute__ to avoid recursion
+        try:
+            model = object.__getattribute__(self, 'model')
+            if hasattr(model, name):
+                return getattr(model, name)
+        except AttributeError:
+            pass
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
