@@ -21,18 +21,17 @@ class LatentWrapper(nn.Module):
         self.start_id = tokenizer.convert_tokens_to_ids('<|start_latent|>')
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
         self.embedding = base_model.get_input_embeddings()
-        # Mark that initialization is complete
-        self._base_model_initialized = True
 
     def __getattr__(self, name):
         """Delegate attribute access to the base model for compatibility"""
-        # Avoid infinite recursion by checking if we're during initialization
-        if '_base_model_initialized' in self.__dict__ and self.__dict__['_base_model_initialized']:
-            # Use object.__getattribute__ to avoid recursion
+        # Check if we have the base_model attribute first to avoid infinite recursion
+        if hasattr(super(), '__getattribute__'):
             try:
-                base_model = object.__getattribute__(self, 'base_model')
-                return getattr(base_model, name)
-            except AttributeError:
+                # First try to get it from our own __dict__ to avoid any delegation issues
+                if 'base_model' in self.__dict__:
+                    base_model = self.__dict__['base_model']
+                    return getattr(base_model, name)
+            except (AttributeError, KeyError):
                 pass
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
