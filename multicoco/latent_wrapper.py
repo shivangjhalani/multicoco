@@ -12,8 +12,8 @@ class LatentWrapper(nn.Module):
 
     def __init__(self, model: nn.Module, tokenizer):
         super().__init__()
-        # Store the wrapped model and tokenizer
-        self.wrapped_model = model
+        # Store the wrapped model and tokenizer using the same naming as original CoCoNut
+        self.base_causallm = model  # Use same name as original CoCoNut for compatibility
         self.tokenizer = tokenizer
         self.latent_id = self.tokenizer.convert_tokens_to_ids('<|latent|>')
         self.start_id = self.tokenizer.convert_tokens_to_ids('<|start_latent|>')
@@ -23,16 +23,16 @@ class LatentWrapper(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, labels: Optional[torch.Tensor]=None, **kwargs):
         # No injection: Just call base model for end-to-end learning
-        return self.wrapped_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
+        return self.base_causallm(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, pixel_values: Optional[torch.Tensor]=None, **kwargs) -> torch.Tensor:
         # Use InternVL's generate directly (handles multimodal)
-        return self.wrapped_model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+        return self.base_causallm.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
 
     def __getattr__(self, name):
         # Delegate to the wrapped model for attributes not found on this class
-        if name in ['wrapped_model', 'tokenizer']:
+        if name in ['base_causallm', 'tokenizer']:
             return super().__getattribute__(name)
-        if hasattr(self.wrapped_model, name):
-            return getattr(self.wrapped_model, name)
+        if hasattr(self.base_causallm, name):
+            return getattr(self.base_causallm, name)
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
