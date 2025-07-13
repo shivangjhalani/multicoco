@@ -92,10 +92,21 @@ def test_data_pipeline_end_to_end():
         tokenizer.add_special_tokens({'additional_special_tokens': COCONUT_SPECIAL_TOKENS})
         tokenizer.pad_token = tokenizer.eos_token
         
+        # Create mock image processor
+        class MockImageProcessor:
+            def __call__(self, images, return_tensors='pt'):
+                # Return mock pixel values for testing
+                batch_size = len(images) if isinstance(images, list) else 1
+                return type('obj', (object,), {
+                    'pixel_values': torch.randn(batch_size, 3, 224, 224)
+                })()
+        
+        image_processor = MockImageProcessor()
+        
         # Override collate_fn for testing
         def test_collate_fn(batch):
             from multicoco.data import collate_fn
-            return collate_fn(batch, tokenizer)
+            return collate_fn(batch, tokenizer, image_processor)
         
         dataloader = DataLoader(
             dataset,
