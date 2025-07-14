@@ -210,6 +210,11 @@ class LatentWrapper(nn.Module):
         """Access the embedding layer (stored as _embedding_ref to avoid parameter registration)"""
         return getattr(self, '_embedding_ref', None)
 
+    @property
+    def device(self):
+        """Get the device of the underlying model"""
+        return next(self.base_model.parameters()).device
+
     def insert_img_tokens(self, prompt: str, num_image_token: Optional[int] = None) -> str:
         """
         Insert the required IMG_CONTEXT tokens for InternVL compatibility.
