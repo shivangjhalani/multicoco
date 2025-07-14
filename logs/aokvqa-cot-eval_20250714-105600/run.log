@@ -1,0 +1,49 @@
+2025-07-14 10:56:00,187 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-cot-eval_20250714-105600
+2025-07-14 10:56:00,250 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 10:56:00,251 - __main__ - INFO - MultiCoCoRunner initialized for evaluation
+2025-07-14 10:56:00,251 - __main__ - INFO - COT evaluation - no latent tokens added
+2025-07-14 10:56:00,251 - __main__ - INFO - Loading from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 10:56:00,977 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 10:56:00,977 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 10:56:00,977 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 10:56:00,978 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 10:56:00,979 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 10:56:00,979 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 10:56:00,980 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 10:56:00,980 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 10:56:00,980 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 10:56:00,980 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 10:56:02,630 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 10:56:02,630 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 10:56:04,644 - multicoco.model - INFO - No special tokens added - using base tokenizer vocabulary
+2025-07-14 10:56:04,927 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 10:56:04,928 - multicoco.model - INFO - No embedding resize needed - tokenizer size 151674 matches model vocab size 151674
+2025-07-14 10:56:04,930 - multicoco.model - INFO - MultiCoCo model initialized with 938193024 parameters
+2025-07-14 10:56:04,952 - __main__ - INFO - Loading checkpoint from safetensors: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 10:56:06,586 - __main__ - INFO - Successfully loaded model weights from checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 10:56:06,714 - __main__ - INFO - Model initialized from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 10:56:06,715 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 10:56:06,715 - __main__ - INFO - Mode: eval_only, CoCoNut: False
+2025-07-14 10:56:06,721 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 10:56:06,721 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 10:56:06,721 - __main__ - INFO - Evaluation dataset: 20 samples
+2025-07-14 10:56:06,721 - __main__ - INFO - Starting evaluation only...
+2025-07-14 10:56:08,431 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 10:56:08,431 - __main__ - INFO - Trainer created successfully
+2025-07-14 10:56:08,431 - __main__ - INFO - Starting evaluation...
+2025-07-14 10:56:36,901 - multicoco.trainer - INFO - Latency Metrics: Avg=1.3880s, Min=0.5677s, Max=2.3002s, Total=27.76s
+2025-07-14 10:56:36,902 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.75, 'eval_num_samples': 20, 'eval_correct': 15, 'eval/avg_latency_sec': 1.3879524350166321, 'eval/min_latency_sec': 0.5677111148834229, 'eval/max_latency_sec': 2.3001773357391357, 'eval/total_eval_time_sec': 27.75904870033264}
+2025-07-14 10:56:36,902 - multicoco.trainer - INFO - Logging 20 per-sample evaluation details to file...
+2025-07-14 10:56:36,903 - __main__ - INFO - 
+==================================================
+2025-07-14 10:56:36,903 - __main__ - INFO - EVALUATION SUMMARY
+2025-07-14 10:56:36,903 - __main__ - INFO - ==================================================
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval_accuracy: 0.7500
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval_num_samples: 20.0000
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval_correct: 15.0000
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval/avg_latency_sec: 1.3880
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval/min_latency_sec: 0.5677
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval/max_latency_sec: 2.3002
+2025-07-14 10:56:36,903 - __main__ - INFO -   eval/total_eval_time_sec: 27.7590
+2025-07-14 10:56:36,903 - __main__ - INFO - ==================================================
+2025-07-14 10:56:36,903 - __main__ - INFO - MultiCoCo runner cleanup complete
