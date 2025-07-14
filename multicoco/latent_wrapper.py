@@ -1,8 +1,9 @@
 import logging
+import re
 import torch
 import torch.nn as nn
 from typing import List, Optional, Tuple, Dict
-from .constants import COCONUT_SPECIAL_TOKENS
+from .constants import COCONUT_SPECIAL_TOKENS, IMAGE_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,26 @@ class LatentWrapper(nn.Module):
         self.latent_id = tokenizer.convert_tokens_to_ids('<|latent|>')
         self.start_id = tokenizer.convert_tokens_to_ids('<|start_latent|>')
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
-        self.embedding = base_model.get_input_embeddings()
+        # Get embedding layer - handle nested model structure
+        self.embedding = self._get_embedding_layer(base_model)
+
+    def _get_embedding_layer(self, model):
+        """Get the correct embedding layer from potentially nested model structure"""
+        if hasattr(model, 'model') and hasattr(model.model, 'language_model'):
+            # InternVL structure: model.model.language_model.model.embed_tokens
+            return model.model.language_model.model.embed_tokens
+        elif hasattr(model, 'model') and hasattr(model.model, 'embed_tokens'):
+            # Direct access: model.model.embed_tokens  
+            return model.model.embed_tokens
+        elif hasattr(model, 'get_input_embeddings'):
+            # Fallback: use get_input_embeddings method
+            return model.get_input_embeddings()
+        else:
+            # Last resort: try to find embed_tokens attribute
+            for attr_name in ['embed_tokens', 'embeddings', 'word_embeddings']:
+                if hasattr(model, attr_name):
+                    return getattr(model, attr_name)
+            raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
 
     @property
     def image_processor(self):
@@ -45,24 +65,113 @@ class LatentWrapper(nn.Module):
         """Expose the underlying model for compatibility"""
         return self.base_model
 
+    def insert_img_tokens(self, prompt: str, num_image_token: int = 256) -> str:
+        """
+        Insert the required IMG_CONTEXT tokens for InternVL compatibility.
+        
+        Transforms: <img> → <img><IMG_CONTEXT>×num_image_token</img>
+        
+        Args:
+            prompt: Input prompt that may contain <img> tokens
+            num_image_token: Number of IMG_CONTEXT tokens to insert (default: 256)
+            
+        Returns:
+            Fixed prompt with proper image token sequences
+        """
+        ctx = "<IMG_CONTEXT>" * num_image_token
+        
+        # Check if already properly formatted (contains the right number of IMG_CONTEXT tokens)
+        if f'<img>{ctx}</img>' in prompt:
+            return prompt  # Already properly formatted
+        
+        # Handle different patterns that might exist in prompts
+        patterns = [
+            # First handle <img></img> - simple case
+            (r'<img></img>', f'<img>{ctx}</img>'),
+            # Then handle standalone <img> that doesn't have context tokens yet
+            (r'<img>(?!<IMG_CONTEXT>)(?!</img>)', f'<img>{ctx}</img>'),
+            # Handle <img> followed by some but not enough IMG_CONTEXT tokens
+            (r'<img>(<IMG_CONTEXT>*)(?!</img>)', lambda m: f'<img>{ctx}</img>' if len(m.group(1)) != len(ctx) else m.group(0)),
+        ]
+        
+        result = prompt
+        for pattern, replacement in patterns:
+            if callable(replacement):
+                result = re.sub(pattern, replacement, result)
+            else:
+                result = re.sub(pattern, replacement, result)
+        
+        return result
+
     def chat(self, tokenizer, pixel_values: Optional[torch.Tensor] = None, question: str = "", generation_config: Optional[dict] = None, **kwargs):
         """Chat method that handles latent injection when needed"""
-        # Check if we have latent tokens in the question
-        question_tokens = tokenizer.encode(question, add_special_tokens=False)
-        has_latents = self.start_id in question_tokens and self.end_id in question_tokens
-        
-        if not has_latents:
-            # No latent tokens, use base model's chat directly
-            return self.base_model.chat(tokenizer=tokenizer, pixel_values=pixel_values, question=question, generation_config=generation_config, **kwargs)
+        try:
+            # Check if we have latent tokens in the question
+            question_tokens = tokenizer.encode(question, add_special_tokens=False)
+            has_latents = self.start_id in question_tokens and self.end_id in question_tokens
+            
+            logger.debug(f"LatentWrapper.chat: has_latents={has_latents}, question_len={len(question)}")
+            logger.debug(f"LatentWrapper.chat: pixel_values shape={pixel_values.shape if pixel_values is not None else None}")
+            
+            # DEBUG: Log detailed tensor information
+            if pixel_values is not None:
+                logger.debug(f"LatentWrapper.chat: pixel_values dtype={pixel_values.dtype}")
+                logger.debug(f"LatentWrapper.chat: pixel_values device={pixel_values.device}")
+                logger.debug(f"LatentWrapper.chat: base_model dtype={next(self.base_model.parameters()).dtype}")
+                logger.debug(f"LatentWrapper.chat: base_model device={next(self.base_model.parameters()).device}")
+            
+            # RESTORED: Latent injection logic now that shape mismatch is fixed
+            if not has_latents:
+                # No latent tokens, use base model's chat directly
+                logger.debug("LatentWrapper.chat: Using base model chat (no latents)")
+                if pixel_values is not None:
+                    # Ensure pixel_values has correct dtype and device
+                    model_dtype = next(self.base_model.parameters()).dtype
+                    model_device = next(self.base_model.parameters()).device
+                    pixel_values = pixel_values.to(dtype=model_dtype, device=model_device)
+                    
+                return self.base_model.chat(tokenizer=tokenizer, pixel_values=pixel_values, question=question, generation_config=generation_config, **kwargs)
+            else:
+                # Has latent tokens - use our custom generation with latent injection
+                logger.debug("LatentWrapper.chat: Using latent injection mode")
+                
+                # Ensure pixel_values has correct dtype and device
+                if pixel_values is not None:
+                    model_dtype = next(self.base_model.parameters()).dtype
+                    model_device = next(self.base_model.parameters()).device
+                    pixel_values = pixel_values.to(dtype=model_dtype, device=model_device)
+        except Exception as e:
+            logger.error(f"LatentWrapper.chat: Error in chat method: {e}")
+            logger.error(f"LatentWrapper.chat: pixel_values shape: {pixel_values.shape if pixel_values is not None else None}")
+            logger.error(f"LatentWrapper.chat: question length: {len(question) if question else 0}")
+            raise
         
         # Has latent tokens, need custom generation with latent injection
         # Convert chat interface to generate interface
         if pixel_values is not None:
-            # For multimodal input, we need to format the question properly
-            # This mimics what InternVL's chat method does internally
-            formatted_question = f"<image>\n{question}"
-            input_ids = tokenizer.encode(formatted_question, add_special_tokens=True, return_tensors="pt")
+            # CRITICAL FIX: Use InternVL's native conversation template and proper image token expansion
+            # This ensures proper image placeholder handling and avoids shape mismatch
             
+            # Ensure question has proper image token structure using our utility
+            question = question.strip()
+            if '<img>' not in question and '</img>' not in question:
+                question = f"<img></img>\n{question}"
+            
+            # Fix any incomplete image tokens using our utility method
+            question = self.insert_img_tokens(question)
+            
+            # Use InternVL's conversation template if available
+            if hasattr(self.base_model, 'conv_template'):
+                # Use the model's native conversation template
+                formatted_prompt = self.base_model.conv_template.get_prompt(question)
+            else:
+                # Fallback to manual template construction
+                formatted_prompt = f"<|im_start|>user\n{question}<|im_end|>\n<|im_start|>assistant\n"
+            
+            # Tokenize the full conversation template with proper expansion
+            input_ids = tokenizer.encode(formatted_prompt, add_special_tokens=False, return_tensors="pt")
+            
+            # Keep pixel_values - let InternVL handle the image token expansion
             if pixel_values.dim() == 3:
                 pixel_values = pixel_values.unsqueeze(0)
             
@@ -81,8 +190,16 @@ class LatentWrapper(nn.Module):
             response = tokenizer.decode(generated_tokens[0], skip_special_tokens=True).strip()
             return response
         else:
-            # Text-only generation
-            input_ids = tokenizer.encode(question, add_special_tokens=True, return_tensors="pt")
+            # Text-only generation with proper conversation template
+            # Use InternVL's conversation template for consistency
+            if hasattr(self.base_model, 'conv_template'):
+                # Use the model's native conversation template
+                formatted_prompt = self.base_model.conv_template.get_prompt(question)
+            else:
+                # Fallback to manual template construction
+                formatted_prompt = f"<|im_start|>user\n{question}<|im_end|>\n<|im_start|>assistant\n"
+            
+            input_ids = tokenizer.encode(formatted_prompt, add_special_tokens=False, return_tensors="pt")
             generation_config = generation_config or {}
             
             generated_ids = self.generate(
@@ -97,8 +214,38 @@ class LatentWrapper(nn.Module):
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
         """Generate with proper latent injection support"""
-        if not self._has_latent_spans(input_ids):
-            return self.base_model.generate(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs)
+        # CRITICAL DEBUG: Check if we have latent spans
+        has_latent_spans = self._has_latent_spans(input_ids)
+        logger.debug(f"LatentWrapper.generate: has_latent_spans={has_latent_spans}")
+        logger.debug(f"LatentWrapper.generate: input_ids.shape={input_ids.shape}")
+        logger.debug(f"LatentWrapper.generate: pixel_values.shape={pixel_values.shape if pixel_values is not None else None}")
+        
+        if not has_latent_spans:
+            # No latent spans - delegate directly to base model with EXACT same interface
+            logger.debug("LatentWrapper.generate: No latent spans detected, delegating to base model")
+            try:
+                # CRITICAL FIX: Ensure proper device and dtype alignment for InternVL
+                if pixel_values is not None:
+                    model_dtype = next(self.base_model.parameters()).dtype
+                    model_device = next(self.base_model.parameters()).device
+                    pixel_values = pixel_values.to(dtype=model_dtype, device=model_device)
+                    input_ids = input_ids.to(device=model_device)
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(device=model_device)
+                
+                return self.base_model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    pixel_values=pixel_values,
+                    **kwargs
+                )
+            except Exception as e:
+                logger.error(f"LatentWrapper.generate: Base model delegation failed: {e}")
+                logger.error(f"LatentWrapper.generate: This suggests the issue is in the base model, not LatentWrapper")
+                raise
+        
+        # Has latent spans - use our custom latent injection logic
+        logger.debug("LatentWrapper.generate: Latent spans detected, using custom generation")
         
         # Extract generation parameters from kwargs
         max_new_tokens = kwargs.get('max_new_tokens', kwargs.get('max_length', 50))
@@ -384,8 +531,42 @@ class LatentWrapper(nn.Module):
         """
         Build modified embeddings with sequential latent processing.
         Fix: Each latent token gets the hidden state from the previous position (not repeated).
+        Fix: Handle dimension mismatch between hidden states and embeddings with proper projection.
         """
         inputs_embeds = self.embedding(input_ids).clone()
+        
+        # Debug: Log tensor shapes to help diagnose issues
+        logger.debug(f"inputs_embeds shape: {inputs_embeds.shape}")
+        logger.debug(f"last_hidden shape: {last_hidden.shape}")
+        logger.debug(f"Number of latent spans: {sum(len(span_pairs) for span_pairs in spans)}")
+        
+        # Check if we need projection between hidden states and embeddings
+        hidden_dim = last_hidden.shape[-1]
+        embed_dim = inputs_embeds.shape[-1]
+        needs_projection = hidden_dim != embed_dim
+        
+        if needs_projection:
+            logger.info(f"Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
+            logger.info("Creating projection layer for latent injection")
+            
+            # Create or get projection layer
+            if not hasattr(self, '_hidden_to_embed_proj'):
+                self._hidden_to_embed_proj = nn.Linear(hidden_dim, embed_dim, bias=False)
+                # Initialize with small weights to preserve stability
+                nn.init.normal_(self._hidden_to_embed_proj.weight, std=0.02)
+                # Move to same device as model
+                self._hidden_to_embed_proj = self._hidden_to_embed_proj.to(
+                    device=last_hidden.device, 
+                    dtype=last_hidden.dtype
+                )
+                logger.info(f"Created projection layer: {hidden_dim} -> {embed_dim}")
+            
+            # Ensure projection layer is on correct device
+            if self._hidden_to_embed_proj.weight.device != last_hidden.device:
+                self._hidden_to_embed_proj = self._hidden_to_embed_proj.to(
+                    device=last_hidden.device, 
+                    dtype=last_hidden.dtype
+                )
         
         for batch_idx, span_pairs in enumerate(spans):
             for start, end in span_pairs:
@@ -396,8 +577,70 @@ class LatentWrapper(nn.Module):
                 for pos in range(start + 1, end):  # Skip start/end markers, only process actual latent tokens
                     # Each latent token gets hidden state from the immediately previous position
                     source_pos = pos - 1
-                    if source_pos < last_hidden.shape[1]:
-                        inputs_embeds[batch_idx, pos] = last_hidden[batch_idx, source_pos]
+                    if source_pos < last_hidden.shape[1] and pos < inputs_embeds.shape[1]:
+                        try:
+                            # Extract hidden state with robust shape handling
+                            hidden_state = last_hidden[batch_idx, source_pos]
+                            
+                            # Debug: Log the shape we got
+                            logger.debug(f"Extracted hidden_state shape: {hidden_state.shape}, expected 1D with dim {hidden_dim}")
+                            
+                            # Handle unexpected shapes more robustly
+                            if hidden_state.dim() == 0:
+                                # Scalar - shouldn't happen but handle it
+                                logger.error(f"Got scalar hidden state at pos {pos}, skipping injection")
+                                continue
+                            elif hidden_state.dim() == 1:
+                                # Expected case: 1D vector of hidden states
+                                if hidden_state.shape[0] != hidden_dim:
+                                    logger.error(f"Hidden state size {hidden_state.shape[0]} doesn't match expected {hidden_dim}, skipping injection")
+                                    continue
+                            elif hidden_state.dim() == 2:
+                                # Unexpected 2D tensor - flatten or take first row
+                                logger.warning(f"Got 2D hidden state {hidden_state.shape}, flattening")
+                                if hidden_state.shape[0] == 1:
+                                    # Shape [1, hidden_dim] - squeeze out the first dimension
+                                    hidden_state = hidden_state.squeeze(0)
+                                elif hidden_state.shape[1] == 1:
+                                    # Shape [hidden_dim, 1] - squeeze out the second dimension
+                                    hidden_state = hidden_state.squeeze(1)
+                                else:
+                                    # Complex 2D shape - this shouldn't happen, skip injection
+                                    logger.error(f"Cannot handle 2D hidden state shape {hidden_state.shape}, skipping injection")
+                                    continue
+                            else:
+                                # Higher dimensional tensor - definitely shouldn't happen
+                                logger.error(f"Got {hidden_state.dim()}D hidden state {hidden_state.shape}, skipping injection")
+                                continue
+                            
+                            # Ensure we now have a 1D tensor
+                            if hidden_state.dim() != 1:
+                                logger.error(f"After reshaping, hidden state is still not 1D: {hidden_state.shape}, skipping injection")
+                                continue
+                            
+                            # Apply projection if needed
+                            if needs_projection:
+                                hidden_state = self._hidden_to_embed_proj(hidden_state.unsqueeze(0)).squeeze(0)
+                            
+                            # Final validation before assignment
+                            target_embedding = inputs_embeds[batch_idx, pos]
+                            if hidden_state.shape != target_embedding.shape:
+                                logger.error(f"Shape mismatch: hidden_state.shape={hidden_state.shape}, target_embedding.shape={target_embedding.shape}, skipping injection")
+                                continue
+                            
+                            # Safe assignment
+                            inputs_embeds[batch_idx, pos] = hidden_state
+                            
+                        except Exception as e:
+                            logger.error(f"Error injecting latent token at pos {pos}: {e}")
+                            logger.error(f"  last_hidden shape: {last_hidden.shape}")
+                            logger.error(f"  batch_idx: {batch_idx}, source_pos: {source_pos}")
+                            logger.error(f"  hidden_state shape: {hidden_state.shape if 'hidden_state' in locals() else 'not extracted'}")
+                            logger.error(f"  target embedding shape: {inputs_embeds[batch_idx, pos].shape}")
+                            # Skip this injection and continue
+                            continue
+                    else:
+                        logger.warning(f"Index out of bounds: source_pos={source_pos}, pos={pos}, last_hidden.shape[1]={last_hidden.shape[1]}, inputs_embeds.shape[1]={inputs_embeds.shape[1]}")
         
         return inputs_embeds
 
@@ -448,6 +691,10 @@ class LatentWrapper(nn.Module):
                 output_hidden_states=True
             )
             hidden_states = first_out.hidden_states[-1]
+            
+            # Debug: Log the shape of hidden states to understand the issue
+            logger.debug(f"First pass hidden_states shape: {hidden_states.shape}")
+            logger.debug(f"Expected shape: [batch_size={input_ids.shape[0]}, seq_len={input_ids.shape[1]}, hidden_dim]")
             
             if self.enable_norm_logging and img_token_positions is not None and image_embeds is not None:
                 self._log_vision_text_norms(hidden_states, img_token_positions)
