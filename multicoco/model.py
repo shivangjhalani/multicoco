@@ -30,7 +30,15 @@ class MultiCoCo(nn.Module):
         super().__init__()
         special_tokens = special_tokens or []
         try:
-            self.model, self.tokenizer, self.image_processor = self._initialize_components(model_id, config_id, tokenizer_id, image_processor_id, special_tokens, torch_dtype, trust_remote_code, low_cpu_mem_usage)
+            # Initialize all components
+            model, tokenizer, image_processor = self._initialize_components(model_id, config_id, tokenizer_id, image_processor_id, special_tokens, torch_dtype, trust_remote_code, low_cpu_mem_usage)
+            
+            # Assign self.model FIRST before calling methods that depend on it
+            self.model = model
+            self.tokenizer = tokenizer
+            self.image_processor = image_processor
+            
+            # Now we can safely call methods that use self.model
             self._resize_special_token_embeddings()
             self._setup_special_tokens()
         except Exception as e:
