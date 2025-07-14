@@ -44,36 +44,21 @@ def debug_internvl_dimensions():
     # Test vision processing
     print("\n=== Vision Processing Debug ===")
     with torch.no_grad():
-        try:
-            # Skip the potentially hanging extract_feature for now
-            print("Skipping model.extract_feature() - testing vision_model directly...")
-            
-            # Test vision model directly first
-            print("Calling vision_model directly...")
-            vision_outputs = model.vision_model(dummy_image, output_hidden_states=True)
-            raw_vision = vision_outputs.last_hidden_state
-            print(f"Raw vision output shape: {raw_vision.shape}")
-            
-            # Test mlp1 projector manually
-            print("\nTesting mlp1 projector manually...")
-            if hasattr(model, 'mlp1'):
-                print(f"MLP1 input expected: {model.mlp1[0].normalized_shape}")
-                # Flatten vision features for MLP1
-                B, L, C = raw_vision.shape
-                # Vision model output needs to be flattened and projected
-                flattened_vision = raw_vision.view(B, -1)  # Flatten spatial dimensions
-                print(f"Flattened vision shape: {flattened_vision.shape}")
-                
-                # The mlp1 expects 4096 input, but we have different dimensions
-                # This explains the dimension mismatch!
-                print(f"MLP1 expected input: 4096, got: {flattened_vision.shape[-1]}")
-            else:
-                print("No mlp1 found in model")
-                
-        except Exception as e:
-            print(f"Error in vision processing: {e}")
-            import traceback
-            traceback.print_exc()
+        # Extract vision features using model's method
+        print("Calling model.extract_feature(pixel_values)...")
+        vision_features = model.extract_feature(dummy_image)
+        print(f"Vision features shape: {vision_features.shape}")
+        print(f"Vision features dtype: {vision_features.dtype}")
+        
+        # Test vision model directly
+        print("\nCalling vision_model directly...")
+        vision_outputs = model.vision_model(dummy_image, output_hidden_states=True)
+        raw_vision = vision_outputs.last_hidden_state
+        print(f"Raw vision output shape: {raw_vision.shape}")
+        
+        # Test mlp1 projector
+        print("\nTesting mlp1 projector...")
+        # The extract_feature method should handle the projection
         
     # Test language model embeddings
     print("\n=== Language Model Debug ===")
@@ -130,11 +115,7 @@ def debug_internvl_dimensions():
     print("\n=== CoCoNut Dimension Analysis ===")
     with torch.no_grad():
         try:
-            # Test the exact scenario from CoCoNut with special tokens
-            # First add the special tokens to the tokenizer
-            special_tokens = ['<|start-latent|>', '<|latent|>', '<|end-latent|>']
-            tokenizer.add_tokens(special_tokens)
-            
+            # Test the exact scenario from CoCoNut
             simple_text = "Test <|start-latent|> <|latent|> <|latent|> <|end-latent|> done"
             simple_ids = tokenizer.encode(simple_text, return_tensors="pt")
             print(f"CoCoNut test input shape: {simple_ids.shape}")
@@ -155,59 +136,15 @@ def debug_internvl_dimensions():
                 print(f"✗ CoCoNut dimension mismatch: embeds={coconut_embeds.shape[-1]}, hidden={coconut_hidden_states.shape[-1]}")
                 print("This explains the test failure!")
                 
-            # CRITICAL: Test with the actual MultiCoCo wrapper to see where 2048 comes from
-            print("\n=== Testing with MultiCoCo wrapper ===")
-            try:
-                # Import MultiCoCo to see what happens
-                import sys
-                sys.path.append('/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco')
-                from multicoco.model import MultiCoCo
-                from multicoco.constants import COCONUT_SPECIAL_TOKENS
+                # Suggest fix
+                print("\n=== Suggested Fix ===")
+                print("The issue is that InternVL3-1B uses Qwen2 language model internally.")
+                print("Hidden states might be from a different layer or need projection.")
+                print("Need to check the exact layer structure...")
                 
-                print("Creating MultiCoCo model...")
-                multicoco_model = MultiCoCo(
-                    model_id='OpenGVLab/InternVL3-1B-Pretrained',
-                    special_tokens=COCONUT_SPECIAL_TOKENS,
-                    torch_dtype='bfloat16'
-                )
-                
-                # Test the same scenario
-                test_text = "Test <|start-latent|> <|latent|> <|latent|> <|end-latent|> done"
-                test_ids = multicoco_model.tokenizer.encode(test_text, return_tensors="pt")
-                print(f"MultiCoCo test input shape: {test_ids.shape}")
-                
-                # Get embeddings from MultiCoCo
-                multicoco_embeds = multicoco_model.language_model.model.embed_tokens(test_ids)
-                print(f"MultiCoCo embeddings shape: {multicoco_embeds.shape}")
-                
-                # Get hidden states from MultiCoCo
-                multicoco_hidden = multicoco_model.language_model.model(input_ids=test_ids, output_hidden_states=True)
-                multicoco_hidden_states = multicoco_hidden.hidden_states[-1]
-                print(f"MultiCoCo hidden states shape: {multicoco_hidden_states.shape}")
-                
-                # Check for the 2048 dimension
-                if multicoco_hidden_states.shape[-1] == 2048:
-                    print("🔍 FOUND IT! Hidden states are 2048 dimensions in MultiCoCo")
-                    print("This means MultiCoCo is using a different model configuration!")
-                    
-                    # Check if there's a different language model path being used
-                    print(f"MultiCoCo language model type: {type(multicoco_model.language_model)}")
-                    print(f"Raw model language model type: {type(model.language_model)}")
-                    
-                    # Check configs
-                    print(f"MultiCoCo LM hidden size: {multicoco_model.language_model.config.hidden_size}")
-                    print(f"Raw model LM hidden size: {model.language_model.config.hidden_size}")
-                    
-                elif multicoco_hidden_states.shape[-1] == 896:
-                    print("Hidden states are 896 dimensions in MultiCoCo - same as raw model")
-                    print("The 2048 dimension must come from somewhere else...")
-                else:
-                    print(f"MultiCoCo hidden states have unexpected dimension: {multicoco_hidden_states.shape[-1]}")
-                
-            except Exception as e:
-                print(f"Error testing MultiCoCo: {e}")
-                import traceback
-                traceback.print_exc()
+                # Inspect the language model layers
+                print(f"Language model type: {type(model.language_model)}")
+                print(f"Language model layers: {list(model.language_model.named_children())}")
                 
         except Exception as e:
             print(f"Error in CoCoNut analysis: {e}")
