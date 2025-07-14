@@ -735,6 +735,30 @@ class LatentWrapper(nn.Module):
         
         return result
     
+    def _fallback_forward_without_latents(self, inputs_embeds: torch.Tensor, attention_mask: Optional[torch.Tensor], labels: Optional[torch.Tensor], **kwargs):
+        """
+        Fallback forward pass without latent injection when sequence length changes.
+        
+        This is used when multimodal processing changes the sequence length, making 
+        latent injection impossible with the current algorithm.
+        """
+        # Clean kwargs to avoid conflicts with GPT-2 model
+        # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
+        safe_kwargs = {}
+        allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+        for key in allowed_keys:
+            if key in kwargs and kwargs[key] is not None:
+                safe_kwargs[key] = kwargs[key]
+        
+        # Use the language model directly for InternVL
+        return self._call_model_with_embeds_internvl_safe(
+            inputs_embeds,
+            attention_mask=attention_mask,
+            labels=labels,
+            output_hidden_states=True,
+            **safe_kwargs
+        )
+
     def _sequential_latent_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor], spans: List[List[Tuple[int, int]]], **kwargs):
         """
         Iterative multi-pass processing following original coconut algorithm.
@@ -768,15 +792,17 @@ class LatentWrapper(nn.Module):
             inputs_embeds = self._prepare_inputs_for_multimodal_internvl(input_ids, image_embeds, inputs_embeds)
             # CRITICAL: The sequence length may have changed after multimodal processing
             actual_seq_len = inputs_embeds.shape[1]
-            logger.debug(f"Sequence length change: original={original_seq_len}, after_multimodal={actual_seq_len}")
+            logger.debug(f"Sequence length check: original={original_seq_len}, after_multimodal={actual_seq_len}")
             
             # If sequence length changed, we need to adjust our latent positions
             if actual_seq_len != original_seq_len:
                 logger.warning(f"Multimodal processing changed sequence length from {original_seq_len} to {actual_seq_len}")
-                logger.warning("Latent injection may not work correctly with sequence length changes")
+                logger.warning("Using fallback forward without latent injection due to sequence length mismatch")
                 # For now, fall back to standard processing without latent injection
                 # This prevents crashes but means latent reasoning won't work for this sample
                 return self._fallback_forward_without_latents(inputs_embeds, attention_mask, labels, **kwargs)
+            else:
+                logger.debug(f"Sequence length unchanged after multimodal processing: {actual_seq_len}")
         
         # Initialize compute range and cache (CORRECTED: Match original coconut exactly)
         if max_n_latents > 0:
@@ -784,6 +810,13 @@ class LatentWrapper(nn.Module):
             # This ensures the first pass includes all tokens up to the first latent token
             earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else inputs_embeds.shape[1]
             next_compute_range = (0, min(earliest_latent_pos, inputs_embeds.shape[1]))
+            
+            logger.info(f"Compute range initialization:")
+            logger.info(f"  max_n_latents: {max_n_latents}")
+            logger.info(f"  earliest_latent_pos: {earliest_latent_pos}")
+            logger.info(f"  inputs_embeds.shape[1]: {inputs_embeds.shape[1]}")
+            logger.info(f"  initial next_compute_range: {next_compute_range}")
+            logger.info(f"  latent_lists: {latent_lists}")
         else:
             next_compute_range = (0, inputs_embeds.shape[1])
         
@@ -792,7 +825,7 @@ class LatentWrapper(nn.Module):
         
         # Multi-pass processing with improved KV cache management
         for pass_idx in range(max_n_latents):
-            logger.debug(f"Coconut pass {pass_idx}/{max_n_latents}, compute_range: {next_compute_range}")
+            logger.info(f"Coconut pass {pass_idx}/{max_n_latents}, compute_range: {next_compute_range}")
             
             # Forward pass with current compute range
             if kv_cache is None:
