@@ -68,7 +68,7 @@ class LatentWrapper(nn.Module):
         """Expose the underlying model for compatibility"""
         return self.base_model
 
-    def insert_img_tokens(self, prompt: str, num_image_token: int = 256) -> str:
+    def insert_img_tokens(self, prompt: str, num_image_token: Optional[int] = None) -> str:
         """
         Insert the required IMG_CONTEXT tokens for InternVL compatibility.
         
@@ -76,11 +76,15 @@ class LatentWrapper(nn.Module):
         
         Args:
             prompt: Input prompt that may contain <img> tokens
-            num_image_token: Number of IMG_CONTEXT tokens to insert (default: 256)
+            num_image_token: Number of IMG_CONTEXT tokens to insert. If None, uses model's num_image_token
             
         Returns:
             Fixed prompt with proper image token sequences
         """
+        # Use model's calculated num_image_token if not provided
+        if num_image_token is None:
+            num_image_token = getattr(self.base_model, 'num_image_token', 256)
+        
         ctx = "<IMG_CONTEXT>" * num_image_token
         
         # Check if already properly formatted (contains the right number of IMG_CONTEXT tokens)

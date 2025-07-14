@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Dict, List
 END_LATENT_TOKEN = '<|end_latent|>'
 IMAGE_TOKEN = '<img>'
-IMG_CONTEXT_TOKEN = '<img>'
+IMG_CONTEXT_TOKEN = '<IMG_CONTEXT>'  # Fixed: This should be the actual IMG_CONTEXT token
 LATENT_TOKEN = '<|latent|>'
 START_LATENT_TOKEN = '<|start_latent|>'
 CHAT_START_TOKEN = '<|im_start|>'
