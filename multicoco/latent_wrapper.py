@@ -926,6 +926,33 @@ class LatentWrapper(nn.Module):
             spans.append(sample_spans)
         return spans
 
+    def _convert_spans_to_latent_lists(self, spans: List[List[Tuple[int, int]]], seq_length: int) -> List[List[int]]:
+        """
+        Convert latent spans to lists of individual latent token positions.
+        
+        Args:
+            spans: List of spans for each batch item, where each span is (start, end)
+            seq_length: Length of the input sequence
+            
+        Returns:
+            List of latent token position lists for each batch item
+            
+        Example:
+            spans = [[(3, 6), (9, 11)]] -> latent_lists = [[4, 5, 10]]
+            (Positions 4,5 from span (3,6) and position 10 from span (9,11))
+        """
+        latent_lists = []
+        for batch_spans in spans:
+            latent_positions = []
+            for start, end in batch_spans:
+                # Extract positions between start and end (exclusive of start and end markers)
+                # This follows the original coconut pattern where latent tokens are between markers
+                for pos in range(start + 1, end):
+                    if pos < seq_length:  # Ensure we don't go out of bounds
+                        latent_positions.append(pos)
+            latent_lists.append(latent_positions)
+        return latent_lists
+
     def _compute_vision_embeddings(self, pixel_values: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         """Compute vision embeddings using InternVL's vision tower and projector"""
         if image_embeds is not None:
