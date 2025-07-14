@@ -273,11 +273,17 @@ def test_generation():
         normal_text = "Question: What is 2+2? Answer:"
         normal_ids = torch.tensor([model.tokenizer.encode(normal_text, add_special_tokens=False)])
         
+        # Create proper attention mask
+        attention_mask = torch.ones_like(normal_ids)
+        
         with torch.no_grad():
             generated = latent_model.generate(
                 input_ids=normal_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=5,
-                do_sample=False
+                do_sample=False,
+                pad_token_id=model.tokenizer.eos_token_id,
+                eos_token_id=model.tokenizer.eos_token_id
             )
         
         assert generated.shape[0] == 1, f"Wrong batch size: {generated.shape[0]}"
@@ -290,11 +296,17 @@ def test_generation():
         latent_text = "Question: <|start-latent|> <|latent|> <|end-latent|> Answer:"
         latent_ids = torch.tensor([model.tokenizer.encode(latent_text, add_special_tokens=False)])
         
+        # Create proper attention mask for latent test
+        latent_attention_mask = torch.ones_like(latent_ids)
+        
         with torch.no_grad():
             latent_generated = latent_model.generate(
                 input_ids=latent_ids,
+                attention_mask=latent_attention_mask,
                 max_new_tokens=5,
-                do_sample=False
+                do_sample=False,
+                pad_token_id=model.tokenizer.eos_token_id,
+                eos_token_id=model.tokenizer.eos_token_id
             )
         
         assert latent_generated.shape[0] == 1, f"Wrong batch size: {latent_generated.shape[0]}"
