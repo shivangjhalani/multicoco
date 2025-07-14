@@ -1027,20 +1027,23 @@ class LatentWrapper(nn.Module):
         CRITICAL FIX: Handle state_dict saving with proper detachment to avoid shared memory warnings.
         This allows us to use the original embedding layer during training (ensuring consistent embedding space)
         while properly handling state_dict saving.
+        
+        The key insight: We exclude 'embedding' from LatentWrapper's state_dict since it's just a reference
+        to the base model's embedding layer, which is already saved in base_model's state_dict.
         """
         # Get the standard state_dict from parent
         if destination is None:
             destination = {}
             
         # Save LatentWrapper-specific parameters (e.g., projection layers)
+        # CRITICAL: Exclude 'embedding' to avoid shared memory duplication
         for name, param in self.named_parameters(recurse=False):
-            if param is not None:
+            if param is not None and name != 'embedding':
                 destination[prefix + name] = param if keep_vars else param.detach()
         
-        # Save base_model state_dict recursively but handle embedding properly
+        # Save base_model state_dict recursively 
         for name, module in self.named_children():
             if name == 'base_model':
-                # Save base model but handle the embedding layer carefully
                 module.state_dict(destination, prefix + name + '.', keep_vars)
             else:
                 # For other modules, use standard approach
@@ -1051,6 +1054,9 @@ class LatentWrapper(nn.Module):
     def load_state_dict(self, state_dict, strict=True):
         """
         CRITICAL FIX: Handle state_dict loading while maintaining embedding layer consistency.
+        
+        Since we don't save the 'embedding' parameter in state_dict (it's just a reference to 
+        base_model's embedding), we need to restore it after loading.
         """
         # Load base model first
         base_model_state = {}
@@ -1062,7 +1068,9 @@ class LatentWrapper(nn.Module):
                 base_model_key = key[len('base_model.'):]
                 base_model_state[base_model_key] = value
             else:
-                latent_wrapper_state[key] = value
+                # Skip 'embedding' if it somehow exists in state_dict (shouldn't happen with our new approach)
+                if key != 'embedding':
+                    latent_wrapper_state[key] = value
         
         # Load base model state
         if base_model_state:
@@ -1080,7 +1088,8 @@ class LatentWrapper(nn.Module):
             if unexpected_keys and strict:
                 logger.warning(f"Unexpected keys when loading LatentWrapper: {unexpected_keys}")
         
-        # After loading, ensure embedding layer is correctly set
+        # CRITICAL: Always reinitialize embedding layer to point to base_model's embedding
+        # This ensures consistency regardless of what was in the saved state_dict
         self.embedding = self._get_embedding_layer(self.base_model)
         logger.info("Reinitialized embedding layer after state_dict loading to maintain consistency")
         
