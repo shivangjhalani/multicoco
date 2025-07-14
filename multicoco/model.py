@@ -154,7 +154,7 @@ class MultiCoCo(nn.Module):
         elif hasattr(self, '_modules') and 'model' in self._modules and self._modules['model'] is not None:
             model_obj = self._modules['model']
         
-        # For 'model' attribute specifically, return it directly if found in _modules
+        # For 'model' attribute specifically, return it directly if found
         if name == 'model' and model_obj is not None:
             return model_obj
         
