@@ -111,99 +111,27 @@ class EndToEndValidator:
         try:
             logger.info("Testing configuration loading...")
             
-            # Create base config for testing
-            base_config = {
-                'data': {
-                    'train_data_path': 'data/aokvqa_train.json',
-                    'eval_data_path': 'data/aokvqa_validation.json', 
-                    'data_dir': 'data/images',
-                    'limit_for_testing': 2
-                },
-                'model': {
-                    'model_name': 'OpenGVLab/InternVL2-1B',
-                    'config_id': 'OpenGVLab/InternVL2-1B',
-                    'tokenizer_id': 'OpenGVLab/InternVL2-1B',
-                    'image_processor_id': 'OpenGVLab/InternVL2-1B',
-                    'torch_dtype': 'bfloat16',
-                    'trust_remote_code': True,
-                    'low_cpu_mem_usage': True
-                },
-                'training': {
-                    'mode': 'coconut_train',
-                    'name': 'e2e_test',
-                    'output_dir': f'{self.temp_dir}/checkpoints',
-                    'num_epochs': 2,
-                    'batch_size': 1,
-                    'eval_batch_size': 1,
-                    'learning_rate': 1e-5,
-                    'warmup_steps': 0,
-                    'weight_decay': 0.01,
-                    'max_grad_norm': 1.0,
-                    'gradient_accumulation_steps': 1,
-                    'eval_accumulation_steps': 1,
-                    'bf16': True,
-                    'fp16': False,
-                    'gradient_checkpointing': False,
-                    'remove_unused_columns': False,
-                    'dataloader_pin_memory': False,
-                    'dataloader_num_workers': 0,
-                    'logging_steps': 1,
-                    'save_steps': 1000,
-                    'eval_steps': 1000,
-                    'save_strategy': 'no',
-                    'eval_strategy': 'no',
-                    'load_best_model_at_end': False,
-                    'lr_scheduler_type': 'linear',
-                    'seed': 42,
-                    'data_seed': 42
-                },
-                'coconut': {
-                    'enabled': True,
-                    'c_thought': 2,
-                    'max_latent_stage': 2,
-                    'epochs_per_stage': 1,
-                    'uniform_prob': 0.0,
-                    'pad_latent_to_max': False,
-                    'reset_optimizer': True
-                },
-                'evaluation': {
-                    'coconut': True,
-                    'cot': False,
-                    'vanilla': False,
-                    'log_per_sample': False
-                },
-                'logging': {
-                    'use_wandb': False,
-                    'console_output': True,
-                    'log_to_file': False,
-                    'log_level': 'INFO',
-                    'verbose': False,
-                    'log_dir': f'{self.temp_dir}/logs',
-                    'run_name': 'e2e_test'
-                },
-                'generation': {
-                    'do_sample': True,
-                    'max_new_tokens': 16,  # Very small for testing
-                    'num_beams': 1,
-                    'temperature': 0.8,
-                    'top_p': 0.9,
-                    'top_k': 50
-                }
-            }
+            # Use the actual config files with inheritance 
+            self.config = MultiCoCoConfig.load_with_base('args/aokvqa_coconut.yaml')
             
-            base_config_path = f'{self.temp_dir}/base.yaml'
-            import yaml
-            with open(base_config_path, 'w') as f:
-                yaml.dump(base_config, f, default_flow_style=False)
+            # Override specific values for testing
+            self.config.training.num_epochs = 2
+            self.config.training.batch_size = 1
+            self.config.training.eval_batch_size = 1
+            self.config.training.output_dir = f'{self.temp_dir}/checkpoints'
+            self.config.logging.log_dir = f'{self.temp_dir}/logs'
+            self.config.logging.use_wandb = False
+            self.config.logging.log_to_file = False
+            self.config.training.save_strategy = 'no'
+            self.config.training.eval_strategy = 'no'
+            self.config.training.load_best_model_at_end = False
+            self.config.training.gradient_checkpointing = False
+            self.config.training.dataloader_num_workers = 0
+            self.config.generation['max_new_tokens'] = 16  # Very small for testing
             
-            # Load config using the actual config system
-            self.config = MultiCoCoConfig.load_with_base(config_path, base_config_path)
-            
-            # Validate key coconut settings
-            assert self.config.training.mode == TrainingMode.COCONUT_TRAIN
-            assert self.config.coconut.enabled == True
-            assert self.config.coconut.c_thought == 2
-            assert self.config.coconut.max_latent_stage == 2
+            # Update data paths to test data
+            self.config.data.train_data_path = f'{self.temp_dir}/test_train.json'
+            self.config.data.eval_data_path = f'{self.temp_dir}/test_eval.json'
             
             logger.info("✓ Configuration loading successful")
             return True

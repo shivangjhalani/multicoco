@@ -46,10 +46,19 @@ class MultiCoCo(nn.Module):
         param_count = sum((p.numel() for p in self.model.parameters()))
         logger.info(f'MultiCoCo model initialized with {param_count} parameters')
 
-    def _initialize_components(self, model_id: str, config_id: Optional[str], tokenizer_id: Optional[str], image_processor_id: Optional[str], special_tokens: List[str], torch_dtype: str, trust_remote_code: bool, low_cpu_mem_usage: bool) -> tuple[nn.Module, AutoTokenizer, AutoImageProcessor]:
+    def _initialize_components(self, model_id: str, config_id: Optional[str], tokenizer_id: Optional[str], image_processor_id: Optional[str], special_tokens: List[str], torch_dtype: str, trust_remote_code: bool, low_cpu_mem_usage: bool) -> tuple[nn.Module, AutoTokenizer, Optional[AutoImageProcessor]]:
         model = self._create_model(model_id, config_id, torch_dtype, trust_remote_code, low_cpu_mem_usage)
         tokenizer = self._create_tokenizer(tokenizer_id or model_id, special_tokens)
-        image_processor = AutoImageProcessor.from_pretrained(image_processor_id or model_id, trust_remote_code=True, use_fast=True)
+        
+        # Try to load image processor, but handle text-only models gracefully
+        image_processor = None
+        try:
+            image_processor = AutoImageProcessor.from_pretrained(image_processor_id or model_id, trust_remote_code=True, use_fast=True)
+        except (OSError, ValueError) as e:
+            # Model doesn't have an image processor (text-only model)
+            logger.info(f"No image processor found for {model_id}. This is expected for text-only models.")
+            image_processor = None
+        
         return (model, tokenizer, image_processor)
 
     def _create_model(self, model_id: str, config_id: Optional[str], torch_dtype: Union[str, torch.dtype], trust_remote_code: bool, low_cpu_mem_usage: bool) -> nn.Module:
