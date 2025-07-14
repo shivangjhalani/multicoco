@@ -5,7 +5,7 @@ mode: "coconut_train"
 name: "aokvqa-coconut-multistage"
 run_name: "aokvqa-coconut-multistage"
 output_dir: "checkpoints/aokvqa_coconut"
-limit_for_testing: false
+limit_for_testing: true
 num_epochs: 24
 reset_optimizer: true
 resume_from_checkpoint: false
