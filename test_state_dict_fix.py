@@ -78,8 +78,8 @@ def test_state_dict_no_shared_memory():
     print("\n2. Testing state_dict for shared memory...")
     state_dict = wrapper.state_dict()
     
-    # Check that 'embedding' is NOT in the state_dict
-    embedding_keys = [key for key in state_dict.keys() if 'embedding' in key and not key.startswith('base_model.')]
+    # Check that 'embedding' and '_embedding' are NOT in the state_dict
+    embedding_keys = [key for key in state_dict.keys() if ('embedding' in key or '_embedding' in key) and not key.startswith('base_model.')]
     print(f"Non-base_model embedding keys in state_dict: {embedding_keys}")
     assert len(embedding_keys) == 0, f"Found unexpected embedding keys: {embedding_keys}"
     print("✓ No duplicate embedding keys found in state_dict")

@@ -46,7 +46,9 @@ class LatentWrapper(nn.Module):
                 logger.warning("Could not find <IMG_CONTEXT> token in tokenizer")
         
         # Get embedding layer - handle nested model structure
-        self.embedding = self._get_embedding_layer(base_model)
+        # CRITICAL: Store as _embedding (with underscore) to avoid registering as a parameter
+        # since it's just a reference to the base model's embedding layer
+        self._embedding = self._get_embedding_layer(base_model)
 
     def _get_embedding_layer(self, model):
         """Get the correct embedding layer from potentially nested model structure"""
@@ -128,6 +130,11 @@ class LatentWrapper(nn.Module):
     def model(self):
         """Expose the underlying model for compatibility"""
         return self.base_model
+
+    @property
+    def embedding(self):
+        """Access the embedding layer (stored as _embedding to avoid parameter registration)"""
+        return self._embedding
 
     def insert_img_tokens(self, prompt: str, num_image_token: Optional[int] = None) -> str:
         """
@@ -1090,7 +1097,7 @@ class LatentWrapper(nn.Module):
         
         # CRITICAL: Always reinitialize embedding layer to point to base_model's embedding
         # This ensures consistency regardless of what was in the saved state_dict
-        self.embedding = self._get_embedding_layer(self.base_model)
+        self._embedding = self._get_embedding_layer(self.base_model)
         logger.info("Reinitialized embedding layer after state_dict loading to maintain consistency")
         
         return missing_keys if 'missing_keys' in locals() else [], unexpected_keys if 'unexpected_keys' in locals() else []
