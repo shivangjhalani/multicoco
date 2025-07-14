@@ -34,6 +34,17 @@ class LatentWrapper(nn.Module):
         self.latent_id = tokenizer.convert_tokens_to_ids('<|latent|>')
         self.start_id = tokenizer.convert_tokens_to_ids('<|start_latent|>')
         self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
+        
+        # Fix: Ensure img_context_token_id is properly set
+        if not hasattr(base_model, 'img_context_token_id') or base_model.img_context_token_id is None:
+            # Set the correct img_context_token_id from tokenizer
+            img_context_token_id = tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+            if img_context_token_id != tokenizer.unk_token_id:  # Check if token exists
+                base_model.img_context_token_id = img_context_token_id
+                logger.debug(f"Set model.img_context_token_id to {img_context_token_id} for <IMG_CONTEXT>")
+            else:
+                logger.warning("Could not find <IMG_CONTEXT> token in tokenizer")
+        
         # Get embedding layer - handle nested model structure
         self.embedding = self._get_embedding_layer(base_model)
 
@@ -129,13 +140,6 @@ class LatentWrapper(nn.Module):
             logger.debug(f"LatentWrapper.chat: has_latents={has_latents}, question_len={len(question)}")
             logger.debug(f"LatentWrapper.chat: pixel_values shape={pixel_values.shape if pixel_values is not None else None}")
             
-            # DEBUG: Log detailed tensor information
-            if pixel_values is not None:
-                logger.debug(f"LatentWrapper.chat: pixel_values dtype={pixel_values.dtype}")
-                logger.debug(f"LatentWrapper.chat: pixel_values device={pixel_values.device}")
-                logger.debug(f"LatentWrapper.chat: base_model dtype={next(self.base_model.parameters()).dtype}")
-                logger.debug(f"LatentWrapper.chat: base_model device={next(self.base_model.parameters()).device}")
-            
             # RESTORED: Latent injection logic now that shape mismatch is fixed
             if not has_latents:
                 # No latent tokens, use base model's chat directly
@@ -230,7 +234,6 @@ class LatentWrapper(nn.Module):
 
     def generate(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
         """Generate with proper latent injection support"""
-        # CRITICAL DEBUG: Check if we have latent spans
         has_latent_spans = self._has_latent_spans(input_ids)
         logger.debug(f"LatentWrapper.generate: has_latent_spans={has_latent_spans}")
         logger.debug(f"LatentWrapper.generate: input_ids.shape={input_ids.shape}")
@@ -556,7 +559,6 @@ class LatentWrapper(nn.Module):
         """
         inputs_embeds = self.embedding(input_ids).clone()
         
-        # Debug: Log tensor shapes to help diagnose issues
         logger.debug(f"inputs_embeds shape: {inputs_embeds.shape}")
         logger.debug(f"last_hidden shape: {last_hidden.shape}")
         logger.debug(f"Number of latent spans: {sum(len(span_pairs) for span_pairs in spans)}")
@@ -603,7 +605,6 @@ class LatentWrapper(nn.Module):
                             # Extract hidden state with robust shape handling
                             hidden_state = last_hidden[batch_idx, source_pos]
                             
-                            # Debug: Log the shape we got
                             logger.debug(f"Extracted hidden_state shape: {hidden_state.shape}, expected 1D with dim {hidden_dim}")
                             
                             # Handle unexpected shapes more robustly
@@ -713,7 +714,6 @@ class LatentWrapper(nn.Module):
             )
             hidden_states = first_out.hidden_states[-1]
             
-            # Debug: Log the shape of hidden states to understand the issue
             logger.debug(f"First pass hidden_states shape: {hidden_states.shape}")
             logger.debug(f"Expected shape: [batch_size={input_ids.shape[0]}, seq_len={input_ids.shape[1]}, hidden_dim]")
             
