@@ -606,9 +606,23 @@ class LatentWrapper(nn.Module):
             return None
         
         with torch.inference_mode():
-            # Use the model's extract_feature method which handles the full vision pipeline
-            # including pixel_shuffle, downsample_ratio, and proper reshaping
-            return self.base_model.extract_feature(pixel_values.to(device=device, dtype=self.base_model.dtype))
+            # Check if vision embeddings are already cached
+            # If cached, directly use the cached embeddings to avoid redundant computation
+            if hasattr(self.base_model, '_cached_vision_embeddings') and self.base_model._cached_vision_embeddings is not None:
+                cached_embeddings = self.base_model._cached_vision_embeddings
+                logger.debug(f"Using cached vision embeddings: {cached_embeddings.shape}")
+                return cached_embeddings
+            
+            # If not cached, compute vision embeddings using the model's extract_feature method
+            # This method handles the full vision pipeline, including pixel_shuffle, downsample_ratio, and proper reshaping
+            logger.debug("Computing vision embeddings using extract_feature method")
+            embeddings = self.base_model.extract_feature(pixel_values.to(device=device, dtype=self.base_model.dtype))
+            
+            # Cache the computed embeddings for future use
+            self.base_model._cached_vision_embeddings = embeddings.detach()
+            logger.info(f"Cached new vision embeddings: {embeddings.shape}")
+            
+            return embeddings
 
     def _apply_generation_filters(self, logits: torch.Tensor, temperature: float, top_k: int, top_p: float) -> torch.Tensor:
         """Apply temperature, top-k, and top-p filtering"""
