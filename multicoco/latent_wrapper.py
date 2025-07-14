@@ -1082,8 +1082,8 @@ class LatentWrapper(nn.Module):
         """
         Update embeddings with latent token injections for the current pass.
         
-        Following original coconut algorithm: each latent token receives the hidden state
-        from its immediate predecessor (pos-1), enabling sequential reasoning progression.
+        CORRECTED: Now matches the original coconut algorithm exactly:
+        tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
         
         Args:
             inputs_embeds: Current input embeddings tensor
@@ -1095,8 +1095,6 @@ class LatentWrapper(nn.Module):
         Returns:
             Updated embeddings with latent token injections
         """
-        inputs_embeds = inputs_embeds.clone()
-        
         # Validate dimension compatibility - coconut requires shared representation space
         hidden_dim = hidden_states.shape[-1]
         embed_dim = inputs_embeds.shape[-1]
@@ -1107,40 +1105,45 @@ class LatentWrapper(nn.Module):
             logger.error("Skipping latent injection due to incompatible dimensions")
             return inputs_embeds  # Return original embeddings without modification
         
-        for batch_idx, latent_positions in enumerate(latent_lists):
-            if pass_idx < len(latent_positions):
-                # Get the latent token position for this pass
-                latent_pos = latent_positions[pass_idx]
-                
-                if latent_pos > 0 and latent_pos < inputs_embeds.shape[1]:
-                    # Calculate source position: each latent token gets hidden state from its immediate predecessor (pos-1)
-                    abs_source_pos = latent_pos - 1
-                    
-                    # Map absolute source position to relative position within current hidden states slice
-                    if hidden_states_offset == 0:
-                        # First pass: hidden states contain the full sequence up to current compute range
-                        source_pos = abs_source_pos
-                    else:
-                        # Subsequent passes with KV cache: hidden states only contain current compute range
-                        # Check if the source position is within the current compute range
-                        current_compute_start = hidden_states_offset
-                        current_compute_end = hidden_states_offset + hidden_states.shape[1]
-                        
-                        if current_compute_start <= abs_source_pos < current_compute_end:
-                            # Source is in current compute range
-                            source_pos = abs_source_pos - current_compute_start
-                        else:
-                            # Source position is outside current compute range, skip injection for this pass
-                            logger.debug(f"Pass {pass_idx}: Source position {abs_source_pos} outside current compute range [{current_compute_start}, {current_compute_end})")
-                            continue
-                    
-                    # Validate source position is within hidden states bounds
-                    if 0 <= source_pos < hidden_states.shape[1]:
-                        # Inject hidden state following original coconut algorithm
-                        inputs_embeds[batch_idx, latent_pos, :] = hidden_states[batch_idx, source_pos, :]
-                        logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {latent_pos}] (abs_source: {abs_source_pos})")
-                    else:
-                        logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {latent_pos} (abs_source: {abs_source_pos})")
+        # CORRECTED: Follow original coconut.py exactly
+        # First decide the positions to feedback (matching original logic)
+        filling_indices = [
+            (instance_idx, mask_list[pass_idx])
+            for instance_idx, mask_list in enumerate(latent_lists)
+            if len(mask_list) > pass_idx
+        ]
+        
+        # To avoid in-place operations, break down inputs_embeds into a list of list of 1-d tensors
+        # (This matches the original coconut.py structure exactly)
+        tensor_list = [
+            [
+                inputs_embeds[batch_idx, pos, :]
+                for pos in range(inputs_embeds.shape[1])
+            ]
+            for batch_idx in range(inputs_embeds.shape[0])
+        ]
+        
+        # Replace some of them with continuous thoughts (original coconut logic)
+        for idx_pair in filling_indices:
+            batch_idx, token_idx = idx_pair
+            
+            # ORIGINAL COCONUT ALGORITHM: Replace it with the preceding last hidden states
+            source_pos = token_idx - 1 - hidden_states_offset
+            
+            # Bounds check to prevent invalid access
+            if 0 <= source_pos < hidden_states.shape[1]:
+                tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, source_pos, :]
+                logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {token_idx}] (offset: {hidden_states_offset})")
+            else:
+                logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {token_idx} (offset: {hidden_states_offset})")
+        
+        # Assemble the new inputs_embeds (original coconut.py method)
+        inputs_embeds = torch.stack(
+            [
+                torch.stack(tensor_list[batch_idx])
+                for batch_idx in range(inputs_embeds.shape[0])
+            ]
+        )
         
         return inputs_embeds
 
