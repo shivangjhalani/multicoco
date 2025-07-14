@@ -677,29 +677,27 @@ class LatentWrapper(nn.Module):
         self._log_coconut_metrics(input_ids, spans, stage_info)
         
         # CoCoNut algorithm with sequential latent processing
-        image_embeds = self._compute_vision_embeddings(pixel_values, image_embeds)
-        
-        # Two-pass approach following original CoCoNut
-        result = self._sequential_latent_forward(input_ids, attention_mask, image_embeds, labels, spans, **kwargs)
+        # Let the base model handle vision embeddings internally
+        result = self._sequential_latent_forward(input_ids, attention_mask, pixel_values, labels, spans, **kwargs)
         
         # Track timing for efficiency metrics
         self._last_forward_time = time.time() - start_time
         
         return result
     
-    def _sequential_latent_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor], spans: List[List[Tuple[int, int]]], **kwargs):
+    def _sequential_latent_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pixel_values: Optional[torch.Tensor], labels: Optional[torch.Tensor], spans: List[List[Tuple[int, int]]], **kwargs):
         """
         Simplified sequential forward pass following original Coconut approach.
         Fix: Use two-pass approach with single multimodal processing to avoid position misalignment.
         """
-        # First pass: get hidden states for the original sequence
-        last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
+        # First pass: get hidden states for the original sequence, including vision data
+        last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, pixel_values)
         
         # Build modified embeddings with sequential latent injection (like original Coconut)
         inputs_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
         
-        # Second pass: single forward with modified embeddings  
-        return self._second_pass_forward(input_ids, attention_mask, inputs_embeds, image_embeds, labels)
+        # Second pass: single forward with modified embeddings (no vision data needed)
+        return self._second_pass_forward(attention_mask, inputs_embeds, labels)
         
     def _build_modified_embeddings_sequential(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
