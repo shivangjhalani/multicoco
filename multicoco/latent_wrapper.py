@@ -76,14 +76,23 @@ class LatentWrapper(nn.Module):
         
         Args:
             prompt: Input prompt that may contain <img> tokens
-            num_image_token: Number of IMG_CONTEXT tokens to insert. If None, uses model's num_image_token
+            num_image_token: Number of IMG_CONTEXT tokens to insert. If None, calculates from model
             
         Returns:
             Fixed prompt with proper image token sequences
         """
-        # Use model's calculated num_image_token if not provided
+        # Calculate the correct number of image tokens dynamically
         if num_image_token is None:
-            num_image_token = getattr(self.base_model, 'num_image_token', 256)
+            # For InternVL3, we need to calculate based on actual vision output
+            # The downsample ratio affects the final number of tokens
+            if hasattr(self.base_model, 'config') and hasattr(self.base_model.config, 'downsample_ratio'):
+                # Calculate: original 32x32 patches / downsample_factor^2
+                original_patches = 32 * 32  # 1024 patches from 448x448 / 14x14
+                downsample_factor = 1 / self.base_model.config.downsample_ratio
+                num_image_token = int(original_patches / (downsample_factor ** 2))
+            else:
+                # Fallback to model's num_image_token
+                num_image_token = getattr(self.base_model, 'num_image_token', 256)
         
         ctx = "<IMG_CONTEXT>" * num_image_token
         
@@ -454,20 +463,9 @@ class LatentWrapper(nn.Module):
             return None
         
         with torch.inference_mode():
-            # Handle different model structures
-            if hasattr(self.base_model, 'vision_model') and hasattr(self.base_model, 'mlp1'):
-                # InternVL3 structure
-                vision_embeds = self.base_model.vision_model(pixel_values.to(device=device, dtype=self.base_model.dtype))
-                # Extract last_hidden_state if it's a transformers output
-                if hasattr(vision_embeds, 'last_hidden_state'):
-                    vision_embeds = vision_embeds.last_hidden_state
-                return self.base_model.mlp1(vision_embeds)
-            elif hasattr(self.base_model, 'model') and hasattr(self.base_model.model, 'vision_tower'):
-                # Original structure
-                vision_embeds = self.base_model.model.vision_tower(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
-                return self.base_model.model.projector(vision_embeds)
-            else:
-                raise AttributeError(f"Unsupported model structure for vision embeddings: {type(self.base_model)}")
+            # Use the model's extract_feature method which handles the full vision pipeline
+            # including pixel_shuffle, downsample_ratio, and proper reshaping
+            return self.base_model.extract_feature(pixel_values.to(device=device, dtype=self.base_model.dtype))
 
     def _apply_generation_filters(self, logits: torch.Tensor, temperature: float, top_k: int, top_p: float) -> torch.Tensor:
         """Apply temperature, top-k, and top-p filtering"""
@@ -687,20 +685,8 @@ class LatentWrapper(nn.Module):
             return image_embeds
         
         if pixel_values is not None:
-            # Handle different model structures
-            if hasattr(self.base_model, 'vision_model') and hasattr(self.base_model, 'mlp1'):
-                # InternVL3 structure
-                vision_embeds = self.base_model.vision_model(pixel_values.to(dtype=self.base_model.dtype))
-                # Extract last_hidden_state if it's a transformers output
-                if hasattr(vision_embeds, 'last_hidden_state'):
-                    vision_embeds = vision_embeds.last_hidden_state
-                return self.base_model.mlp1(vision_embeds)
-            elif hasattr(self.base_model, 'model') and hasattr(self.base_model.model, 'vision_tower'):
-                # Original structure
-                vision_embeds = self.base_model.model.vision_tower(pixel_values.to(dtype=self.base_model.model.dtype))
-                return self.base_model.model.projector(vision_embeds)
-            else:
-                raise AttributeError(f"Unsupported model structure for vision embeddings: {type(self.base_model)}")
+            # Use the model's extract_feature method which handles the full vision pipeline
+            return self.base_model.extract_feature(pixel_values.to(dtype=self.base_model.dtype))
         
         return None
 
