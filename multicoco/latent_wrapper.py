@@ -943,13 +943,24 @@ class LatentWrapper(nn.Module):
             image_embeds=image_embeds,
             inputs_embeds=inputs_embeds
         )
-        second_out = self.base_model.model.language_model(
+        
+        # Pass embeddings through the language model to get hidden states
+        outputs = self.base_model.model.language_model(
             inputs_embeds=second_pass_embeds,
             attention_mask=attention_mask,
-            use_cache=True
+            use_cache=True,
+            return_dict=True,
         )
+        hidden_states = outputs.last_hidden_state
+
+        # Pass hidden states through the LM head to get logits
+        if hasattr(self.base_model.model, 'lm_head'):
+            logits = self.base_model.model.lm_head(hidden_states)
+        else:
+            # Fallback for models where get_output_embeddings() is used
+            output_embeddings = self.base_model.model.get_output_embeddings()
+            logits = output_embeddings(hidden_states)
         
-        logits = second_out.logits
         loss = None
         
         if labels is not None:
