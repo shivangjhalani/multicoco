@@ -51,13 +51,19 @@ def create_mock_model():
             mock_kv = torch.randn(batch_size, 8, seq_len, 64)  # 8 heads, 64 dim per head
             past_key_values = [(mock_kv, mock_kv) for _ in range(12)]  # 12 layers
             
+            # Store references for MockOutput to use
+            default_logits = logits
+            default_hidden_states = hidden_states
+            default_past_key_values = past_key_values
+            
             # Create mock output
             class MockOutput:
-                def __init__(self):
-                    self.logits = logits
-                    self.hidden_states = [hidden_states] if output_hidden_states else None
-                    self.past_key_values = past_key_values if use_cache else None
-                    self.loss = None
+                def __init__(self, logits=None, hidden_states=None, past_key_values=None, loss=None):
+                    # Use provided values or fall back to local variables
+                    self.logits = logits if logits is not None else default_logits
+                    self.hidden_states = [hidden_states] if hidden_states is not None else ([default_hidden_states] if output_hidden_states else None)
+                    self.past_key_values = past_key_values if past_key_values is not None else (default_past_key_values if use_cache else None)
+                    self.loss = loss
             
             return MockOutput()
         
