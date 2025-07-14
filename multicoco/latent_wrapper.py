@@ -764,11 +764,12 @@ class LatentWrapper(nn.Module):
         if image_embeds is not None:
             inputs_embeds = self._prepare_inputs_for_multimodal_internvl(input_ids, image_embeds, inputs_embeds)
         
-        # Initialize compute range and cache
+        # Initialize compute range and cache (CORRECTED: Match original coconut exactly)
         if max_n_latents > 0:
-            # Find earliest latent token position across all spans
+            # ORIGINAL COCONUT LOGIC: Find earliest latent token position across all spans
+            # This ensures the first pass includes all tokens up to the first latent token
             earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else input_ids.shape[1]
-            next_compute_range = (0, min(earliest_latent_pos, input_ids.shape[1]))
+            next_compute_range = (0, earliest_latent_pos)
         else:
             next_compute_range = (0, input_ids.shape[1])
         
@@ -870,7 +871,8 @@ class LatentWrapper(nn.Module):
             # Store logits for potential debugging/analysis
             logits.append(outputs.logits)
             
-            # Update compute range for next pass (following original coconut pattern)
+            # Update compute range for next pass (CORRECTED: Match original coconut exactly)
+            # Original: processes one token at a time after first pass
             next_compute_range = (
                 next_compute_range[1],
                 input_ids.shape[1] if pass_idx + 1 >= max_n_latents else next_compute_range[1] + 1
@@ -1130,12 +1132,17 @@ class LatentWrapper(nn.Module):
             # ORIGINAL COCONUT ALGORITHM: Replace it with the preceding last hidden states
             source_pos = token_idx - 1 - hidden_states_offset
             
-            # Bounds check to prevent invalid access
+            # TRUST THE ORIGINAL ALGORITHM: The compute range logic ensures this is always valid
+            # Only add bounds check for safety but log as error if it fails (indicates algorithm bug)
             if 0 <= source_pos < hidden_states.shape[1]:
                 tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, source_pos, :]
                 logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {token_idx}] (offset: {hidden_states_offset})")
             else:
-                logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {token_idx} (offset: {hidden_states_offset})")
+                logger.error(f"Pass {pass_idx}: ALGORITHM BUG - Invalid source position {source_pos} for latent position {token_idx} (offset: {hidden_states_offset})")
+                logger.error(f"  hidden_states.shape: {hidden_states.shape}, compute_range: {(hidden_states_offset, hidden_states_offset + hidden_states.shape[1])}")
+                logger.error(f"  This indicates a bug in the compute range calculation - the original algorithm should never hit this case")
+                # Skip this injection rather than crash
+                continue
         
         # Assemble the new inputs_embeds (original coconut.py method)
         inputs_embeds = torch.stack(
