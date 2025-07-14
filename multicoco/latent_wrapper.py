@@ -504,21 +504,26 @@ class LatentWrapper(nn.Module):
         # We need to reconstruct this since we only have embeddings
         tokens = list(range(current_length))  # Placeholder - in real use we'd track this properly
         
-        # Initialize KV cache for efficiency
+        # Initialize KV cache for efficiency with validation
         past_key_values = None
         current_embeds = inputs_embeds
         
         for step in range(max_new_tokens):
             with torch.no_grad():
-                # Use KV cache for efficiency on long sequences
-                if past_key_values is not None:
-                    # Only process the last token when using cache
+                # Use KV cache for efficiency on long sequences with validation
+                if past_key_values is not None and self._validate_kv_cache(past_key_values):
+                    # Only process the last token when using valid cache
                     model_inputs = current_embeds[:, -1:, :]
                     model_attention = attention_mask[:, -1:] if attention_mask is not None else None
+                    logger.debug(f"Generation step {step}: Using KV cache")
                 else:
-                    # First step, process full sequence
+                    # First step or invalid cache, process full sequence
                     model_inputs = current_embeds
                     model_attention = attention_mask
+                    if past_key_values is not None:
+                        logger.warning(f"Generation step {step}: Invalid KV cache, processing full sequence")
+                    else:
+                        logger.debug(f"Generation step {step}: First step, no cache available")
                 
                 outputs = self.base_model.model.language_model(
                     inputs_embeds=model_inputs,
@@ -528,8 +533,16 @@ class LatentWrapper(nn.Module):
                     return_dict=True
                 )
                 
-                # Update KV cache for next iteration
-                past_key_values = outputs.past_key_values
+                # Update KV cache for next iteration with validation
+                new_cache = getattr(outputs, 'past_key_values', None)
+                if new_cache is not None and self._validate_kv_cache(new_cache):
+                    past_key_values = new_cache
+                    logger.debug(f"Generation step {step}: Updated KV cache")
+                else:
+                    if step == 0:
+                        # First step should always have valid cache
+                        logger.warning(f"Generation step {step}: No valid KV cache from first step")
+                    past_key_values = None
             
             # Sample next token
             next_logits = outputs.logits[:, -1, :]
@@ -695,11 +708,14 @@ class LatentWrapper(nn.Module):
         kv_cache = None
         logits = []
         
-        # Multi-pass processing
+        # Multi-pass processing with improved KV cache management
         for pass_idx in range(max_n_latents):
+            logger.debug(f"Coconut pass {pass_idx}/{max_n_latents}, compute_range: {next_compute_range}")
+            
             # Forward pass with current compute range
             if kv_cache is None:
-                # First forward pass
+                # First forward pass - no cache available
+                logger.debug("First forward pass - no KV cache")
                 outputs = self.base_model(
                     inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                     attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
@@ -709,34 +725,74 @@ class LatentWrapper(nn.Module):
                 )
                 hidden_states_offset = 0
             else:
-                # Subsequent passes with KV cache
-                past_key_values = [
-                    (k[:, :, :next_compute_range[0], :], v[:, :, :next_compute_range[0], :])
-                    for k, v in kv_cache
-                ]
+                # Subsequent passes with KV cache - validate and extract slice
+                logger.debug(f"Using KV cache for pass {pass_idx}")
                 
-                outputs = self.base_model(
-                    inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                    attention_mask=attention_mask[:, :next_compute_range[1]] if attention_mask is not None else None,
-                    past_key_values=past_key_values,
-                    output_hidden_states=True,
-                    use_cache=True,
-                    **kwargs
-                )
-                hidden_states_offset = next_compute_range[0]
+                # Validate cache before use
+                if not self._validate_kv_cache(kv_cache):
+                    logger.warning(f"Invalid KV cache detected at pass {pass_idx}, falling back to no-cache mode")
+                    # Fall back to no-cache mode for this pass
+                    outputs = self.base_model(
+                        inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                        attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
+                        output_hidden_states=True,
+                        use_cache=True,
+                        **kwargs
+                    )
+                    hidden_states_offset = 0
+                else:
+                    # Extract KV cache slice following original coconut pattern
+                    past_key_values = self._extract_kv_cache_slice(kv_cache, next_compute_range)
+                    
+                    if past_key_values is None:
+                        logger.warning(f"Failed to extract KV cache slice at pass {pass_idx}, falling back to no-cache mode")
+                        # Fall back to no-cache mode
+                        outputs = self.base_model(
+                            inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                            attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
+                            output_hidden_states=True,
+                            use_cache=True,
+                            **kwargs
+                        )
+                        hidden_states_offset = 0
+                    else:
+                        # Use extracted cache following original coconut.py pattern
+                        outputs = self.base_model(
+                            inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                            attention_mask=attention_mask[:, :next_compute_range[1]] if attention_mask is not None else None,
+                            past_key_values=past_key_values,
+                            output_hidden_states=True,
+                            use_cache=True,
+                            **kwargs
+                        )
+                        hidden_states_offset = next_compute_range[0]
             
-            # Store logits
+            # Store logits for potential debugging/analysis
             logits.append(outputs.logits)
             
-            # Update compute range for next pass
+            # Update compute range for next pass (following original coconut pattern)
             next_compute_range = (
                 next_compute_range[1],
                 input_ids.shape[1] if pass_idx + 1 >= max_n_latents else next_compute_range[1] + 1
             )
             
-            # Get hidden states and update cache
+            # Get hidden states and update cache with validation
             hidden_states = outputs.hidden_states[-1]  # Last layer hidden states
-            kv_cache = outputs.past_key_values
+            
+            # Update KV cache for next iteration with validation
+            new_kv_cache = getattr(outputs, 'past_key_values', None)
+            if new_kv_cache is not None:
+                if self._validate_kv_cache(new_kv_cache):
+                    kv_cache = new_kv_cache
+                    logger.debug(f"Updated KV cache after pass {pass_idx}, cache size: {len(kv_cache)} layers")
+                else:
+                    logger.warning(f"Invalid KV cache generated at pass {pass_idx}, keeping previous cache")
+                    # Keep the previous cache or set to None if this was the first pass
+                    if pass_idx == 0:
+                        kv_cache = None
+            else:
+                logger.warning(f"No KV cache returned from model at pass {pass_idx}")
+                kv_cache = None
             
             # Update embeddings with latent token injections for current pass
             inputs_embeds = self._update_embeddings_for_pass(
@@ -1131,259 +1187,102 @@ class LatentWrapper(nn.Module):
                 **generation_kwargs
             )
     
-    # Explicit delegation for commonly used attributes to maintain compatibility
-    @property
-    def model(self):
-        """Provide compatibility with code that expects model attribute"""
-        return self.base_model
-    
-    @property
-    def device(self):
-        return self.base_model.device
-    
-    def get_input_embeddings(self):
-        return self.base_model.get_input_embeddings()
-    
-    def resize_token_embeddings(self, new_num_tokens):
-        return self.base_model.resize_token_embeddings(new_num_tokens)
-    
-    def train(self, mode=True):
-        self.base_model.train(mode)
-        return super().train(mode)
-    
-    def eval(self):
-        self.base_model.eval()
-        return super().eval()
-    
-    def to(self, *args, **kwargs):
-        self._modules['base_model'] = self.base_model.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
-    
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
+    def _extract_kv_cache_slice(self, kv_cache, compute_range: Tuple[int, int]) -> List[Tuple[torch.Tensor, torch.Tensor]]:
         """
-        FIX: Handle state_dict saving with proper detachment to avoid shared memory warnings.
-        This allows us to use the original embedding layer during training (ensuring consistent embedding space)
-        while properly handling state_dict saving.
+        Extract a slice of KV cache for efficient reuse across coconut passes.
         
-        The key insight: We exclude 'embedding' from LatentWrapper's state_dict since it's just a reference
-        to the base model's embedding layer, which is already saved in base_model's state_dict.
-        """
-        # Get the standard state_dict from parent
-        if destination is None:
-            destination = {}
+        Following original coconut.py pattern for KV cache extraction:
+        past_key_values = [(k[:, :, :next_compute_range[0], :], v[:, :, :next_compute_range[0], :]) for k, v in kv_cache]
+        
+        Args:
+            kv_cache: The full KV cache from previous forward pass
+            compute_range: Tuple of (start, end) positions for current compute range
             
-        # Save LatentWrapper-specific parameters (excluding projection layers - they're removed)
-        # CRITICAL: Exclude embedding-related parameters to avoid shared memory duplication
-        for name, param in self.named_parameters(recurse=False):
-            if param is not None and not any(exclude in name for exclude in ['embedding', '_embedding', '_hidden_to_embed_proj']):
-                destination[prefix + name] = param if keep_vars else param.detach()
-        
-        # Save base_model state_dict recursively 
-        for name, module in self.named_children():
-            if name == 'base_model':
-                module.state_dict(destination, prefix + name + '.', keep_vars)
-            else:
-                # For other modules, use standard approach
-                module.state_dict(destination, prefix + name + '.', keep_vars)
+        Returns:
+            Sliced KV cache ready for use in next forward pass
+        """
+        if kv_cache is None:
+            logger.warning("_extract_kv_cache_slice called with None cache")
+            return None
+            
+        try:
+            # Extract slice up to the start of current compute range
+            # This follows the exact pattern from original coconut.py
+            past_key_values = [
+                (k[:, :, :compute_range[0], :], v[:, :, :compute_range[0], :])
+                for k, v in kv_cache
+            ]
+            
+            logger.debug(f"Extracted KV cache slice for compute_range {compute_range}")
+            logger.debug(f"Original cache layers: {len(kv_cache) if kv_cache else 0}")
+            logger.debug(f"Sliced cache layers: {len(past_key_values)}")
+            
+            # Validate cache dimensions
+            if past_key_values and len(past_key_values) > 0:
+                k_shape = past_key_values[0][0].shape
+                v_shape = past_key_values[0][1].shape
+                logger.debug(f"Sample cache shapes - key: {k_shape}, value: {v_shape}")
                 
-        return destination
-    
-    def load_state_dict(self, state_dict, strict=True):
-        """
-        FIX: Handle state_dict loading while maintaining embedding layer consistency.
-        
-        Since we don't save the 'embedding' parameter in state_dict (it's just a reference to 
-        base_model's embedding), we need to restore it after loading.
-        """
-        # Load base model first
-        base_model_state = {}
-        latent_wrapper_state = {}
-        
-        # Separate base_model and LatentWrapper states
-        for key, value in state_dict.items():
-            if key.startswith('base_model.'):
-                base_model_key = key[len('base_model.'):]
-                base_model_state[base_model_key] = value
-            else:
-                # Skip 'embedding' if it somehow exists in state_dict (shouldn't happen with our new approach)
-                if key != 'embedding':
-                    latent_wrapper_state[key] = value
-        
-        # Load base model state
-        if base_model_state:
-            missing_keys, unexpected_keys = self.base_model.load_state_dict(base_model_state, strict=False)
-            if missing_keys and strict:
-                logger.warning(f"Missing keys when loading base_model: {missing_keys}")
-            if unexpected_keys and strict:
-                logger.warning(f"Unexpected keys when loading base_model: {unexpected_keys}")
-        
-        # Load LatentWrapper-specific state (excluding projection layers - they're removed)
-        if latent_wrapper_state:
-            missing_keys, unexpected_keys = super().load_state_dict(latent_wrapper_state, strict=False)
-            if missing_keys and strict:
-                logger.warning(f"Missing keys when loading LatentWrapper: {missing_keys}")
-            if unexpected_keys and strict:
-                logger.warning(f"Unexpected keys when loading LatentWrapper: {unexpected_keys}")
-        
-        # CRITICAL: Always reinitialize embedding layer to point to base_model's embedding
-        # This ensures consistency regardless of what was in the saved state_dict
-        embedding_layer = self._get_embedding_layer(self.base_model)
-        object.__setattr__(self, '_embedding_ref', embedding_layer)
-        logger.info("Reinitialized embedding layer after state_dict loading to maintain consistency")
-        
-        return missing_keys if 'missing_keys' in locals() else [], unexpected_keys if 'unexpected_keys' in locals() else []
-
-    def save_pretrained(self, save_directory, **kwargs):
-        """
-        Handle saving with proper shared memory management.
-        Note: Projection layers have been removed to maintain coconut's shared representation space.
-        """
-        logger.info(f"Saving LatentWrapper model to {save_directory}")
-        # Delegate to base model's save_pretrained but with proper state_dict handling
-        self.base_model.save_pretrained(save_directory, **kwargs)
-        
-        # No LatentWrapper-specific parameters to save (projection layers removed)
-        logger.info("No LatentWrapper-specific parameters to save (projection layers removed for coconut compatibility)")
-    
-    def _convert_spans_to_latent_lists(self, spans: List[List[Tuple[int, int]]], seq_length: int) -> List[List[int]]:
-        """
-        Convert span format to latent token lists format used by original coconut.
-        
-        Args:
-            spans: List of spans for each batch item, where each span is (start, end)
-            seq_length: Length of the sequence
-            
-        Returns:
-            List of lists where each inner list contains latent token positions for one batch item
-        """
-        latent_lists = []
-        
-        for batch_idx, span_pairs in enumerate(spans):
-            latent_positions = []
-            
-            # Extract all latent token positions from spans (excluding start/end markers)
-            for start, end in span_pairs:
-                for pos in range(start + 1, end):  # Skip start/end markers
-                    if pos < seq_length:
-                        latent_positions.append(pos)
-            
-            # Sort positions to maintain order
-            latent_positions.sort()
-            latent_lists.append(latent_positions)
-        
-        return latent_lists
-    
-    def _update_embeddings_for_pass(self, inputs_embeds: torch.Tensor, hidden_states: torch.Tensor, 
-                                  latent_lists: List[List[int]], pass_idx: int, hidden_states_offset: int) -> torch.Tensor:
-        """
-        Update embeddings with latent token injections for the current pass.
-        
-        Follows original coconut algorithm pattern:
-        tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
-        
-        Args:
-            inputs_embeds: Current embeddings tensor
-            hidden_states: Hidden states from current forward pass
-            latent_lists: List of latent token positions for each batch item
-            pass_idx: Current pass index (which layer of latent tokens to process)
-            hidden_states_offset: Offset for hidden states when using KV cache
-            
-        Returns:
-            Updated embeddings tensor
-        """
-        # Validate dimension compatibility
-        hidden_dim = hidden_states.shape[-1]
-        embed_dim = inputs_embeds.shape[-1]
-        
-        if hidden_dim != embed_dim:
-            logger.error(f"CRITICAL: Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
-            logger.error("Coconut algorithm requires hidden states and embeddings to be in the same dimensional space")
-            logger.error("Skipping latent injection due to incompatible dimensions")
-            return inputs_embeds
-        
-        # Determine which tokens to fill in this pass
-        filling_indices = [
-            (batch_idx, latent_list[pass_idx])
-            for batch_idx, latent_list in enumerate(latent_lists)
-            if len(latent_list) > pass_idx
-        ]
-        
-        # Convert to list of lists to avoid in-place operations (following original coconut)
-        tensor_list = [
-            [inputs_embeds[batch_idx, pos, :] for pos in range(inputs_embeds.shape[1])]
-            for batch_idx in range(inputs_embeds.shape[0])
-        ]
-        
-        # Replace latent tokens with hidden states from their predecessors
-        for batch_idx, token_idx in filling_indices:
-            if token_idx > 0:  # Ensure we don't go below 0
-                try:
-                    # Get hidden state from predecessor position (original coconut pattern)
-                    source_idx = token_idx - 1 - hidden_states_offset
+                # Basic validation: ensure we have valid shapes
+                if len(k_shape) != 4 or len(v_shape) != 4:
+                    logger.warning(f"Unexpected KV cache tensor dimensions: key={len(k_shape)}, value={len(v_shape)}")
                     
-                    if 0 <= source_idx < hidden_states.shape[1]:
-                        # Direct assignment following coconut's shared representation space
-                        tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, source_idx, :].clone()
-                        
-                        if self.enable_norm_logging:
-                            original_norm = torch.norm(inputs_embeds[batch_idx, token_idx]).item()
-                            new_norm = torch.norm(hidden_states[batch_idx, source_idx]).item()
-                            logger.debug(f"Pass {pass_idx}: Updated token {token_idx} norm from {original_norm:.4f} to {new_norm:.4f}")
-                    else:
-                        logger.warning(f"Source index {source_idx} out of bounds for hidden_states with shape {hidden_states.shape}")
-                        
-                except Exception as e:
-                    logger.error(f"Error updating latent token at pos {token_idx} in pass {pass_idx}: {e}")
-                    continue
-        
-        # Convert back to tensor
-        updated_embeds = torch.stack([
-            torch.stack(batch_tensors) for batch_tensors in tensor_list
-        ])
-        
-        return updated_embeds
-
-    def _calculate_adjusted_source_pos(self, token_idx: int, input_ids: torch.Tensor, batch_idx: int = 0) -> int:
+            return past_key_values
+            
+        except Exception as e:
+            logger.error(f"Error extracting KV cache slice: {e}")
+            logger.error(f"Cache type: {type(kv_cache)}, length: {len(kv_cache) if kv_cache else 0}")
+            logger.error(f"Compute range: {compute_range}")
+            # Return None to fall back to no-cache mode
+            return None
+    
+    def _validate_kv_cache(self, kv_cache, expected_layers: Optional[int] = None) -> bool:
         """
-        Calculate the adjusted source position for latent token injection in multimodal sequences.
-        
-        In multimodal scenarios, image tokens (<IMG_CONTEXT>) may be present in the sequence.
-        This method counts image tokens before the given position to adjust the source position
-        calculation correctly for latent token injection.
+        Validate KV cache structure and dimensions.
         
         Args:
-            token_idx: Current token index in the sequence
-            input_ids: Full input sequence tensor
-            batch_idx: Batch index to process (default: 0)
+            kv_cache: KV cache to validate
+            expected_layers: Expected number of transformer layers (optional)
             
         Returns:
-            Adjusted source position accounting for image tokens
+            True if cache is valid, False otherwise
         """
-        # Get the IMG_CONTEXT token ID from base model first
-        img_context_token_id = getattr(self.base_model, 'img_context_token_id', None)
-        
-        # If model doesn't have img_context_token_id, try tokenizer but only if it's valid
-        if img_context_token_id is None:
-            potential_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
-            # Only use it if it's a valid token (not unknown token)
-            if potential_id != self.tokenizer.unk_token_id:
-                img_context_token_id = potential_id
-        
-        # If still no valid image token ID found, use simple calculation
-        if img_context_token_id is None:
-            logger.debug(f"Position adjustment: token_idx={token_idx}, no image tokens (fallback), "
-                        f"adjusted_source_pos={token_idx - 1}")
-            return token_idx - 1
+        if kv_cache is None:
+            return False
             
-        # Count image tokens before the current position
-        sequence = input_ids[batch_idx, :token_idx]  # Get sequence up to current position
-        image_tokens_before = (sequence == img_context_token_id).sum().item()
-        
-        # Adjust source position: each image token represents an expanded sequence
-        # that doesn't have a corresponding position in the hidden states
-        adjusted_source_pos = token_idx - 1 - image_tokens_before
-        
-        logger.debug(f"Position adjustment: token_idx={token_idx}, image_tokens_before={image_tokens_before}, "
-                    f"adjusted_source_pos={adjusted_source_pos}")
-        
-        return max(0, adjusted_source_pos)  # Ensure non-negative position
+        try:
+            # Check if cache is a list/tuple of (key, value) pairs
+            if not isinstance(kv_cache, (list, tuple)):
+                logger.warning(f"KV cache should be list/tuple, got {type(kv_cache)}")
+                return False
+                
+            if len(kv_cache) == 0:
+                logger.warning("Empty KV cache")
+                return False
+                
+            # Validate each layer
+            for i, (k, v) in enumerate(kv_cache):
+                if not isinstance(k, torch.Tensor) or not isinstance(v, torch.Tensor):
+                    logger.warning(f"Layer {i}: Expected tensors, got key={type(k)}, value={type(v)}")
+                    return False
+                    
+                # Check tensor dimensions (should be 4D: [batch, heads, seq_len, head_dim])
+                if k.dim() != 4 or v.dim() != 4:
+                    logger.warning(f"Layer {i}: Expected 4D tensors, got key={k.dim()}D, value={v.dim()}D")
+                    return False
+                    
+                # Check that key and value have compatible shapes
+                if k.shape[:3] != v.shape[:3]:  # batch, heads, seq_len should match
+                    logger.warning(f"Layer {i}: Key and value shape mismatch - key={k.shape}, value={v.shape}")
+                    return False
+                    
+            if expected_layers is not None and len(kv_cache) != expected_layers:
+                logger.warning(f"Expected {expected_layers} layers, got {len(kv_cache)}")
+                return False
+                
+            logger.debug(f"KV cache validation passed: {len(kv_cache)} layers")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating KV cache: {e}")
+            return False
