@@ -756,30 +756,17 @@ class LatentWrapper(nn.Module):
     def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> torch.Tensor:
         """First pass to get hidden states before injecting into latent tokens"""
         with torch.inference_mode():
-            img_token_positions = None
-            if self.enable_norm_logging and hasattr(self.base_model.model, 'img_context_token_id'):
-                img_token_positions = self._get_image_token_positions(input_ids)
-            
-            # InternVL3-1B doesn't have prepare_inputs_for_multimodal method
-            # Instead, we manually prepare multimodal embeddings
-            first_pass_embeds = self._prepare_inputs_for_multimodal_internvl(
+            # Use the full model to get outputs, ensuring multimodal context is handled
+            outputs = self.base_model(
                 input_ids=input_ids,
-                image_embeds=image_embeds
-            )
-            first_out = self.base_model.model.language_model(
-                inputs_embeds=first_pass_embeds,
                 attention_mask=attention_mask,
-                output_hidden_states=True
+                pixel_values=None,  # pixel_values are converted to image_embeds
+                image_embeds=image_embeds,
+                output_hidden_states=True,  # Ensure hidden states are returned
+                return_dict=True
             )
-            hidden_states = first_out.hidden_states[-1]
-            
-            logger.debug(f"First pass hidden_states shape: {hidden_states.shape}")
-            logger.debug(f"Expected shape: [batch_size={input_ids.shape[0]}, seq_len={input_ids.shape[1]}, hidden_dim]")
-            
-            if self.enable_norm_logging and img_token_positions is not None and image_embeds is not None:
-                self._log_vision_text_norms(hidden_states, img_token_positions)
-        
-        return hidden_states
+        # The output of the language model is the last item in the hidden_states tuple
+        return outputs.hidden_states[-1]
 
     def _build_modified_embeddings(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
@@ -934,8 +921,8 @@ class LatentWrapper(nn.Module):
             'coconut/efficiency/latent_tokens': latent_tokens,
         }
 
-    def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]) -> dict:
-        """Second pass with modified embeddings containing injected hidden states"""
+    def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]):
+        """Second pass with modified embeddings to get final logits."""
         # InternVL3-1B doesn't have prepare_inputs_for_multimodal method
         # Instead, we manually prepare multimodal embeddings
         second_pass_embeds = self._prepare_inputs_for_multimodal_internvl(
