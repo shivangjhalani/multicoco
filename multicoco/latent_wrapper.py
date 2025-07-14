@@ -754,23 +754,14 @@ class LatentWrapper(nn.Module):
             )
             return outputs
         
-        # Combine logits from all passes
-        combined_logits = torch.cat(logits, dim=1)
-        
-        # Create final output structure
-        final_outputs = type(outputs)(
-            logits=combined_logits,
-            hidden_states=outputs.hidden_states,
-            past_key_values=outputs.past_key_values,
+        # Final forward pass to get complete logits for the entire sequence
+        final_outputs = self.base_model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            labels=labels,
+            output_hidden_states=True,
+            **kwargs
         )
-        
-        # Add loss if labels are provided
-        if labels is not None:
-            loss_fct = torch.nn.CrossEntropyLoss()
-            shift_logits = combined_logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            final_outputs.loss = loss
         
         return final_outputs
         
