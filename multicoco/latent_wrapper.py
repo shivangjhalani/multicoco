@@ -50,24 +50,51 @@ class LatentWrapper(nn.Module):
 
     def _get_embedding_layer(self, model):
         """Get the correct embedding layer from potentially nested model structure"""
+        # CRITICAL FIX: Create independent embedding copy to prevent shared memory issues
+        # The original implementation caused "Some tensors share memory" errors during model saving
+        # because both self.embedding and base_model embedding referred to the same tensor
+        
+        original_embedding = None
         if hasattr(model, 'language_model') and hasattr(model.language_model, 'model'):
             # InternVL3 structure: model.language_model.model.embed_tokens
-            return model.language_model.model.embed_tokens
+            original_embedding = model.language_model.model.embed_tokens
         elif hasattr(model, 'model') and hasattr(model.model, 'language_model'):
             # InternVL structure: model.model.language_model.model.embed_tokens
-            return model.model.language_model.model.embed_tokens
+            original_embedding = model.model.language_model.model.embed_tokens
         elif hasattr(model, 'model') and hasattr(model.model, 'embed_tokens'):
             # Direct access: model.model.embed_tokens  
-            return model.model.embed_tokens
+            original_embedding = model.model.embed_tokens
         elif hasattr(model, 'get_input_embeddings'):
             # Fallback: use get_input_embeddings method
-            return model.get_input_embeddings()
+            original_embedding = model.get_input_embeddings()
         else:
             # Last resort: try to find embed_tokens attribute
             for attr_name in ['embed_tokens', 'embeddings', 'word_embeddings']:
                 if hasattr(model, attr_name):
-                    return getattr(model, attr_name)
-            raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
+                    original_embedding = getattr(model, attr_name)
+                    break
+            
+            if original_embedding is None:
+                raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
+        
+        # Create independent copy to avoid shared memory issues
+        new_embedding = nn.Embedding(
+            num_embeddings=original_embedding.num_embeddings,
+            embedding_dim=original_embedding.embedding_dim,
+            padding_idx=original_embedding.padding_idx,
+            max_norm=original_embedding.max_norm,
+            norm_type=original_embedding.norm_type,
+            scale_grad_by_freq=original_embedding.scale_grad_by_freq,
+            sparse=original_embedding.sparse,
+            device=original_embedding.weight.device,
+            dtype=original_embedding.weight.dtype
+        )
+        
+        # Copy weights to new embedding (creates independent copy)
+        with torch.no_grad():
+            new_embedding.weight.copy_(original_embedding.weight)
+        
+        return new_embedding
 
     @property
     def image_processor(self):
