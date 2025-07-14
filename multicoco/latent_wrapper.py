@@ -790,33 +790,16 @@ class LatentWrapper(nn.Module):
         # If we have image embeddings, prepare multimodal inputs
         if image_embeds is not None:
             inputs_embeds = self._prepare_inputs_for_multimodal_internvl(input_ids, image_embeds, inputs_embeds)
-            # CRITICAL: The sequence length may have changed after multimodal processing
-            actual_seq_len = inputs_embeds.shape[1]
-            logger.debug(f"Sequence length check: original={original_seq_len}, after_multimodal={actual_seq_len}")
-            
-            # If sequence length changed, we need to adjust our latent positions
-            if actual_seq_len != original_seq_len:
-                logger.warning(f"Multimodal processing changed sequence length from {original_seq_len} to {actual_seq_len}")
-                logger.warning("Using fallback forward without latent injection due to sequence length mismatch")
-                # For now, fall back to standard processing without latent injection
-                # This prevents crashes but means latent reasoning won't work for this sample
-                return self._fallback_forward_without_latents(inputs_embeds, attention_mask, labels, **kwargs)
-            else:
-                logger.debug(f"Sequence length unchanged after multimodal processing: {actual_seq_len}")
         
-        # Initialize compute range and cache (CORRECTED: Match original coconut exactly)
+        # Initialize compute range and cache (FIXED: Off-by-one error)
         if max_n_latents > 0:
-            # ORIGINAL COCONUT LOGIC: Find earliest latent token position across all spans
-            # This ensures the first pass includes all tokens up to the first latent token
+            # Find earliest latent token position across all spans
             earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else inputs_embeds.shape[1]
-            next_compute_range = (0, min(earliest_latent_pos, inputs_embeds.shape[1]))
-            
-            logger.info(f"Compute range initialization:")
-            logger.info(f"  max_n_latents: {max_n_latents}")
-            logger.info(f"  earliest_latent_pos: {earliest_latent_pos}")
-            logger.info(f"  inputs_embeds.shape[1]: {inputs_embeds.shape[1]}")
-            logger.info(f"  initial next_compute_range: {next_compute_range}")
-            logger.info(f"  latent_lists: {latent_lists}")
+            # CRITICAL FIX: Add +1 to include the predecessor token needed for injection
+            # To inject at position N, we need hidden state from position N-1
+            # So compute range must be (0, earliest_latent_pos + 1)
+            next_compute_range = (0, min(earliest_latent_pos + 1, inputs_embeds.shape[1]))
+            logger.debug(f"CoCoNut: {max_n_latents} latent tokens, compute_range: {next_compute_range}")
         else:
             next_compute_range = (0, inputs_embeds.shape[1])
         
@@ -825,7 +808,7 @@ class LatentWrapper(nn.Module):
         
         # Multi-pass processing with improved KV cache management
         for pass_idx in range(max_n_latents):
-            logger.info(f"Coconut pass {pass_idx}/{max_n_latents}, compute_range: {next_compute_range}")
+            logger.debug(f"Coconut pass {pass_idx}/{max_n_latents}, compute_range: {next_compute_range}")
             
             # Forward pass with current compute range
             if kv_cache is None:
@@ -1154,8 +1137,7 @@ class LatentWrapper(nn.Module):
             # ORIGINAL COCONUT ALGORITHM: Replace it with the preceding last hidden states
             source_pos = token_idx - 1 - hidden_states_offset
             
-            # TRUST THE ORIGINAL ALGORITHM: The compute range logic ensures this is always valid
-            # Only add bounds check for safety but log as error if it fails (indicates algorithm bug)
+            # Bounds check to prevent invalid access
             if 0 <= source_pos < hidden_states.shape[1]:
                 tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, source_pos, :]
                 logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {token_idx}] (offset: {hidden_states_offset})")
@@ -1163,6 +1145,7 @@ class LatentWrapper(nn.Module):
                 logger.error(f"Pass {pass_idx}: ALGORITHM BUG - Invalid source position {source_pos} for latent position {token_idx} (offset: {hidden_states_offset})")
                 logger.error(f"  hidden_states.shape: {hidden_states.shape}, compute_range: {(hidden_states_offset, hidden_states_offset + hidden_states.shape[1])}")
                 logger.error(f"  This indicates a bug in the compute range calculation - the original algorithm should never hit this case")
+                logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {token_idx} (offset: {hidden_states_offset})")
                 # Skip this injection rather than crash
                 continue
         
