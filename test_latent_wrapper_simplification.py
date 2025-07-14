@@ -157,7 +157,7 @@ def test_simplified_algorithm():
         
         # Create dummy hidden states
         seq_len = input_ids.shape[1]
-        hidden_dim = 2048  # InternVL3-1B hidden dimension
+        hidden_dim = 896  # InternVL3-1B language model hidden dimension (corrected)
         dummy_hidden = torch.randn(1, seq_len, hidden_dim)
         
         # Test simplified embedding building
