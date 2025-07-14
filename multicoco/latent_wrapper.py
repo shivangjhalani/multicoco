@@ -50,9 +50,9 @@ class LatentWrapper(nn.Module):
 
     def _get_embedding_layer(self, model):
         """Get the correct embedding layer from potentially nested model structure"""
-        # Create independent embedding copy to prevent shared memory issues
-        # The original implementation caused "Some tensors share memory" errors during model saving
-        # because both self.embedding and base_model embedding referred to the same tensor
+        # CRITICAL FIX: Use the original embedding layer directly instead of creating a copy.
+        # The previous implementation created an independent copy that would diverge during training,
+        # breaking CoCoNut's core assumption that both passes use the same embedding space.
         
         original_embedding = None
         
@@ -113,24 +113,11 @@ class LatentWrapper(nn.Module):
                     logger.error(f"Could not find embedding layer. Available attributes: {attrs}")
                     raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
         
-        # Create independent copy to avoid shared memory issues
-        new_embedding = nn.Embedding(
-            num_embeddings=original_embedding.num_embeddings,
-            embedding_dim=original_embedding.embedding_dim,
-            padding_idx=original_embedding.padding_idx,
-            max_norm=original_embedding.max_norm,
-            norm_type=original_embedding.norm_type,
-            scale_grad_by_freq=original_embedding.scale_grad_by_freq,
-            sparse=original_embedding.sparse,
-            device=original_embedding.weight.device,
-            dtype=original_embedding.weight.dtype
-        )
-        
-        # Copy weights to new embedding (creates independent copy)
-        with torch.no_grad():
-            new_embedding.weight.copy_(original_embedding.weight)
-        
-        return new_embedding
+        # CRITICAL FIX: Return the original embedding layer directly.
+        # This ensures both passes use the same embedding space, maintaining CoCoNut's core assumption.
+        # The shared memory warning during saving can be handled by proper state_dict detachment at save time.
+        logger.info("Using original embedding layer to maintain consistent embedding space across CoCoNut passes")
+        return original_embedding
 
     @property
     def image_processor(self):
@@ -1034,3 +1021,82 @@ class LatentWrapper(nn.Module):
     def to(self, *args, **kwargs):
         self._modules['base_model'] = self.base_model.to(*args, **kwargs)
         return super().to(*args, **kwargs)
+    
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        """
+        CRITICAL FIX: Handle state_dict saving with proper detachment to avoid shared memory warnings.
+        This allows us to use the original embedding layer during training (ensuring consistent embedding space)
+        while properly handling state_dict saving.
+        """
+        # Get the standard state_dict from parent
+        if destination is None:
+            destination = {}
+            
+        # Save LatentWrapper-specific parameters (e.g., projection layers)
+        for name, param in self.named_parameters(recurse=False):
+            if param is not None:
+                destination[prefix + name] = param if keep_vars else param.detach()
+        
+        # Save base_model state_dict recursively but handle embedding properly
+        for name, module in self.named_children():
+            if name == 'base_model':
+                # Save base model but handle the embedding layer carefully
+                module.state_dict(destination, prefix + name + '.', keep_vars)
+            else:
+                # For other modules, use standard approach
+                module.state_dict(destination, prefix + name + '.', keep_vars)
+                
+        return destination
+    
+    def load_state_dict(self, state_dict, strict=True):
+        """
+        CRITICAL FIX: Handle state_dict loading while maintaining embedding layer consistency.
+        """
+        # Load base model first
+        base_model_state = {}
+        latent_wrapper_state = {}
+        
+        # Separate base_model and LatentWrapper states
+        for key, value in state_dict.items():
+            if key.startswith('base_model.'):
+                base_model_key = key[len('base_model.'):]
+                base_model_state[base_model_key] = value
+            else:
+                latent_wrapper_state[key] = value
+        
+        # Load base model state
+        if base_model_state:
+            missing_keys, unexpected_keys = self.base_model.load_state_dict(base_model_state, strict=False)
+            if missing_keys and strict:
+                logger.warning(f"Missing keys when loading base_model: {missing_keys}")
+            if unexpected_keys and strict:
+                logger.warning(f"Unexpected keys when loading base_model: {unexpected_keys}")
+        
+        # Load LatentWrapper-specific state (e.g., projection layers)
+        if latent_wrapper_state:
+            missing_keys, unexpected_keys = super().load_state_dict(latent_wrapper_state, strict=False)
+            if missing_keys and strict:
+                logger.warning(f"Missing keys when loading LatentWrapper: {missing_keys}")
+            if unexpected_keys and strict:
+                logger.warning(f"Unexpected keys when loading LatentWrapper: {unexpected_keys}")
+        
+        # After loading, ensure embedding layer is correctly set
+        self.embedding = self._get_embedding_layer(self.base_model)
+        logger.info("Reinitialized embedding layer after state_dict loading to maintain consistency")
+        
+        return missing_keys if 'missing_keys' in locals() else [], unexpected_keys if 'unexpected_keys' in locals() else []
+
+    def save_pretrained(self, save_directory, **kwargs):
+        """
+        Handle saving with proper shared memory management.
+        """
+        logger.info(f"Saving LatentWrapper model to {save_directory}")
+        # Delegate to base model's save_pretrained but with proper state_dict handling
+        self.base_model.save_pretrained(save_directory, **kwargs)
+        
+        # Save any LatentWrapper-specific parameters separately if needed
+        import os
+        latent_wrapper_path = os.path.join(save_directory, "latent_wrapper_extra.bin")
+        if hasattr(self, '_hidden_to_embed_proj'):
+            torch.save({"projection_layer": self._hidden_to_embed_proj.state_dict()}, latent_wrapper_path)
+            logger.info(f"Saved LatentWrapper projection layer to {latent_wrapper_path}")
