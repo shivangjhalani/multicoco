@@ -9,17 +9,21 @@ logger = logging.getLogger(__name__)
 
 class LatentWrapper(nn.Module):
     """
-    LatentWrapper implementing the CoCoNut algorithm with CORRECT sequential hidden state injection.
+    LatentWrapper implementing the CoCoNut algorithm with correct individual hidden state injection.
         
-    NEW IMPLEMENTATION: Now processes latent tokens sequentially, where each latent token receives
-    the evolved hidden state from the previous position after a forward pass through the model.
-    This allows latent reasoning to progress and build upon itself within the span.
+    CORRECTED IMPLEMENTATION: Each latent token receives the hidden state from its immediate 
+    predecessor (pos-1), following the exact pattern from original coconut.py. This allows 
+    latent reasoning to progress and build upon itself within the span.
+    
+    CRITICAL: Maintains coconut's shared representation space assumption - hidden states and 
+    embeddings must be in the same dimensional space. No projection layers are used as they 
+    would break this fundamental requirement.
     
     Multimodal Benefits:
     - Enables progressive reasoning over images in latent space
     - Each latent token builds upon evolved visual understanding from previous tokens  
     - Proper implementation of CoCoNut's efficiency while maintaining reasoning quality
-    - Prevents static repetition that was undermining the algorithm's core benefits
+    - Preserves the shared representation space critical to coconut's effectiveness
     """
 
     def __init__(self, base_model: nn.Module, tokenizer, enable_norm_logging: bool = False):
@@ -688,33 +692,16 @@ class LatentWrapper(nn.Module):
         logger.debug(f"last_hidden shape: {last_hidden.shape}")
         logger.debug(f"Number of latent spans: {sum(len(span_pairs) for span_pairs in spans)}")
         
-        # Check if we need projection between hidden states and embeddings
+        # Validate dimension compatibility - coconut requires shared representation space
         hidden_dim = last_hidden.shape[-1]
         embed_dim = inputs_embeds.shape[-1]
-        needs_projection = hidden_dim != embed_dim
         
-        if needs_projection:
-            logger.info(f"Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
-            logger.info("Creating projection layer for latent injection")
-            
-            # Create or get projection layer
-            if not hasattr(self, '_hidden_to_embed_proj'):
-                self._hidden_to_embed_proj = nn.Linear(hidden_dim, embed_dim, bias=False)
-                # Initialize with small weights to preserve stability
-                nn.init.normal_(self._hidden_to_embed_proj.weight, std=0.02)
-                # Move to same device as model
-                self._hidden_to_embed_proj = self._hidden_to_embed_proj.to(
-                    device=last_hidden.device, 
-                    dtype=last_hidden.dtype
-                )
-                logger.info(f"Created projection layer: {hidden_dim} -> {embed_dim}")
-            
-            # Ensure projection layer is on correct device
-            if self._hidden_to_embed_proj.weight.device != last_hidden.device:
-                self._hidden_to_embed_proj = self._hidden_to_embed_proj.to(
-                    device=last_hidden.device, 
-                    dtype=last_hidden.dtype
-                )
+        if hidden_dim != embed_dim:
+            logger.error(f"CRITICAL: Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
+            logger.error("Coconut algorithm requires hidden states and embeddings to be in the same dimensional space")
+            logger.error("Projection layers break the shared representation space assumption")
+            logger.error("Skipping latent injection due to incompatible dimensions")
+            return inputs_embeds  # Return original embeddings without modification
         
         for batch_idx, span_pairs in enumerate(spans):
             for start, end in span_pairs:
@@ -750,17 +737,14 @@ class LatentWrapper(nn.Module):
                                     logger.error(f"Unexpected hidden state dimension {source_hidden_state.dim()}, skipping token at pos {pos}")
                                     continue
                                 
-                                # Apply projection if needed
-                                if needs_projection:
-                                    source_hidden_state = self._hidden_to_embed_proj(source_hidden_state.unsqueeze(0)).squeeze(0)
-                                
-                                # Validate target embedding shape matches
+                                # Direct assignment without projection - maintaining shared representation space
+                                # Validate target embedding shape matches before assignment
                                 target_embedding = inputs_embeds[batch_idx, pos]
                                 if source_hidden_state.shape != target_embedding.shape:
                                     logger.error(f"Shape mismatch: hidden_state.shape={source_hidden_state.shape}, target_embedding.shape={target_embedding.shape}, skipping token at pos {pos}")
                                     continue
                                 
-                                # Individual assignment - each token gets its predecessor's hidden state
+                                # Direct assignment - coconut requires no projection between hidden states and embeddings
                                 inputs_embeds[batch_idx, pos] = source_hidden_state.clone()
                                 
                             except Exception as e:
@@ -1096,10 +1080,10 @@ class LatentWrapper(nn.Module):
         if destination is None:
             destination = {}
             
-        # Save LatentWrapper-specific parameters (e.g., projection layers)
+        # Save LatentWrapper-specific parameters (excluding projection layers - they're removed)
         # CRITICAL: Exclude embedding-related parameters to avoid shared memory duplication
         for name, param in self.named_parameters(recurse=False):
-            if param is not None and not any(exclude in name for exclude in ['embedding', '_embedding']):
+            if param is not None and not any(exclude in name for exclude in ['embedding', '_embedding', '_hidden_to_embed_proj']):
                 destination[prefix + name] = param if keep_vars else param.detach()
         
         # Save base_model state_dict recursively 
@@ -1141,7 +1125,7 @@ class LatentWrapper(nn.Module):
             if unexpected_keys and strict:
                 logger.warning(f"Unexpected keys when loading base_model: {unexpected_keys}")
         
-        # Load LatentWrapper-specific state (e.g., projection layers)
+        # Load LatentWrapper-specific state (excluding projection layers - they're removed)
         if latent_wrapper_state:
             missing_keys, unexpected_keys = super().load_state_dict(latent_wrapper_state, strict=False)
             if missing_keys and strict:
@@ -1160,14 +1144,11 @@ class LatentWrapper(nn.Module):
     def save_pretrained(self, save_directory, **kwargs):
         """
         Handle saving with proper shared memory management.
+        Note: Projection layers have been removed to maintain coconut's shared representation space.
         """
         logger.info(f"Saving LatentWrapper model to {save_directory}")
         # Delegate to base model's save_pretrained but with proper state_dict handling
         self.base_model.save_pretrained(save_directory, **kwargs)
         
-        # Save any LatentWrapper-specific parameters separately if needed
-        import os
-        latent_wrapper_path = os.path.join(save_directory, "latent_wrapper_extra.bin")
-        if hasattr(self, '_hidden_to_embed_proj'):
-            torch.save({"projection_layer": self._hidden_to_embed_proj.state_dict()}, latent_wrapper_path)
-            logger.info(f"Saved LatentWrapper projection layer to {latent_wrapper_path}")
+        # No LatentWrapper-specific parameters to save (projection layers removed)
+        logger.info("No LatentWrapper-specific parameters to save (projection layers removed for coconut compatibility)")
