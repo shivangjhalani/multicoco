@@ -45,6 +45,7 @@ try:
     from multicoco.latent_wrapper import LatentWrapper
     from multicoco.config import MultiCoCoConfig
     from multicoco.answer_extraction import extract_answer_choice
+    from multicoco.test_utils import EnhancedMockModel, SmartMockTokenizer, create_test_input_ids
     print("✓ Successfully imported multicoco modules")
 except ImportError as e:
     logger.error(f"Failed to import multicoco modules: {e}")
