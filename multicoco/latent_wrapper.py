@@ -582,11 +582,20 @@ class LatentWrapper(nn.Module):
         next_token_id = self._sample_next_token(current_logits, do_sample)
         next_token_id = self._handle_finished_sequences(next_token_id, generation_state['unfinished_sequences'], generation_state['pad_token_id'])
         
+        # Ensure next_token_id has proper shape for concatenation (should be [batch_size, 1])
+        if next_token_id.dim() == 1:
+            next_token_id = next_token_id.unsqueeze(-1)
+        
         generation_state['generated_ids'] = torch.cat([generation_state['generated_ids'], next_token_id], dim=1)
         generation_state['attention_mask'] = torch.cat([generation_state['attention_mask'], generation_state['unfinished_sequences'].unsqueeze(-1)], dim=1)
         
         if generation_state['eos_token_id'] is not None and next_token_id is not None:
-            newly_finished = (next_token_id.squeeze(-1) == generation_state['eos_token_id']) & (generation_state['unfinished_sequences'] == 1)
+            # Ensure next_token_id has the right shape for squeeze operation
+            if next_token_id.dim() > 1 and next_token_id.shape[-1] == 1:
+                token_ids_flat = next_token_id.squeeze(-1)
+            else:
+                token_ids_flat = next_token_id.view(-1)
+            newly_finished = (token_ids_flat == generation_state['eos_token_id']) & (generation_state['unfinished_sequences'] == 1)
             generation_state['unfinished_sequences'].mul_((~newly_finished).long())
         
         return next_token_id
