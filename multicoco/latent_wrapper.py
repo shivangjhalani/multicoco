@@ -456,14 +456,19 @@ class LatentWrapper(nn.Module):
         
         # Step 2: Use HuggingFace generate with pre-computed embeddings for efficiency
         # This leverages proper KV caching and is much faster for long sequences
+        
+        # Ensure we have valid token IDs for generation
+        pad_token_id = pad_token_id or getattr(self.tokenizer, 'pad_token_id', None) or getattr(self.tokenizer, 'eos_token_id', None) or 0
+        eos_token_id = eos_token_id or getattr(self.tokenizer, 'eos_token_id', None) or pad_token_id
+        
         generation_config = {
             'max_new_tokens': max_new_tokens,
             'do_sample': do_sample,
             'temperature': temperature,
             'top_p': top_p,
             'top_k': top_k,
-            'pad_token_id': pad_token_id or self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
-            'eos_token_id': eos_token_id or self.tokenizer.eos_token_id,
+            'pad_token_id': pad_token_id,
+            'eos_token_id': eos_token_id,
             'use_cache': True,  # Enable KV caching for efficiency
             'return_dict_in_generate': True,
             'output_scores': False,
@@ -559,8 +564,9 @@ class LatentWrapper(nn.Module):
 
     def _initialize_generation_state(self, batch_size: int, device: torch.device, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pad_token_id: Optional[int], eos_token_id: Optional[int]) -> dict:
         """Initialize state for generation"""
-        pad_token_id = pad_token_id or self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-        eos_token_id = eos_token_id or self.tokenizer.eos_token_id
+        # Ensure we have valid token IDs with better fallbacks
+        pad_token_id = pad_token_id or getattr(self.tokenizer, 'pad_token_id', None) or getattr(self.tokenizer, 'eos_token_id', None) or 0
+        eos_token_id = eos_token_id or getattr(self.tokenizer, 'eos_token_id', None) or pad_token_id
         return {
             'generated_ids': input_ids.clone(),
             'attention_mask': attention_mask if attention_mask is not None else torch.ones_like(input_ids),
@@ -579,7 +585,7 @@ class LatentWrapper(nn.Module):
         generation_state['generated_ids'] = torch.cat([generation_state['generated_ids'], next_token_id], dim=1)
         generation_state['attention_mask'] = torch.cat([generation_state['attention_mask'], generation_state['unfinished_sequences'].unsqueeze(-1)], dim=1)
         
-        if generation_state['eos_token_id'] is not None:
+        if generation_state['eos_token_id'] is not None and next_token_id is not None:
             newly_finished = (next_token_id.squeeze(-1) == generation_state['eos_token_id']) & (generation_state['unfinished_sequences'] == 1)
             generation_state['unfinished_sequences'].mul_((~newly_finished).long())
         
