@@ -93,30 +93,20 @@ class MultiCoCo(nn.Module):
     def _resize_special_token_embeddings(self) -> None:
         current_size = len(self.tokenizer)
         
-        # Debug: Let's see what happens step by step
-        print(f"🔍 DEBUG: Accessing self.model...")
-        model_obj = self.model  # This should work
-        print(f"🔍 DEBUG: Got model object: {type(model_obj)}")
-        print(f"🔍 DEBUG: Accessing model.config...")
-        model_config = model_obj.config  # This might trigger __getattr__ somehow
-        print(f"🔍 DEBUG: Got config object: {type(model_config)}")
-        
         # Get vocab size from the correct config attribute
         # InternVL models use different config structure
-        # Get vocab size from the correct config attribute
-        # InternVL models use different config structure
-        if hasattr(model_config, 'vocab_size'):
-            model_vocab_size = model_config.vocab_size
-        elif hasattr(model_config, 'llm_config') and hasattr(model_config.llm_config, 'vocab_size'):
-            model_vocab_size = model_config.llm_config.vocab_size
-        elif hasattr(model_obj, 'language_model') and hasattr(model_obj.language_model.config, 'vocab_size'):
-            model_vocab_size = model_obj.language_model.config.vocab_size
+        if hasattr(self.model.config, 'vocab_size'):
+            model_vocab_size = self.model.config.vocab_size
+        elif hasattr(self.model.config, 'llm_config') and hasattr(self.model.config.llm_config, 'vocab_size'):
+            model_vocab_size = self.model.config.llm_config.vocab_size
+        elif hasattr(self.model, 'language_model') and hasattr(self.model.language_model.config, 'vocab_size'):
+            model_vocab_size = self.model.language_model.config.vocab_size
         else:
             # Fallback: get vocab size from the actual embedding layer
-            if hasattr(model_obj, 'language_model'):
-                embed_layer = model_obj.language_model.get_input_embeddings()
+            if hasattr(self.model, 'language_model'):
+                embed_layer = self.model.language_model.get_input_embeddings()
             else:
-                embed_layer = model_obj.get_input_embeddings()
+                embed_layer = self.model.get_input_embeddings()
             model_vocab_size = embed_layer.num_embeddings
             logger.warning(f'Could not find vocab_size in config, using embedding layer size: {model_vocab_size}')
         
@@ -126,10 +116,10 @@ class MultiCoCo(nn.Module):
         # Only resize if we actually added tokens
         if current_size > model_vocab_size:
             logger.info(f'Resizing embeddings from {model_vocab_size} to {current_size} for {current_size - model_vocab_size} new tokens')
-            if hasattr(model_obj, 'language_model'):
-                model_obj.language_model.resize_token_embeddings(current_size)
+            if hasattr(self.model, 'language_model'):
+                self.model.language_model.resize_token_embeddings(current_size)
             else:
-                model_obj.resize_token_embeddings(current_size)
+                self.model.resize_token_embeddings(current_size)
         else:
             logger.info(f'No embedding resize needed - tokenizer size {current_size} matches model vocab size {model_vocab_size}')
 
@@ -160,16 +150,21 @@ class MultiCoCo(nn.Module):
         if name == 'model':
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         
-        # During initialization, __dict__ might not have 'model' yet
-        # Use __dict__ to avoid triggering __getattr__ recursively
+        # Check if model exists in either __dict__ or _modules (PyTorch submodules)
+        # PyTorch automatically registers nn.Module assignments as submodules in _modules
+        model_obj = None
+        if 'model' in self.__dict__ and self.__dict__['model'] is not None:
+            model_obj = self.__dict__['model']
+        elif hasattr(self, '_modules') and 'model' in self._modules and self._modules['model'] is not None:
+            model_obj = self._modules['model']
+        
         # If model is not initialized yet, just raise AttributeError normally
-        # This allows Python's normal attribute resolution to work during __init__
-        if 'model' not in self.__dict__ or self.__dict__['model'] is None:
+        if model_obj is None:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         
         # Forward the attribute to the underlying model
         try:
-            return getattr(self.__dict__['model'], name)
+            return getattr(model_obj, name)
         except AttributeError:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
