@@ -138,12 +138,18 @@ class MultiCoCo(nn.Module):
         - img_context_token_id
         etc.
         """
-        # Avoid infinite recursion during initialization
-        if name == 'model' or not hasattr(self, 'model'):
+        # Prevent infinite recursion by checking if we're looking for 'model'
+        if name == 'model':
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         
+        # During initialization, __dict__ might not have 'model' yet
+        # Use __dict__ to avoid triggering __getattr__ recursively
+        if 'model' not in self.__dict__:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}' (model not yet initialized)")
+        
+        # Forward the attribute to the underlying model
         try:
-            return getattr(self.model, name)
+            return getattr(self.__dict__['model'], name)
         except AttributeError:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}' and neither does the underlying model")
 
