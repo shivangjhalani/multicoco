@@ -673,9 +673,14 @@ class LatentWrapper(nn.Module):
         
     def _build_modified_embeddings_sequential(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
-        Build modified embeddings with sequential latent processing.
-        Fix: Each latent token gets the hidden state from the previous position (not repeated).
-        Fix: Handle dimension mismatch between hidden states and embeddings with proper projection.
+        Build modified embeddings with individual latent token processing following original coconut algorithm.
+        
+        CORRECTED IMPLEMENTATION: Each latent token receives the hidden state from its immediate 
+        predecessor (pos-1), matching the original coconut.py pattern:
+        tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
+        
+        This allows for sequential reasoning where each latent token builds upon the evolved
+        hidden state from the previous position, enabling proper latent reasoning progression.
         """
         inputs_embeds = self.embedding(input_ids).clone()
         
@@ -716,73 +721,58 @@ class LatentWrapper(nn.Module):
                 if start == 0:
                     continue  # Skip if latent span starts at position 0
                 
-                # Sequential injection: each latent token gets the hidden state from the previous position
+                # CORRECTED: Individual injection following original coconut algorithm
+                # Each latent token gets the hidden state from its immediate predecessor (pos-1)
+                # This follows original coconut.py pattern: hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
                 for pos in range(start + 1, end):  # Skip start/end markers, only process actual latent tokens
-                    # Each latent token gets hidden state from the immediately previous position
-                    source_pos = pos - 1
-                    if source_pos < last_hidden.shape[1] and pos < inputs_embeds.shape[1]:
-                        try:
-                            # Extract hidden state with robust shape handling
-                            hidden_state = last_hidden[batch_idx, source_pos]
-                            
-                            logger.debug(f"Extracted hidden_state shape: {hidden_state.shape}, expected 1D with dim {hidden_dim}")
-                            
-                            # Handle unexpected shapes more robustly
-                            if hidden_state.dim() == 0:
-                                # Scalar - shouldn't happen but handle it
-                                logger.error(f"Got scalar hidden state at pos {pos}, skipping injection")
-                                continue
-                            elif hidden_state.dim() == 1:
-                                # Expected case: 1D vector of hidden states
-                                if hidden_state.shape[0] != hidden_dim:
-                                    logger.error(f"Hidden state size {hidden_state.shape[0]} doesn't match expected {hidden_dim}, skipping injection")
-                                    continue
-                            elif hidden_state.dim() == 2:
-                                # Unexpected 2D tensor - flatten or take first row
-                                logger.warning(f"Got 2D hidden state {hidden_state.shape}, flattening")
-                                if hidden_state.shape[0] == 1:
-                                    # Shape [1, hidden_dim] - squeeze out the first dimension
-                                    hidden_state = hidden_state.squeeze(0)
-                                elif hidden_state.shape[1] == 1:
-                                    # Shape [hidden_dim, 1] - squeeze out the second dimension
-                                    hidden_state = hidden_state.squeeze(1)
+                    if pos < inputs_embeds.shape[1]:
+                        source_pos = pos - 1  # Individual source position for each token
+                        
+                        if source_pos < last_hidden.shape[1] and source_pos >= 0:
+                            try:
+                                # Extract hidden state for this specific token position
+                                source_hidden_state = last_hidden[batch_idx, source_pos]
+                                
+                                # Validate hidden state shape
+                                if source_hidden_state.dim() == 1:
+                                    # Expected case: 1D vector of hidden states
+                                    if source_hidden_state.shape[0] != hidden_dim:
+                                        logger.error(f"Hidden state size {source_hidden_state.shape[0]} doesn't match expected {hidden_dim}, skipping token at pos {pos}")
+                                        continue
+                                elif source_hidden_state.dim() == 2:
+                                    # Handle 2D case by taking first element
+                                    if source_hidden_state.shape[0] == 1:
+                                        source_hidden_state = source_hidden_state.squeeze(0)
+                                    else:
+                                        logger.error(f"Cannot handle 2D hidden state shape {source_hidden_state.shape}, skipping token at pos {pos}")
+                                        continue
                                 else:
-                                    # Complex 2D shape - this shouldn't happen, skip injection
-                                    logger.error(f"Cannot handle 2D hidden state shape {hidden_state.shape}, skipping injection")
+                                    logger.error(f"Unexpected hidden state dimension {source_hidden_state.dim()}, skipping token at pos {pos}")
                                     continue
-                            else:
-                                # Higher dimensional tensor - definitely shouldn't happen
-                                logger.error(f"Got {hidden_state.dim()}D hidden state {hidden_state.shape}, skipping injection")
+                                
+                                # Apply projection if needed
+                                if needs_projection:
+                                    source_hidden_state = self._hidden_to_embed_proj(source_hidden_state.unsqueeze(0)).squeeze(0)
+                                
+                                # Validate target embedding shape matches
+                                target_embedding = inputs_embeds[batch_idx, pos]
+                                if source_hidden_state.shape != target_embedding.shape:
+                                    logger.error(f"Shape mismatch: hidden_state.shape={source_hidden_state.shape}, target_embedding.shape={target_embedding.shape}, skipping token at pos {pos}")
+                                    continue
+                                
+                                # Individual assignment - each token gets its predecessor's hidden state
+                                inputs_embeds[batch_idx, pos] = source_hidden_state.clone()
+                                
+                            except Exception as e:
+                                logger.error(f"Error injecting latent token at pos {pos}: {e}")
+                                logger.error(f"  last_hidden shape: {last_hidden.shape}")
+                                logger.error(f"  batch_idx: {batch_idx}, source_pos: {source_pos}")
+                                # Skip this token and continue
                                 continue
-                            
-                            # Ensure we now have a 1D tensor
-                            if hidden_state.dim() != 1:
-                                logger.error(f"After reshaping, hidden state is still not 1D: {hidden_state.shape}, skipping injection")
-                                continue
-                            
-                            # Apply projection if needed
-                            if needs_projection:
-                                hidden_state = self._hidden_to_embed_proj(hidden_state.unsqueeze(0)).squeeze(0)
-                            
-                            # Final validation before assignment
-                            target_embedding = inputs_embeds[batch_idx, pos]
-                            if hidden_state.shape != target_embedding.shape:
-                                logger.error(f"Shape mismatch: hidden_state.shape={hidden_state.shape}, target_embedding.shape={target_embedding.shape}, skipping injection")
-                                continue
-                            
-                            # Safe assignment
-                            inputs_embeds[batch_idx, pos] = hidden_state
-                            
-                        except Exception as e:
-                            logger.error(f"Error injecting latent token at pos {pos}: {e}")
-                            logger.error(f"  last_hidden shape: {last_hidden.shape}")
-                            logger.error(f"  batch_idx: {batch_idx}, source_pos: {source_pos}")
-                            logger.error(f"  hidden_state shape: {hidden_state.shape if 'hidden_state' in locals() else 'not extracted'}")
-                            logger.error(f"  target embedding shape: {inputs_embeds[batch_idx, pos].shape}")
-                            # Skip this injection and continue
-                            continue
+                        else:
+                            logger.warning(f"Source position {source_pos} out of bounds for token at pos {pos} with last_hidden.shape[1]={last_hidden.shape[1]}")
                     else:
-                        logger.warning(f"Index out of bounds: source_pos={source_pos}, pos={pos}, last_hidden.shape[1]={last_hidden.shape[1]}, inputs_embeds.shape[1]={inputs_embeds.shape[1]}")
+                        logger.warning(f"Position {pos} out of bounds for inputs_embeds with shape {inputs_embeds.shape}")
         
         return inputs_embeds
 
