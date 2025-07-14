@@ -748,21 +748,21 @@ class LatentWrapper(nn.Module):
             return image_embeds
         
         if pixel_values is not None:
-            # Use the model's extract_feature method which handles the full vision pipeline
-            return self.base_model.extract_feature(pixel_values.to(dtype=self.base_model.dtype))
+            # The base model handles vision embedding internally, so we just pass pixel_values
+            return None
         
         return None
 
-    def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> torch.Tensor:
+    def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pixel_values: Optional[torch.Tensor]) -> torch.Tensor:
         """First pass to get hidden states before injecting into latent tokens"""
         with torch.inference_mode():
             # Use the full model to get outputs, ensuring multimodal context is handled
+            # Let the base model handle the fusion of text and vision
             outputs = self.base_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                pixel_values=None,  # pixel_values are converted to image_embeds
-                image_embeds=image_embeds,
-                output_hidden_states=True,  # Ensure hidden states are returned
+                pixel_values=pixel_values,
+                output_hidden_states=True,
                 return_dict=True
             )
         # The output of the language model is the last item in the hidden_states tuple
@@ -893,12 +893,12 @@ class LatentWrapper(nn.Module):
                 'coconut/avg_span_length': avg_span_length,
                 'coconut/max_span_length': max_span_length,
                 'coconut/num_batches_with_latents': sum(1 for spans in spans_per_batch if spans > 0)
-            }
+            };
             
-            self._log_to_wandb(metrics)
+            self._log_to_wandb(metrics);
             
             if self.enable_norm_logging:
-                logger.info(f"Coconut metrics: {metrics}")
+                logger.info(f"Coconut metrics: {metrics}");
                 
         except Exception as e:
             logger.warning(f'Failed to log Coconut metrics: {e}')
@@ -921,32 +921,21 @@ class LatentWrapper(nn.Module):
             'coconut/efficiency/latent_tokens': latent_tokens,
         }
 
-    def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]):
+    def _second_pass_forward(self, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, labels: Optional[torch.Tensor]):
         """Second pass with modified embeddings to get final logits."""
-        # InternVL3-1B doesn't have prepare_inputs_for_multimodal method
-        # Instead, we manually prepare multimodal embeddings
-        second_pass_embeds = self._prepare_inputs_for_multimodal_internvl(
-            input_ids=input_ids,
-            image_embeds=image_embeds,
-            inputs_embeds=inputs_embeds
-        )
-        
         # Pass embeddings through the language model to get hidden states
-        outputs = self.base_model.model.language_model(
-            inputs_embeds=second_pass_embeds,
+        # The visual context is already in the hidden states from the first pass,
+        # so we don't need to pass pixel_values again.
+        outputs = self.base_model.language_model(
+            inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
-            use_cache=True,
+            use_cache=False, # No caching needed for training
             return_dict=True,
         )
         hidden_states = outputs.last_hidden_state
 
         # Pass hidden states through the LM head to get logits
-        if hasattr(self.base_model.model, 'lm_head'):
-            logits = self.base_model.model.lm_head(hidden_states)
-        else:
-            # Fallback for models where get_output_embeddings() is used
-            output_embeddings = self.base_model.model.get_output_embeddings()
-            logits = output_embeddings(hidden_states)
+        logits = self.base_model.lm_head(hidden_states)
         
         loss = None
         
@@ -957,7 +946,7 @@ class LatentWrapper(nn.Module):
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         
-        return {'loss': loss, 'logits': logits, 'inputs_embeds': second_pass_embeds}
+        return {'loss': loss, 'logits': logits, 'inputs_embeds': inputs_embeds}
 
     def _generate_with_huggingface_optimizations(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **generation_kwargs) -> torch.Tensor:
         """
@@ -968,21 +957,10 @@ class LatentWrapper(nn.Module):
         
         # Process latents once before generation
         if self._has_latent_spans(input_ids):
-            # Get image embeddings
-            image_embeds = self._get_cached_vision_embeddings(pixel_values, device)
-            
             # Process latent spans
             spans = self._extract_latent_spans(input_ids)
-            last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
+            last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, pixel_values)
             processed_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
-            
-            # Apply multimodal processing to final embeddings
-            if image_embeds is not None:
-                processed_embeds = self._prepare_inputs_for_multimodal_internvl(
-                    input_ids=input_ids,
-                    image_embeds=image_embeds,
-                    inputs_embeds=processed_embeds
-                )
             
             # Use HuggingFace generation with our processed embeddings
             return self.base_model.generate(
