@@ -144,14 +144,16 @@ class MultiCoCo(nn.Module):
         
         # During initialization, __dict__ might not have 'model' yet
         # Use __dict__ to avoid triggering __getattr__ recursively
-        if 'model' not in self.__dict__:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}' (model not yet initialized)")
+        # If model is not initialized yet, just raise AttributeError normally
+        # This allows Python's normal attribute resolution to work during __init__
+        if 'model' not in self.__dict__ or self.__dict__['model'] is None:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         
         # Forward the attribute to the underlying model
         try:
             return getattr(self.__dict__['model'], name)
         except AttributeError:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}' and neither does the underlying model")
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     @property
     def device(self):
