@@ -127,7 +127,7 @@ def verify_fix():
     """Verify that the fix has been applied correctly"""
     print("Verifying the fix...")
     
-    latent_wrapper_path = Path("/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco/multicoco/latent_wrapper.py")
+    latent_wrapper_path = Path("./multicoco/latent_wrapper.py")
     
     with open(latent_wrapper_path, 'r') as f:
         content = f.read()
