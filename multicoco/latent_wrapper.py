@@ -50,15 +50,11 @@ class LatentWrapper(nn.Module):
 
     def _get_embedding_layer(self, model):
         """Get the correct embedding layer from potentially nested model structure"""
-        # CRITICAL FIX: Create independent embedding copy to prevent shared memory issues
+        # Create independent embedding copy to prevent shared memory issues
         # The original implementation caused "Some tensors share memory" errors during model saving
         # because both self.embedding and base_model embedding referred to the same tensor
         
         original_embedding = None
-        
-        # Debug: Print model structure to understand the actual hierarchy
-        logger.debug(f"Model type: {type(model)}")
-        logger.debug(f"Model attributes: {[attr for attr in dir(model) if not attr.startswith('_')]}")
         
         # Try different possible structures for InternVL3
         if hasattr(model, 'language_model') and hasattr(model.language_model, 'model'):
@@ -236,7 +232,7 @@ class LatentWrapper(nn.Module):
         # Has latent tokens, need custom generation with latent injection
         # Convert chat interface to generate interface
         if pixel_values is not None:
-            # CRITICAL FIX: Use InternVL's native conversation template and proper image token expansion
+            # Use InternVL's native conversation template and proper image token expansion
             # This ensures proper image placeholder handling and avoids shape mismatch
             
             # Ensure question has proper image token structure using our utility
@@ -310,7 +306,7 @@ class LatentWrapper(nn.Module):
             # No latent spans - delegate directly to base model with EXACT same interface
             logger.debug("LatentWrapper.generate: No latent spans detected, delegating to base model")
             try:
-                # CRITICAL FIX: Ensure proper device and dtype alignment for InternVL
+                # Ensure proper device and dtype alignment for InternVL
                 if pixel_values is not None:
                     model_dtype = next(self.base_model.parameters()).dtype
                     model_device = next(self.base_model.parameters()).device
