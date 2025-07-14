@@ -24,12 +24,15 @@ def test_latent_injection_fix():
         from multicoco.latent_wrapper import LatentWrapper
         
         # Create a mock setup
-        class MockModel:
-            def parameters(self):
-                return [torch.tensor([1.0])]
+        class MockModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                # Add a real parameter so device property works
+                self.dummy_param = torch.nn.Parameter(torch.tensor([1.0]))
+                self._embedding = torch.nn.Embedding(1000, 64)
                 
             def get_input_embeddings(self):
-                return torch.nn.Embedding(1000, 64)
+                return self._embedding
         
         class MockTokenizer:
             def __init__(self):

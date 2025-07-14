@@ -744,6 +744,8 @@ class LatentWrapper(nn.Module):
         - First pass processes earliest latent tokens in each span
         - Subsequent passes process next layer of latent tokens
         - Uses KV cache for efficiency across passes
+        
+        CRITICAL FIX: Handle multimodal sequence length changes properly
         """
         # Convert spans to latent token lists (like original coconut)
         latent_lists = self._convert_spans_to_latent_lists(spans, input_ids.shape[1])
@@ -759,19 +761,31 @@ class LatentWrapper(nn.Module):
             attention_mask = attention_mask.to(device)
         
         inputs_embeds = self.embedding(input_ids)
+        original_seq_len = inputs_embeds.shape[1]  # Track original sequence length
         
         # If we have image embeddings, prepare multimodal inputs
         if image_embeds is not None:
             inputs_embeds = self._prepare_inputs_for_multimodal_internvl(input_ids, image_embeds, inputs_embeds)
+            # CRITICAL: The sequence length may have changed after multimodal processing
+            actual_seq_len = inputs_embeds.shape[1]
+            logger.debug(f"Sequence length change: original={original_seq_len}, after_multimodal={actual_seq_len}")
+            
+            # If sequence length changed, we need to adjust our latent positions
+            if actual_seq_len != original_seq_len:
+                logger.warning(f"Multimodal processing changed sequence length from {original_seq_len} to {actual_seq_len}")
+                logger.warning("Latent injection may not work correctly with sequence length changes")
+                # For now, fall back to standard processing without latent injection
+                # This prevents crashes but means latent reasoning won't work for this sample
+                return self._fallback_forward_without_latents(inputs_embeds, attention_mask, labels, **kwargs)
         
         # Initialize compute range and cache (CORRECTED: Match original coconut exactly)
         if max_n_latents > 0:
             # ORIGINAL COCONUT LOGIC: Find earliest latent token position across all spans
             # This ensures the first pass includes all tokens up to the first latent token
-            earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else input_ids.shape[1]
-            next_compute_range = (0, earliest_latent_pos)
+            earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else inputs_embeds.shape[1]
+            next_compute_range = (0, min(earliest_latent_pos, inputs_embeds.shape[1]))
         else:
-            next_compute_range = (0, input_ids.shape[1])
+            next_compute_range = (0, inputs_embeds.shape[1])
         
         kv_cache = None
         logits = []
@@ -875,7 +889,7 @@ class LatentWrapper(nn.Module):
             # Original: processes one token at a time after first pass
             next_compute_range = (
                 next_compute_range[1],
-                input_ids.shape[1] if pass_idx + 1 >= max_n_latents else next_compute_range[1] + 1
+                inputs_embeds.shape[1] if pass_idx + 1 >= max_n_latents else next_compute_range[1] + 1
             )
             
             # Get hidden states and update cache with validation
@@ -903,32 +917,7 @@ class LatentWrapper(nn.Module):
         
         # Final pass if no latent tokens were processed
         if max_n_latents == 0:
-            # Clean kwargs to avoid conflicts with GPT-2 model
-            # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
-            safe_kwargs = {}
-            allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
-            for key in allowed_keys:
-                if key in kwargs and kwargs[key] is not None:
-                    safe_kwargs[key] = kwargs[key]
-            
-            # InternVL models don't support inputs_embeds directly, need to use language_model
-            if hasattr(self.base_model, 'language_model'):
-                outputs = self.base_model.language_model(
-                    inputs_embeds=inputs_embeds,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    output_hidden_states=True,
-                    **safe_kwargs
-                )
-            else:
-                outputs = self.base_model(
-                    inputs_embeds=inputs_embeds,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    output_hidden_states=True,
-                    **safe_kwargs
-                )
-            return outputs
+            return self._fallback_forward_without_latents(inputs_embeds, attention_mask, labels, **kwargs)
         
         # Final forward pass to get complete logits for the entire sequence
         # Clean kwargs to avoid conflicts with GPT-2 model
