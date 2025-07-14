@@ -24,7 +24,7 @@ greater_is_better: true
 # Evaluation Strategy Configuration
 # skip_eval_during_training: false  # Set to true to skip all evaluations between epochs
 # eval_strategy: "epoch"             # Options: "epoch", "steps", "no"
-save_strategy: "epoch"             # Options: "epoch", "steps", "no"
+save_strategy: "no"             # Options: "epoch", "steps", "no"
 
 # Generation Configuration
 generation:
