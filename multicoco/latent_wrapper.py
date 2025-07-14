@@ -3,6 +3,8 @@ import re
 import time
 import torch
 import torch.nn as nn
+from transformers import PreTrainedModel
+from transformers.modeling_outputs import CausalLMOutputWithPast
 from typing import List, Optional, Tuple, Dict
 from .constants import COCONUT_SPECIAL_TOKENS, IMAGE_TOKEN
 
@@ -665,11 +667,13 @@ class LatentWrapper(nn.Module):
         1. First pass: get hidden states for the original sequence  
         2. Second pass: replace latent token embeddings with sequential hidden states
         """
+        logger.debug(f"START forward: input_ids={input_ids.shape}, pixel_values={pixel_values.shape if pixel_values is not None else None}")
         start_time = time.time()
         
         spans = self._extract_latent_spans(input_ids)
         if not any(spans):
             # No latent tokens, use standard forward
+            logger.debug("Forward: No latent spans, calling base_model directly.")
             return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
         
         # IMPROVEMENT: Log Coconut-specific metrics
@@ -682,6 +686,7 @@ class LatentWrapper(nn.Module):
         
         # Track timing for efficiency metrics
         self._last_forward_time = time.time() - start_time
+        logger.debug(f"END forward: result keys: {result.keys() if isinstance(result, dict) else 'N/A'}")
         
         return result
     
@@ -690,14 +695,15 @@ class LatentWrapper(nn.Module):
         Simplified sequential forward pass following original Coconut approach.
         Fix: Use two-pass approach with single multimodal processing to avoid position misalignment.
         """
+        logger.debug(f"START _sequential_latent_forward: pixel_values={pixel_values.shape if pixel_values is not None else None}")
         # First pass: get hidden states for the original sequence, including vision data
         last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, pixel_values)
         
-        # Build modified embeddings with sequential latent injection (like original Coconut)
-        inputs_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
-        
         # Second pass: single forward with modified embeddings (no vision data needed)
-        return self._second_pass_forward(attention_mask, inputs_embeds, labels)
+        inputs_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
+        result = self._second_pass_forward(attention_mask, inputs_embeds, labels)
+        logger.debug("END _sequential_latent_forward")
+        return result
         
     def _build_modified_embeddings_sequential(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
@@ -753,22 +759,57 @@ class LatentWrapper(nn.Module):
 
     def _first_pass_hidden_states(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], pixel_values: Optional[torch.Tensor]) -> torch.Tensor:
         """First pass to get hidden states before injecting into latent tokens"""
+        logger.debug(f"START _first_pass_hidden_states: pixel_values={pixel_values.shape if pixel_values is not None else None}")
         with torch.inference_mode():
-            # Use the full model to get outputs, ensuring multimodal context is handled
-            # Let the base model handle the fusion of text and vision
-            outputs = self.base_model(
+            # Use the full model to get outputs, which correctly handles multimodal inputs
+            outputs = self.base_model.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 pixel_values=pixel_values,
                 output_hidden_states=True,
                 return_dict=True
             )
-        # The output of the language model is the last item in the hidden_states tuple
-        return outputs.hidden_states[-1]
+            # Return the last hidden state
+            last_hidden = outputs.hidden_states[-1]
+            logger.debug(f"END _first_pass_hidden_states: last_hidden.shape={last_hidden.shape}")
+            return last_hidden
+
+    def _second_pass_forward(self, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, labels: Optional[torch.Tensor]):
+        """Second pass with modified embeddings"""
+        logger.debug("START _second_pass_forward")
+        # No pixel_values should be passed here
+        outputs = self.base_model.model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            past_key_values=None,
+            use_cache=True,
+            return_dict=True
+        )
+        
+        # Reconstruct full model output if needed (e.g., for loss calculation)
+        # The original CoCoNut just needs the logits from the second pass
+        logits = self.base_model.lm_head(outputs.hidden_states[-1])
+        
+        loss = None
+        if labels is not None:
+            # Calculate loss if labels are provided
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, self.base_model.config.llm_config.vocab_size), shift_labels.view(-1))
+
+        logger.debug("END _second_pass_forward")
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,
+            past_key_values=outputs.past_key_values,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
 
     def _build_modified_embeddings(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
-        Replace latent token embeddings with sequentially evolved hidden states.
+        Build modified embeddings by injecting hidden states into latent token positions.
         
         This implements the correct Coconut algorithm where each latent token in a span
         gets the evolved hidden state from the previous position, allowing latent reasoning
@@ -920,31 +961,37 @@ class LatentWrapper(nn.Module):
         }
 
     def _second_pass_forward(self, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, labels: Optional[torch.Tensor]):
-        """Second pass with modified embeddings to get final logits."""
-        # Pass embeddings through the language model to get hidden states
-        # The visual context is already in the hidden states from the first pass,
-        # so we don't need to pass pixel_values again.
-        outputs = self.base_model.language_model(
+        """Second pass with modified embeddings"""
+        logger.debug("START _second_pass_forward")
+        # No pixel_values should be passed here
+        outputs = self.base_model.model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
-            use_cache=False, # No caching needed for training
-            return_dict=True,
+            past_key_values=None,
+            use_cache=True,
+            return_dict=True
         )
-        hidden_states = outputs.last_hidden_state
-
-        # Pass hidden states through the LM head to get logits
-        logits = self.base_model.lm_head(hidden_states)
+        
+        # Reconstruct full model output if needed (e.g., for loss calculation)
+        # The original CoCoNut just needs the logits from the second pass
+        logits = self.base_model.lm_head(outputs.hidden_states[-1])
         
         loss = None
-        
         if labels is not None:
-            # Compute cross-entropy loss
+            # Calculate loss if labels are provided
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-            loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        
-        return {'loss': loss, 'logits': logits, 'inputs_embeds': inputs_embeds}
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, self.base_model.config.llm_config.vocab_size), shift_labels.view(-1))
+
+        logger.debug("END _second_pass_forward")
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,
+            past_key_values=outputs.past_key_values,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
 
     def _generate_with_huggingface_optimizations(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, pixel_values: Optional[torch.Tensor] = None, **generation_kwargs) -> torch.Tensor:
         """
