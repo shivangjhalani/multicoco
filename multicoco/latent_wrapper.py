@@ -663,17 +663,116 @@ class LatentWrapper(nn.Module):
     
     def _sequential_latent_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor], spans: List[List[Tuple[int, int]]], **kwargs):
         """
-        Simplified sequential forward pass following original Coconut approach.
-        Fix: Use two-pass approach with single multimodal processing to avoid position misalignment.
+        Iterative multi-pass processing following original coconut algorithm.
+        
+        CORRECTED IMPLEMENTATION: Uses the original coconut's multi-pass approach where:
+        - Each pass processes one 'layer' of latent tokens across all spans
+        - First pass processes earliest latent tokens in each span
+        - Subsequent passes process next layer of latent tokens
+        - Uses KV cache for efficiency across passes
         """
-        # First pass: get hidden states for the original sequence
-        last_hidden = self._first_pass_hidden_states(input_ids, attention_mask, image_embeds)
+        # Convert spans to latent token lists (like original coconut)
+        latent_lists = self._convert_spans_to_latent_lists(spans, input_ids.shape[1])
         
-        # Build modified embeddings with sequential latent injection (like original Coconut)
-        inputs_embeds = self._build_modified_embeddings_sequential(input_ids, spans, last_hidden)
+        # Calculate maximum number of latent tokens across all instances
+        max_n_latents = max([len(l) for l in latent_lists]) if latent_lists else 0
         
-        # Second pass: single forward with modified embeddings  
-        return self._second_pass_forward(input_ids, attention_mask, inputs_embeds, image_embeds, labels)
+        # Initialize inputs_embeds and compute range
+        inputs_embeds = self.embedding(input_ids)
+        
+        # If we have image embeddings, prepare multimodal inputs
+        if image_embeds is not None:
+            inputs_embeds = self._prepare_inputs_for_multimodal_internvl(input_ids, image_embeds, inputs_embeds)
+        
+        # Initialize compute range and cache
+        if max_n_latents > 0:
+            # Find earliest latent token position across all spans
+            earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else input_ids.shape[1]
+            next_compute_range = (0, min(earliest_latent_pos, input_ids.shape[1]))
+        else:
+            next_compute_range = (0, input_ids.shape[1])
+        
+        kv_cache = None
+        logits = []
+        
+        # Multi-pass processing
+        for pass_idx in range(max_n_latents):
+            # Forward pass with current compute range
+            if kv_cache is None:
+                # First forward pass
+                outputs = self.base_model(
+                    inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                    attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
+                    output_hidden_states=True,
+                    use_cache=True,
+                    **kwargs
+                )
+                hidden_states_offset = 0
+            else:
+                # Subsequent passes with KV cache
+                past_key_values = [
+                    (k[:, :, :next_compute_range[0], :], v[:, :, :next_compute_range[0], :])
+                    for k, v in kv_cache
+                ]
+                
+                outputs = self.base_model(
+                    inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                    attention_mask=attention_mask[:, :next_compute_range[1]] if attention_mask is not None else None,
+                    past_key_values=past_key_values,
+                    output_hidden_states=True,
+                    use_cache=True,
+                    **kwargs
+                )
+                hidden_states_offset = next_compute_range[0]
+            
+            # Store logits
+            logits.append(outputs.logits)
+            
+            # Update compute range for next pass
+            next_compute_range = (
+                next_compute_range[1],
+                input_ids.shape[1] if pass_idx + 1 >= max_n_latents else next_compute_range[1] + 1
+            )
+            
+            # Get hidden states and update cache
+            hidden_states = outputs.hidden_states[-1]  # Last layer hidden states
+            kv_cache = outputs.past_key_values
+            
+            # Update embeddings with latent token injections for current pass
+            inputs_embeds = self._update_embeddings_for_pass(
+                inputs_embeds, hidden_states, latent_lists, pass_idx, hidden_states_offset
+            )
+        
+        # Final pass if no latent tokens were processed
+        if max_n_latents == 0:
+            outputs = self.base_model(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                labels=labels,
+                output_hidden_states=True,
+                **kwargs
+            )
+            return outputs
+        
+        # Combine logits from all passes
+        combined_logits = torch.cat(logits, dim=1)
+        
+        # Create final output structure
+        final_outputs = type(outputs)(
+            logits=combined_logits,
+            hidden_states=outputs.hidden_states,
+            past_key_values=outputs.past_key_values,
+        )
+        
+        # Add loss if labels are provided
+        if labels is not None:
+            loss_fct = torch.nn.CrossEntropyLoss()
+            shift_logits = combined_logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            final_outputs.loss = loss
+        
+        return final_outputs
         
     def _build_modified_embeddings_sequential(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
@@ -1152,3 +1251,101 @@ class LatentWrapper(nn.Module):
         
         # No LatentWrapper-specific parameters to save (projection layers removed)
         logger.info("No LatentWrapper-specific parameters to save (projection layers removed for coconut compatibility)")
+    
+    def _convert_spans_to_latent_lists(self, spans: List[List[Tuple[int, int]]], seq_length: int) -> List[List[int]]:
+        """
+        Convert span format to latent token lists format used by original coconut.
+        
+        Args:
+            spans: List of spans for each batch item, where each span is (start, end)
+            seq_length: Length of the sequence
+            
+        Returns:
+            List of lists where each inner list contains latent token positions for one batch item
+        """
+        latent_lists = []
+        
+        for batch_idx, span_pairs in enumerate(spans):
+            latent_positions = []
+            
+            # Extract all latent token positions from spans (excluding start/end markers)
+            for start, end in span_pairs:
+                for pos in range(start + 1, end):  # Skip start/end markers
+                    if pos < seq_length:
+                        latent_positions.append(pos)
+            
+            # Sort positions to maintain order
+            latent_positions.sort()
+            latent_lists.append(latent_positions)
+        
+        return latent_lists
+    
+    def _update_embeddings_for_pass(self, inputs_embeds: torch.Tensor, hidden_states: torch.Tensor, 
+                                  latent_lists: List[List[int]], pass_idx: int, hidden_states_offset: int) -> torch.Tensor:
+        """
+        Update embeddings with latent token injections for the current pass.
+        
+        Follows original coconut algorithm pattern:
+        tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
+        
+        Args:
+            inputs_embeds: Current embeddings tensor
+            hidden_states: Hidden states from current forward pass
+            latent_lists: List of latent token positions for each batch item
+            pass_idx: Current pass index (which layer of latent tokens to process)
+            hidden_states_offset: Offset for hidden states when using KV cache
+            
+        Returns:
+            Updated embeddings tensor
+        """
+        # Validate dimension compatibility
+        hidden_dim = hidden_states.shape[-1]
+        embed_dim = inputs_embeds.shape[-1]
+        
+        if hidden_dim != embed_dim:
+            logger.error(f"CRITICAL: Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
+            logger.error("Coconut algorithm requires hidden states and embeddings to be in the same dimensional space")
+            logger.error("Skipping latent injection due to incompatible dimensions")
+            return inputs_embeds
+        
+        # Determine which tokens to fill in this pass
+        filling_indices = [
+            (batch_idx, latent_list[pass_idx])
+            for batch_idx, latent_list in enumerate(latent_lists)
+            if len(latent_list) > pass_idx
+        ]
+        
+        # Convert to list of lists to avoid in-place operations (following original coconut)
+        tensor_list = [
+            [inputs_embeds[batch_idx, pos, :] for pos in range(inputs_embeds.shape[1])]
+            for batch_idx in range(inputs_embeds.shape[0])
+        ]
+        
+        # Replace latent tokens with hidden states from their predecessors
+        for batch_idx, token_idx in filling_indices:
+            if token_idx > 0:  # Ensure we don't go below 0
+                try:
+                    # Get hidden state from predecessor position (original coconut pattern)
+                    source_idx = token_idx - 1 - hidden_states_offset
+                    
+                    if 0 <= source_idx < hidden_states.shape[1]:
+                        # Direct assignment following coconut's shared representation space
+                        tensor_list[batch_idx][token_idx] = hidden_states[batch_idx, source_idx, :].clone()
+                        
+                        if self.enable_norm_logging:
+                            original_norm = torch.norm(inputs_embeds[batch_idx, token_idx]).item()
+                            new_norm = torch.norm(hidden_states[batch_idx, source_idx]).item()
+                            logger.debug(f"Pass {pass_idx}: Updated token {token_idx} norm from {original_norm:.4f} to {new_norm:.4f}")
+                    else:
+                        logger.warning(f"Source index {source_idx} out of bounds for hidden_states with shape {hidden_states.shape}")
+                        
+                except Exception as e:
+                    logger.error(f"Error updating latent token at pos {token_idx} in pass {pass_idx}: {e}")
+                    continue
+        
+        # Convert back to tensor
+        updated_embeds = torch.stack([
+            torch.stack(batch_tensors) for batch_tensors in tensor_list
+        ])
+        
+        return updated_embeds
