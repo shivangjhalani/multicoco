@@ -39,7 +39,10 @@ class LatentWrapper(nn.Module):
 
     def _get_embedding_layer(self, model):
         """Get the correct embedding layer from potentially nested model structure"""
-        if hasattr(model, 'model') and hasattr(model.model, 'language_model'):
+        if hasattr(model, 'language_model') and hasattr(model.language_model, 'model'):
+            # InternVL3 structure: model.language_model.model.embed_tokens
+            return model.language_model.model.embed_tokens
+        elif hasattr(model, 'model') and hasattr(model.model, 'language_model'):
             # InternVL structure: model.model.language_model.model.embed_tokens
             return model.model.language_model.model.embed_tokens
         elif hasattr(model, 'model') and hasattr(model.model, 'embed_tokens'):
@@ -447,8 +450,20 @@ class LatentWrapper(nn.Module):
             return None
         
         with torch.inference_mode():
-            vision_embeds = self.base_model.model.vision_tower(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
-            return self.base_model.model.projector(vision_embeds)
+            # Handle different model structures
+            if hasattr(self.base_model, 'vision_model') and hasattr(self.base_model, 'mlp1'):
+                # InternVL3 structure
+                vision_embeds = self.base_model.vision_model(pixel_values.to(device=device, dtype=self.base_model.dtype))
+                # Extract last_hidden_state if it's a transformers output
+                if hasattr(vision_embeds, 'last_hidden_state'):
+                    vision_embeds = vision_embeds.last_hidden_state
+                return self.base_model.mlp1(vision_embeds)
+            elif hasattr(self.base_model, 'model') and hasattr(self.base_model.model, 'vision_tower'):
+                # Original structure
+                vision_embeds = self.base_model.model.vision_tower(pixel_values.to(device=device, dtype=self.base_model.model.dtype))
+                return self.base_model.model.projector(vision_embeds)
+            else:
+                raise AttributeError(f"Unsupported model structure for vision embeddings: {type(self.base_model)}")
 
     def _apply_generation_filters(self, logits: torch.Tensor, temperature: float, top_k: int, top_p: float) -> torch.Tensor:
         """Apply temperature, top-k, and top-p filtering"""
@@ -668,8 +683,20 @@ class LatentWrapper(nn.Module):
             return image_embeds
         
         if pixel_values is not None:
-            vision_embeds = self.base_model.model.vision_tower(pixel_values.to(dtype=self.base_model.model.dtype))
-            return self.base_model.model.projector(vision_embeds)
+            # Handle different model structures
+            if hasattr(self.base_model, 'vision_model') and hasattr(self.base_model, 'mlp1'):
+                # InternVL3 structure
+                vision_embeds = self.base_model.vision_model(pixel_values.to(dtype=self.base_model.dtype))
+                # Extract last_hidden_state if it's a transformers output
+                if hasattr(vision_embeds, 'last_hidden_state'):
+                    vision_embeds = vision_embeds.last_hidden_state
+                return self.base_model.mlp1(vision_embeds)
+            elif hasattr(self.base_model, 'model') and hasattr(self.base_model.model, 'vision_tower'):
+                # Original structure
+                vision_embeds = self.base_model.model.vision_tower(pixel_values.to(dtype=self.base_model.model.dtype))
+                return self.base_model.model.projector(vision_embeds)
+            else:
+                raise AttributeError(f"Unsupported model structure for vision embeddings: {type(self.base_model)}")
         
         return None
 
