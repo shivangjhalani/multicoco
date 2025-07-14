@@ -945,13 +945,61 @@ class LatentWrapper(nn.Module):
         for batch_spans in spans:
             latent_positions = []
             for start, end in batch_spans:
-                # Extract positions between start and end (exclusive of start and end markers)
-                # This follows the original coconut pattern where latent tokens are between markers
+                # Extract individual latent token positions (skip start/end markers)
                 for pos in range(start + 1, end):
-                    if pos < seq_length:  # Ensure we don't go out of bounds
+                    if pos < seq_length:
                         latent_positions.append(pos)
             latent_lists.append(latent_positions)
         return latent_lists
+
+    def _update_embeddings_for_pass(self, inputs_embeds: torch.Tensor, hidden_states: torch.Tensor, latent_lists: List[List[int]], pass_idx: int, hidden_states_offset: int) -> torch.Tensor:
+        """
+        Update embeddings with latent token injections for the current pass.
+        
+        Following original coconut algorithm: each latent token receives the hidden state
+        from its immediate predecessor (pos-1), enabling sequential reasoning progression.
+        
+        Args:
+            inputs_embeds: Current input embeddings tensor
+            hidden_states: Hidden states from current forward pass  
+            latent_lists: List of latent token positions for each batch item
+            pass_idx: Current pass index (which layer of latent tokens to process)
+            hidden_states_offset: Offset for hidden states indexing due to KV cache usage
+            
+        Returns:
+            Updated embeddings with latent token injections
+        """
+        inputs_embeds = inputs_embeds.clone()
+        
+        # Validate dimension compatibility - coconut requires shared representation space
+        hidden_dim = hidden_states.shape[-1]
+        embed_dim = inputs_embeds.shape[-1]
+        
+        if hidden_dim != embed_dim:
+            logger.error(f"CRITICAL: Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
+            logger.error("Coconut algorithm requires hidden states and embeddings to be in the same dimensional space")
+            logger.error("Skipping latent injection due to incompatible dimensions")
+            return inputs_embeds  # Return original embeddings without modification
+        
+        for batch_idx, latent_positions in enumerate(latent_lists):
+            if pass_idx < len(latent_positions):
+                # Get the latent token position for this pass
+                latent_pos = latent_positions[pass_idx]
+                
+                if latent_pos > 0 and latent_pos < inputs_embeds.shape[1]:
+                    # Calculate adjusted source position for KV cache offset
+                    # Each latent token gets hidden state from its immediate predecessor (pos-1)
+                    source_pos = latent_pos - 1 - hidden_states_offset
+                    
+                    # Validate source position is within hidden states bounds
+                    if 0 <= source_pos < hidden_states.shape[1]:
+                        # Inject hidden state following original coconut algorithm
+                        inputs_embeds[batch_idx, latent_pos, :] = hidden_states[batch_idx, source_pos, :]
+                        logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {latent_pos}]")
+                    else:
+                        logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {latent_pos}")
+        
+        return inputs_embeds
 
     def _compute_vision_embeddings(self, pixel_values: Optional[torch.Tensor], image_embeds: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         """Compute vision embeddings using InternVL's vision tower and projector"""
