@@ -5,6 +5,16 @@ import torch.nn as nn
 from typing import List, Optional, Tuple, Dict
 from .constants import COCONUT_SPECIAL_TOKENS, IMAGE_TOKEN
 
+# Import Cache classes for compatibility with new transformers API
+try:
+    from transformers.cache_utils import DynamicCache, Cache
+    HAS_CACHE_UTILS = True
+except ImportError:
+    # Fallback for older transformers versions
+    HAS_CACHE_UTILS = False
+    DynamicCache = None
+    Cache = None
+
 logger = logging.getLogger(__name__)
 
 class LatentWrapper(nn.Module):
@@ -1384,19 +1394,21 @@ class LatentWrapper(nn.Module):
                 **generation_kwargs
             )
     
-    def _extract_kv_cache_slice(self, kv_cache, compute_range: Tuple[int, int]) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+    def _extract_kv_cache_slice(self, kv_cache, compute_range: Tuple[int, int]):
         """
         Extract a slice of KV cache for efficient reuse across coconut passes.
         
         Following original coconut.py pattern for KV cache extraction:
         past_key_values = [(k[:, :, :next_compute_range[0], :], v[:, :, :next_compute_range[0], :]) for k, v in kv_cache]
         
+        Now returns proper Cache object for compatibility with new transformers API.
+        
         Args:
             kv_cache: The full KV cache from previous forward pass
             compute_range: Tuple of (start, end) positions for current compute range
             
         Returns:
-            Sliced KV cache ready for use in next forward pass
+            Sliced KV cache ready for use in next forward pass (Cache object or None)
         """
         if kv_cache is None:
             logger.warning("_extract_kv_cache_slice called with None cache")
@@ -1408,28 +1420,54 @@ class LatentWrapper(nn.Module):
                 logger.debug(f"First pass detected (compute_range[0] == 0), returning None for fresh computation")
                 return None
                 
-            # Extract slice up to the start of current compute range
-            # This follows the exact pattern from original coconut.py
-            past_key_values = [
-                (k[:, :, :compute_range[0], :], v[:, :, :compute_range[0], :])
-                for k, v in kv_cache
-            ]
-            
-            logger.debug(f"Extracted KV cache slice for compute_range {compute_range}")
-            logger.debug(f"Original cache layers: {len(kv_cache) if kv_cache else 0}")
-            logger.debug(f"Sliced cache layers: {len(past_key_values)}")
-            
-            # Validate cache dimensions
-            if past_key_values and len(past_key_values) > 0:
-                k_shape = past_key_values[0][0].shape
-                v_shape = past_key_values[0][1].shape
-                logger.debug(f"Sample cache shapes - key: {k_shape}, value: {v_shape}")
+            # Handle new DynamicCache format from transformers >= 4.36
+            if HAS_CACHE_UTILS and isinstance(kv_cache, Cache):
+                logger.debug("Using DynamicCache format for cache slicing")
+                # Create a new DynamicCache with sliced tensors
+                sliced_cache = DynamicCache()
                 
-                # Basic validation: ensure we have valid shapes
-                if len(k_shape) != 4 or len(v_shape) != 4:
-                    logger.warning(f"Unexpected KV cache tensor dimensions: key={len(k_shape)}, value={len(v_shape)}")
+                for layer_idx in range(len(kv_cache.key_cache)):
+                    key_tensor = kv_cache.key_cache[layer_idx]
+                    value_tensor = kv_cache.value_cache[layer_idx]
                     
-            return past_key_values
+                    # Slice up to the start of current compute range
+                    sliced_key = key_tensor[:, :, :compute_range[0], :]
+                    sliced_value = value_tensor[:, :, :compute_range[0], :]
+                    
+                    # Update the cache with sliced tensors
+                    sliced_cache.update(sliced_key, sliced_value, layer_idx)
+                
+                logger.debug(f"Created sliced DynamicCache for compute_range {compute_range}")
+                return sliced_cache
+            
+            # Handle legacy tuple/list format
+            elif isinstance(kv_cache, (list, tuple)):
+                logger.debug("Using legacy tuple/list format for cache slicing")
+                # Extract slice up to the start of current compute range
+                # This follows the exact pattern from original coconut.py
+                past_key_values = [
+                    (k[:, :, :compute_range[0], :], v[:, :, :compute_range[0], :])
+                    for k, v in kv_cache
+                ]
+                
+                # If we have Cache support, wrap the legacy format in a DynamicCache
+                if HAS_CACHE_UTILS and DynamicCache is not None:
+                    logger.debug("Converting legacy cache to DynamicCache format")
+                    dynamic_cache = DynamicCache()
+                    for layer_idx, (key_tensor, value_tensor) in enumerate(past_key_values):
+                        dynamic_cache.update(key_tensor, value_tensor, layer_idx)
+                    return dynamic_cache
+                else:
+                    # Return legacy format for older transformers
+                    logger.debug("Returning legacy cache format (no DynamicCache support)")
+                    return past_key_values
+            
+            else:
+                logger.warning(f"Unknown cache format: {type(kv_cache)}")
+                return None
+                
+            logger.debug(f"Extracted KV cache slice for compute_range {compute_range}")
+            logger.debug(f"Original cache type: {type(kv_cache)}")
             
         except Exception as e:
             logger.error(f"Error extracting KV cache slice: {e}")

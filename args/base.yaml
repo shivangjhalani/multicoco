@@ -6,8 +6,8 @@ project: "multi"
 seed: 42
 
 # Training Configuration
-batch_size: 2
-eval_batch_size: 4
+batch_size: 8
+eval_batch_size: 16
 gradient_accumulation_steps: 4
 eval_accumulation_steps: 1
 learning_rate: 1.0e-5
