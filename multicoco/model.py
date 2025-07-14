@@ -197,6 +197,17 @@ class MultiCoCo(nn.Module):
                 kwargs['pixel_values'] = pixel_values.to(dtype=model_dtype)
             if pixel_values.device != model_device:
                 kwargs['pixel_values'] = kwargs['pixel_values'].to(device=model_device)
+        
+        # Handle inputs_embeds dtype and device consistency
+        if (inputs_embeds := kwargs.get('inputs_embeds')) is not None:
+            if inputs_embeds.dtype != model_dtype:
+                kwargs['inputs_embeds'] = inputs_embeds.to(dtype=model_dtype)
+            if inputs_embeds.device != model_device:
+                kwargs['inputs_embeds'] = kwargs['inputs_embeds'].to(device=model_device)
+            
+            # When using inputs_embeds, don't pass input_ids to avoid conflicts
+            if 'input_ids' in kwargs:
+                del kwargs['input_ids']
                 
         return kwargs
 
@@ -215,7 +226,7 @@ class MultiCoCo(nn.Module):
         if 'image_flags' not in kwargs and (pixel_values := kwargs.get('pixel_values')) is not None:
             kwargs['image_flags'] = self._generate_image_flags(pixel_values)
         with suppress_internvl_messages():
-            return self.model(pixel_values=kwargs.get('pixel_values'), input_ids=kwargs.get('input_ids'), attention_mask=kwargs.get('attention_mask'), labels=kwargs.get('labels'), image_flags=kwargs.get('image_flags'))
+            return self.model(**kwargs)
 
     def generate(self, pixel_values: Optional[torch.Tensor], input_ids: torch.Tensor, attention_mask: torch.Tensor, **kwargs) -> torch.Tensor:
         if pixel_values is not None:
