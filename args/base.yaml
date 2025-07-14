@@ -54,7 +54,7 @@ train_data_path: "data/aokvqa_train.json"
 logging:
   log_dir: "logs/"
   log_level: "DEBUG"
-  use_wandb: true
+  use_wandb: false
   run_name: null
   log_to_file: true
   console_output: true
