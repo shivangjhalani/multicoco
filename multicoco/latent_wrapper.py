@@ -732,15 +732,19 @@ class LatentWrapper(nn.Module):
                 logger.debug("First forward pass - no KV cache")
                 
                 # Clean kwargs to avoid conflicts with GPT-2 model
-                clean_kwargs = {k: v for k, v in kwargs.items() 
-                               if k not in ['pixel_values', 'image_flags', 'input_ids']}
+                # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
+                safe_kwargs = {}
+                allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+                for key in allowed_keys:
+                    if key in kwargs and kwargs[key] is not None:
+                        safe_kwargs[key] = kwargs[key]
                 
                 outputs = self.base_model(
                     inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                     attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
                     output_hidden_states=True,
                     use_cache=True,
-                    **clean_kwargs
+                    **safe_kwargs
                 )
                 hidden_states_offset = 0
             else:
@@ -753,15 +757,17 @@ class LatentWrapper(nn.Module):
                     # Fall back to no-cache mode for this pass
                     
                     # Clean kwargs to avoid conflicts with GPT-2 model
-                    clean_kwargs = {k: v for k, v in kwargs.items() 
-                                   if k not in ['pixel_values', 'image_flags', 'input_ids']}
+                    # Only pass labels if it exists and is needed
+                    safe_kwargs = {}
+                    if 'labels' in kwargs and kwargs['labels'] is not None:
+                        safe_kwargs['labels'] = kwargs['labels']
                     
                     outputs = self.base_model(
                         inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                         attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
                         output_hidden_states=True,
                         use_cache=True,
-                        **clean_kwargs
+                        **safe_kwargs
                     )
                     hidden_states_offset = 0
                 else:
@@ -773,22 +779,30 @@ class LatentWrapper(nn.Module):
                         # Fall back to no-cache mode
                         
                         # Clean kwargs to avoid conflicts with GPT-2 model
-                        clean_kwargs = {k: v for k, v in kwargs.items() 
-                                       if k not in ['pixel_values', 'image_flags', 'input_ids']}
+                        # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
+                        safe_kwargs = {}
+                        allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+                        for key in allowed_keys:
+                            if key in kwargs and kwargs[key] is not None:
+                                safe_kwargs[key] = kwargs[key]
                         
                         outputs = self.base_model(
                             inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                             attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
                             output_hidden_states=True,
                             use_cache=True,
-                            **clean_kwargs
+                            **safe_kwargs
                         )
                         hidden_states_offset = 0
                     else:
                         # Use extracted cache following original coconut.py pattern
                         # Clean kwargs to avoid conflicts with GPT-2 model
-                        clean_kwargs = {k: v for k, v in kwargs.items() 
-                                       if k not in ['pixel_values', 'image_flags', 'input_ids']}
+                        # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
+                        safe_kwargs = {}
+                        allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+                        for key in allowed_keys:
+                            if key in kwargs and kwargs[key] is not None:
+                                safe_kwargs[key] = kwargs[key]
                         
                         outputs = self.base_model(
                             inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
@@ -796,7 +810,7 @@ class LatentWrapper(nn.Module):
                             past_key_values=past_key_values,
                             output_hidden_states=True,
                             use_cache=True,
-                            **clean_kwargs
+                            **safe_kwargs
                         )
                         hidden_states_offset = next_compute_range[0]
             
@@ -835,29 +849,37 @@ class LatentWrapper(nn.Module):
         # Final pass if no latent tokens were processed
         if max_n_latents == 0:
             # Clean kwargs to avoid conflicts with GPT-2 model
-            clean_kwargs = {k: v for k, v in kwargs.items() 
-                           if k not in ['pixel_values', 'image_flags', 'input_ids']}
+            # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
+            safe_kwargs = {}
+            allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+            for key in allowed_keys:
+                if key in kwargs and kwargs[key] is not None:
+                    safe_kwargs[key] = kwargs[key]
             
             outputs = self.base_model(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
                 labels=labels,
                 output_hidden_states=True,
-                **clean_kwargs
+                **safe_kwargs
             )
             return outputs
         
         # Final forward pass to get complete logits for the entire sequence
         # Clean kwargs to avoid conflicts with GPT-2 model
-        clean_kwargs = {k: v for k, v in kwargs.items() 
-                       if k not in ['pixel_values', 'image_flags', 'input_ids']}
+        # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
+        safe_kwargs = {}
+        allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+        for key in allowed_keys:
+            if key in kwargs and kwargs[key] is not None:
+                safe_kwargs[key] = kwargs[key]
         
         final_outputs = self.base_model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             labels=labels,
             output_hidden_states=True,
-            **clean_kwargs
+            **safe_kwargs
         )
         
         return final_outputs
