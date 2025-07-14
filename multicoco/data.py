@@ -109,20 +109,22 @@ def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[st
     Create chat formatted texts ensuring proper image-latent-text ordering.
     Fix: Ensure latent reasoning happens after image context is established.
     Updated: Use proper multimodal format with correct number of IMG_CONTEXT tokens.
+    
+    CRITICAL FIX: Determine the actual number of image tokens the model produces
+    instead of using a hardcoded fallback that causes token count mismatches.
     """
     from .constants import IMG_CONTEXT_TOKEN
+    from .image_tokens import get_tokenizer_image_token_count
     
     full_texts = []
     prompts = []
     
-    # Determine the number of image context tokens needed
-    # This should match what the model's extract_feature() produces
-    # For InternVL3-1B-Pretrained, this is typically 256
-    num_image_tokens = 256  # Default, should be overridden by model configuration
+    # CRITICAL FIX: Get the actual number of image tokens instead of hardcoding 256
+    # This prevents the severe image token count mismatch that causes assertion failures
+    # or silent truncation of visual information
+    num_image_tokens = get_tokenizer_image_token_count(tokenizer, fallback=256)
     
-    # Try to get the actual number from tokenizer if it has special attributes
-    if hasattr(tokenizer, 'model') and hasattr(tokenizer.model, 'num_image_token'):
-        num_image_tokens = tokenizer.model.num_image_token
+    logger.debug(f"Using {num_image_tokens} IMG_CONTEXT tokens for multimodal formatting")
     
     # Create the proper multimodal format: <img><IMG_CONTEXT>×N</img>
     img_context = IMG_CONTEXT_TOKEN * num_image_tokens

@@ -150,18 +150,11 @@ class LatentWrapper(nn.Module):
         Returns:
             Fixed prompt with proper image token sequences
         """
-        # Calculate the correct number of image tokens dynamically
+        # CRITICAL FIX: Use the same image token counting logic as data.py
+        # to ensure consistency and prevent token count mismatches
         if num_image_token is None:
-            # For InternVL3, we need to calculate based on actual vision output
-            # The downsample ratio affects the final number of tokens
-            if hasattr(self.base_model, 'config') and hasattr(self.base_model.config, 'downsample_ratio'):
-                # Calculate: original 32x32 patches / downsample_factor^2
-                original_patches = 32 * 32  # 1024 patches from 448x448 / 14x14
-                downsample_factor = 1 / self.base_model.config.downsample_ratio
-                num_image_token = int(original_patches / (downsample_factor ** 2))
-            else:
-                # Fallback to model's num_image_token
-                num_image_token = getattr(self.base_model, 'num_image_token', 256)
+            from .image_tokens import get_model_image_token_count
+            num_image_token = get_model_image_token_count(self.base_model, fallback=256)
         
         ctx = "<IMG_CONTEXT>" * num_image_token
         
