@@ -210,6 +210,32 @@ class LatentWrapper(nn.Module):
         """Access the embedding layer (stored as _embedding_ref to avoid parameter registration)"""
         return getattr(self, '_embedding_ref', None)
 
+    def _call_model_with_embeds(self, inputs_embeds: torch.Tensor, **kwargs):
+        """
+        Call the base model with inputs_embeds, handling InternVL model structure.
+        
+        InternVL models don't accept inputs_embeds directly in their forward method,
+        we need to call the language_model component directly.
+        """
+        if hasattr(self.base_model, 'language_model'):
+            # InternVL structure: use language_model for inputs_embeds
+            return self.base_model.language_model(inputs_embeds=inputs_embeds, **kwargs)
+        else:
+            # Standard model structure
+            return self.base_model(inputs_embeds=inputs_embeds, **kwargs)
+
+    def _call_model_with_embeds_internvl_safe(self, inputs_embeds: torch.Tensor, **kwargs):
+        """
+        Safely call model with inputs_embeds, extracting necessary components for InternVL compatibility.
+        """
+        # For InternVL models, we need to work with the language model directly
+        if hasattr(self.base_model, 'language_model'):
+            # Use the language model component which supports inputs_embeds
+            return self.base_model.language_model(inputs_embeds=inputs_embeds, **kwargs)
+        else:
+            # For other models, use the standard approach
+            return self.base_model(inputs_embeds=inputs_embeds, **kwargs)
+
     @property
     def device(self):
         """Get the device of the underlying model"""
@@ -756,8 +782,8 @@ class LatentWrapper(nn.Module):
                     if key in kwargs and kwargs[key] is not None:
                         safe_kwargs[key] = kwargs[key]
                 
-                outputs = self.base_model(
-                    inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                outputs = self._call_model_with_embeds_internvl_safe(
+                    inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                     attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
                     output_hidden_states=True,
                     use_cache=True,
@@ -779,8 +805,8 @@ class LatentWrapper(nn.Module):
                     if 'labels' in kwargs and kwargs['labels'] is not None:
                         safe_kwargs['labels'] = kwargs['labels']
                     
-                    outputs = self.base_model(
-                        inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                    outputs = self._call_model_with_embeds_internvl_safe(
+                        inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                         attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
                         output_hidden_states=True,
                         use_cache=True,
@@ -803,8 +829,8 @@ class LatentWrapper(nn.Module):
                             if key in kwargs and kwargs[key] is not None:
                                 safe_kwargs[key] = kwargs[key]
                         
-                        outputs = self.base_model(
-                            inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                        outputs = self._call_model_with_embeds_internvl_safe(
+                            inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                             attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
                             output_hidden_states=True,
                             use_cache=True,
@@ -821,8 +847,8 @@ class LatentWrapper(nn.Module):
                             if key in kwargs and kwargs[key] is not None:
                                 safe_kwargs[key] = kwargs[key]
                         
-                        outputs = self.base_model(
-                            inputs_embeds=inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                        outputs = self._call_model_with_embeds_internvl_safe(
+                            inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
                             attention_mask=attention_mask[:, :next_compute_range[1]] if attention_mask is not None else None,
                             past_key_values=past_key_values,
                             output_hidden_states=True,
@@ -873,13 +899,23 @@ class LatentWrapper(nn.Module):
                 if key in kwargs and kwargs[key] is not None:
                     safe_kwargs[key] = kwargs[key]
             
-            outputs = self.base_model(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                labels=labels,
-                output_hidden_states=True,
-                **safe_kwargs
-            )
+            # InternVL models don't support inputs_embeds directly, need to use language_model
+            if hasattr(self.base_model, 'language_model'):
+                outputs = self.base_model.language_model(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    output_hidden_states=True,
+                    **safe_kwargs
+                )
+            else:
+                outputs = self.base_model(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    output_hidden_states=True,
+                    **safe_kwargs
+                )
             return outputs
         
         # Final forward pass to get complete logits for the entire sequence
@@ -891,8 +927,8 @@ class LatentWrapper(nn.Module):
             if key in kwargs and kwargs[key] is not None:
                 safe_kwargs[key] = kwargs[key]
         
-        final_outputs = self.base_model(
-            inputs_embeds=inputs_embeds,
+        final_outputs = self._call_model_with_embeds_internvl_safe(
+            inputs_embeds,
             attention_mask=attention_mask,
             labels=labels,
             output_hidden_states=True,

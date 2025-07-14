@@ -159,6 +159,15 @@ class MultiCoCoRunner:
             self._load_checkpoint_weights(checkpoint_path)
         if self._has_latent_tokens(special_tokens):
             self._initialize_latent_token_embeddings()
+        
+        # Move model to GPU if available
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+            logger.info(f"Moving model to GPU: {torch.cuda.get_device_name()}")
+            self.model = self.model.to(device)
+        else:
+            logger.info("CUDA not available, keeping model on CPU")
+        
         if self._needs_latent_wrapper(coconut_config, training_mode):
             self.model = LatentWrapper(self.model, self.model.tokenizer)
         self._log_model_info(checkpoint_path, training_mode, coconut_config)
