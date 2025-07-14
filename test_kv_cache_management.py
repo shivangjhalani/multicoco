@@ -147,19 +147,25 @@ def test_kv_cache_extraction():
         for _ in range(12)
     ]
     
-    # Test extraction for compute range (0, 10)
+    # Test case 1: First pass (compute_range[0] == 0) should return None
     compute_range = (0, 10)
+    extracted = wrapper._extract_kv_cache_slice(cache, compute_range)
+    assert extracted is None, "First pass should return None"
+    print("✓ First pass correctly returns None")
+    
+    # Test case 2: Subsequent pass should extract slice up to compute_range[0]
+    compute_range = (10, 15)
     extracted = wrapper._extract_kv_cache_slice(cache, compute_range)
     
     assert extracted is not None, "Extraction should succeed"
     assert len(extracted) == len(cache), "Should preserve number of layers"
     
-    # Check that extraction correctly sliced to position 10
+    # Check that extraction correctly sliced to position compute_range[0] (not compute_range[1])
     for i, (k, v) in enumerate(extracted):
-        assert k.shape[2] == compute_range[1], f"Layer {i} key should be sliced to {compute_range[1]}, got {k.shape[2]}"
-        assert v.shape[2] == compute_range[1], f"Layer {i} value should be sliced to {compute_range[1]}, got {v.shape[2]}"
+        assert k.shape[2] == compute_range[0], f"Layer {i} key should be sliced to {compute_range[0]}, got {k.shape[2]}"
+        assert v.shape[2] == compute_range[0], f"Layer {i} value should be sliced to {compute_range[0]}, got {v.shape[2]}"
     
-    print(f"✓ Cache correctly sliced to position {compute_range[1]}")
+    print(f"✓ Cache correctly sliced to position {compute_range[0]}")
     
     # Test extraction with invalid cache
     extracted_invalid = wrapper._extract_kv_cache_slice(None, compute_range)

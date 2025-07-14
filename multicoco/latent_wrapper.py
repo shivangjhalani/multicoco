@@ -1206,6 +1206,11 @@ class LatentWrapper(nn.Module):
             return None
             
         try:
+            # For the first pass (compute_range[0] == 0), return None to indicate no cache
+            if compute_range[0] == 0:
+                logger.debug(f"First pass detected (compute_range[0] == 0), returning None for fresh computation")
+                return None
+                
             # Extract slice up to the start of current compute range
             # This follows the exact pattern from original coconut.py
             past_key_values = [
