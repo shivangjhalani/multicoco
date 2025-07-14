@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 # Add project path
-sys.path.append('/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco')
+sys.path.append('.')
 
 from transformers import AutoTokenizer, AutoModel
 from multicoco.latent_wrapper import LatentWrapper
