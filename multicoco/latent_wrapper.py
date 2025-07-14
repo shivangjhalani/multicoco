@@ -791,140 +791,47 @@ class LatentWrapper(nn.Module):
         if image_embeds is not None:
             inputs_embeds = self._prepare_inputs_for_multimodal_internvl(input_ids, image_embeds, inputs_embeds)
         
-        # Initialize compute range and cache (FIXED: Off-by-one error)
+        # Initialize compute range and cache (FIXED: Simple robust approach)
         if max_n_latents > 0:
-            # Find earliest latent token position across all spans
-            earliest_latent_pos = min([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else inputs_embeds.shape[1]
-            # CRITICAL FIX: Add +1 to include the predecessor token needed for injection
-            # To inject at position N, we need hidden state from position N-1
-            # So compute range must be (0, earliest_latent_pos + 1)
-            next_compute_range = (0, min(earliest_latent_pos + 1, inputs_embeds.shape[1]))
-            logger.debug(f"CoCoNut: {max_n_latents} latent tokens, compute_range: {next_compute_range}")
+            # ROBUST APPROACH: Always process full sequence up to the last token we need
+            # Find the maximum latent position we'll need to inject
+            max_latent_pos = max([pos for span_list in spans for start, end in span_list for pos in range(start + 1, end)]) if any(spans) else 0
+            # For injection at position N, we need hidden state from position N-1
+            # So we need to process up to position max_latent_pos 
+            next_compute_range = (0, min(max_latent_pos + 1, inputs_embeds.shape[1]))
+            logger.debug(f"CoCoNut: {max_n_latents} latent tokens, max_latent_pos: {max_latent_pos}, compute_range: {next_compute_range}")
         else:
             next_compute_range = (0, inputs_embeds.shape[1])
         
         kv_cache = None
         logits = []
         
-        # Multi-pass processing with improved KV cache management
+        # Multi-pass processing (SIMPLIFIED: Single forward pass covers all needed tokens)
         for pass_idx in range(max_n_latents):
-            logger.debug(f"Coconut pass {pass_idx}/{max_n_latents}, compute_range: {next_compute_range}")
+            logger.debug(f"Coconut pass {pass_idx}/{max_n_latents}")
             
-            # Forward pass with current compute range
-            if kv_cache is None:
-                # First forward pass - no cache available
-                logger.debug("First forward pass - no KV cache")
-                
-                # Clean kwargs to avoid conflicts with GPT-2 model
-                # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
-                safe_kwargs = {}
-                allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
-                for key in allowed_keys:
-                    if key in kwargs and kwargs[key] is not None:
-                        safe_kwargs[key] = kwargs[key]
-                
-                outputs = self._call_model_with_embeds_internvl_safe(
-                    inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                    attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
-                    output_hidden_states=True,
-                    use_cache=True,
-                    **safe_kwargs
-                )
-                hidden_states_offset = 0
-            else:
-                # Subsequent passes with KV cache - validate and extract slice
-                logger.debug(f"Using KV cache for pass {pass_idx}")
-                
-                # Validate cache before use
-                if not self._validate_kv_cache(kv_cache):
-                    logger.warning(f"Invalid KV cache detected at pass {pass_idx}, falling back to no-cache mode")
-                    # Fall back to no-cache mode for this pass
-                    
-                    # Clean kwargs to avoid conflicts with GPT-2 model
-                    # Only pass labels if it exists and is needed
-                    safe_kwargs = {}
-                    if 'labels' in kwargs and kwargs['labels'] is not None:
-                        safe_kwargs['labels'] = kwargs['labels']
-                    
-                    outputs = self._call_model_with_embeds_internvl_safe(
-                        inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                        attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
-                        output_hidden_states=True,
-                        use_cache=True,
-                        **safe_kwargs
-                    )
-                    hidden_states_offset = 0
-                else:
-                    # Extract KV cache slice following original coconut pattern
-                    past_key_values = self._extract_kv_cache_slice(kv_cache, next_compute_range)
-                    
-                    if past_key_values is None:
-                        logger.warning(f"Failed to extract KV cache slice at pass {pass_idx}, falling back to no-cache mode")
-                        # Fall back to no-cache mode
-                        
-                        # Clean kwargs to avoid conflicts with GPT-2 model
-                        # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
-                        safe_kwargs = {}
-                        allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
-                        for key in allowed_keys:
-                            if key in kwargs and kwargs[key] is not None:
-                                safe_kwargs[key] = kwargs[key]
-                        
-                        outputs = self._call_model_with_embeds_internvl_safe(
-                            inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                            attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
-                            output_hidden_states=True,
-                            use_cache=True,
-                            **safe_kwargs
-                        )
-                        hidden_states_offset = 0
-                    else:
-                        # Use extracted cache following original coconut.py pattern
-                        # Clean kwargs to avoid conflicts with GPT-2 model
-                        # Only pass allowed kwargs for GPT-2 model when using inputs_embeds
-                        safe_kwargs = {}
-                        allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
-                        for key in allowed_keys:
-                            if key in kwargs and kwargs[key] is not None:
-                                safe_kwargs[key] = kwargs[key]
-                        
-                        outputs = self._call_model_with_embeds_internvl_safe(
-                            inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
-                            attention_mask=attention_mask[:, :next_compute_range[1]] if attention_mask is not None else None,
-                            past_key_values=past_key_values,
-                            output_hidden_states=True,
-                            use_cache=True,
-                            **safe_kwargs
-                        )
-                        hidden_states_offset = next_compute_range[0]
+            # SIMPLIFIED APPROACH: Always do full forward pass for the needed range
+            # This is more robust and avoids complex KV cache management
+            safe_kwargs = {}
+            allowed_keys = {'labels', 'position_ids', 'head_mask', 'past_key_values', 'token_type_ids'}
+            for key in allowed_keys:
+                if key in kwargs and kwargs[key] is not None:
+                    safe_kwargs[key] = kwargs[key]
+            
+            outputs = self._call_model_with_embeds_internvl_safe(
+                inputs_embeds[:, next_compute_range[0]:next_compute_range[1], :],
+                attention_mask=attention_mask[:, next_compute_range[0]:next_compute_range[1]] if attention_mask is not None else None,
+                output_hidden_states=True,
+                use_cache=False,  # Disable caching for simplicity and robustness
+                **safe_kwargs
+            )
+            hidden_states_offset = 0  # Always 0 since we start from position 0
             
             # Store logits for potential debugging/analysis
             logits.append(outputs.logits)
             
-            # Update compute range for next pass (CORRECTED: Match original coconut exactly)
-            # Original: processes one token at a time after first pass
-            next_compute_range = (
-                next_compute_range[1],
-                inputs_embeds.shape[1] if pass_idx + 1 >= max_n_latents else next_compute_range[1] + 1
-            )
-            
-            # Get hidden states and update cache with validation
+            # Get hidden states for latent injection
             hidden_states = outputs.hidden_states[-1]  # Last layer hidden states
-            
-            # Update KV cache for next iteration with validation
-            new_kv_cache = getattr(outputs, 'past_key_values', None)
-            if new_kv_cache is not None:
-                if self._validate_kv_cache(new_kv_cache):
-                    kv_cache = new_kv_cache
-                    logger.debug(f"Updated KV cache after pass {pass_idx}, cache size: {len(kv_cache)} layers")
-                else:
-                    logger.warning(f"Invalid KV cache generated at pass {pass_idx}, keeping previous cache")
-                    # Keep the previous cache or set to None if this was the first pass
-                    if pass_idx == 0:
-                        kv_cache = None
-            else:
-                logger.warning(f"No KV cache returned from model at pass {pass_idx}")
-                kv_cache = None
             
             # Update embeddings with latent token injections for current pass
             inputs_embeds = self._update_embeddings_for_pass(
