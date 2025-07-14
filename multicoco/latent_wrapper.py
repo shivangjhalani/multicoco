@@ -1113,17 +1113,34 @@ class LatentWrapper(nn.Module):
                 latent_pos = latent_positions[pass_idx]
                 
                 if latent_pos > 0 and latent_pos < inputs_embeds.shape[1]:
-                    # Calculate adjusted source position for KV cache offset
-                    # Each latent token gets hidden state from its immediate predecessor (pos-1)
-                    source_pos = latent_pos - 1 - hidden_states_offset
+                    # Calculate source position: each latent token gets hidden state from its immediate predecessor (pos-1)
+                    abs_source_pos = latent_pos - 1
+                    
+                    # Map absolute source position to relative position within current hidden states slice
+                    if hidden_states_offset == 0:
+                        # First pass: hidden states contain the full sequence up to current compute range
+                        source_pos = abs_source_pos
+                    else:
+                        # Subsequent passes with KV cache: hidden states only contain current compute range
+                        # Check if the source position is within the current compute range
+                        current_compute_start = hidden_states_offset
+                        current_compute_end = hidden_states_offset + hidden_states.shape[1]
+                        
+                        if current_compute_start <= abs_source_pos < current_compute_end:
+                            # Source is in current compute range
+                            source_pos = abs_source_pos - current_compute_start
+                        else:
+                            # Source position is outside current compute range, skip injection for this pass
+                            logger.debug(f"Pass {pass_idx}: Source position {abs_source_pos} outside current compute range [{current_compute_start}, {current_compute_end})")
+                            continue
                     
                     # Validate source position is within hidden states bounds
                     if 0 <= source_pos < hidden_states.shape[1]:
                         # Inject hidden state following original coconut algorithm
                         inputs_embeds[batch_idx, latent_pos, :] = hidden_states[batch_idx, source_pos, :]
-                        logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {latent_pos}]")
+                        logger.debug(f"Pass {pass_idx}: Injected hidden_states[{batch_idx}, {source_pos}] -> embeddings[{batch_idx}, {latent_pos}] (abs_source: {abs_source_pos})")
                     else:
-                        logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {latent_pos}")
+                        logger.warning(f"Pass {pass_idx}: Invalid source position {source_pos} for latent position {latent_pos} (abs_source: {abs_source_pos})")
         
         return inputs_embeds
 
