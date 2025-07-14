@@ -109,9 +109,6 @@ def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[st
     Create chat formatted texts ensuring proper image-latent-text ordering.
     Fix: Ensure latent reasoning happens after image context is established.
     Updated: Use proper multimodal format with correct number of IMG_CONTEXT tokens.
-    
-    CRITICAL FIX: Determine the actual number of image tokens the model produces
-    instead of using a hardcoded fallback that causes token count mismatches.
     """
     from .constants import IMG_CONTEXT_TOKEN
     from .image_tokens import get_tokenizer_image_token_count

@@ -10,11 +10,7 @@ logger = logging.getLogger(__name__)
 class LatentWrapper(nn.Module):
     """
     LatentWrapper implementing the CoCoNut algorithm with CORRECT sequential hidden state injection.
-    
-    CRITICAL FIX: The original implementation had a severe flaw where all latent tokens in a span
-    received the same repeated hidden state from the pre-span token. This completely defeated the
-    purpose of latent reasoning evolution that makes CoCoNut effective.
-    
+        
     NEW IMPLEMENTATION: Now processes latent tokens sequentially, where each latent token receives
     the evolved hidden state from the previous position after a forward pass through the model.
     This allows latent reasoning to progress and build upon itself within the span.
@@ -53,9 +49,6 @@ class LatentWrapper(nn.Module):
 
     def _get_embedding_layer(self, model):
         """Get the correct embedding layer from potentially nested model structure"""
-        # CRITICAL FIX: Use the original embedding layer directly instead of creating a copy.
-        # The previous implementation created an independent copy that would diverge during training,
-        # breaking CoCoNut's core assumption that both passes use the same embedding space.
         
         original_embedding = None
         
@@ -116,8 +109,8 @@ class LatentWrapper(nn.Module):
                     logger.error(f"Could not find embedding layer. Available attributes: {attrs}")
                     raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
         
-        # CRITICAL FIX: Return the original embedding layer directly.
-        # This ensures both passes use the same embedding space, maintaining CoCoNut's core assumption.
+        # Return the original embedding layer directly.
+        # This ensures both passes use the same embedding space.
         # The shared memory warning during saving can be handled by proper state_dict detachment at save time.
         logger.info("Using original embedding layer to maintain consistent embedding space across CoCoNut passes")
         return original_embedding
@@ -226,7 +219,7 @@ class LatentWrapper(nn.Module):
         Returns:
             Fixed prompt with proper image token sequences
         """
-        # CRITICAL FIX: Use the same image token counting logic as data.py
+        # FIX: Use the same image token counting logic as data.py
         # to ensure consistency and prevent token count mismatches
         if num_image_token is None:
             from .image_tokens import get_model_image_token_count
@@ -1102,7 +1095,7 @@ class LatentWrapper(nn.Module):
     
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         """
-        CRITICAL FIX: Handle state_dict saving with proper detachment to avoid shared memory warnings.
+        FIX: Handle state_dict saving with proper detachment to avoid shared memory warnings.
         This allows us to use the original embedding layer during training (ensuring consistent embedding space)
         while properly handling state_dict saving.
         
@@ -1131,7 +1124,7 @@ class LatentWrapper(nn.Module):
     
     def load_state_dict(self, state_dict, strict=True):
         """
-        CRITICAL FIX: Handle state_dict loading while maintaining embedding layer consistency.
+        FIX: Handle state_dict loading while maintaining embedding layer consistency.
         
         Since we don't save the 'embedding' parameter in state_dict (it's just a reference to 
         base_model's embedding), we need to restore it after loading.
