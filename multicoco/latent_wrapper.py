@@ -258,7 +258,11 @@ class LatentWrapper(nn.Module):
             except Exception as e:
                 logger.error(f"LatentWrapper.generate: Base model delegation failed: {e}")
                 logger.error(f"LatentWrapper.generate: This suggests the issue is in the base model, not LatentWrapper")
-                raise
+                logger.error(f"Input shapes - input_ids: {input_ids.shape}, pixel_values: {pixel_values.shape if pixel_values is not None else None}")
+                # Log full traceback for debugging
+                import traceback
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
+                raise  # Re-raise the original exception instead of swallowing it
         
         # Has latent spans - use our custom latent injection logic
         logger.debug("LatentWrapper.generate: Latent spans detected, using custom generation")

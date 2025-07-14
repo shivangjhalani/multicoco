@@ -91,24 +91,47 @@ def collate_fn(batch: List[Dict[str, Any]], tokenizer: Any, image_processor: Any
         questions = [item['question'] for item in batch]
         answers = [item['answer'] for item in batch]
         pixel_values = _process_images(images, image_processor)
-        full_texts, prompts = _create_chat_formatted_texts(batch, questions, answers)
+        
+        # Get the model to determine the correct number of image tokens
+        # This is a workaround - ideally the model should be passed to collate_fn
+        # For now, we'll use the standard num_image_token
+        from .constants import IMG_CONTEXT_TOKEN
+        
+        full_texts, prompts = _create_chat_formatted_texts(batch, questions, answers, tokenizer)
         full_encodings = tokenizer(full_texts, padding=True, truncation=True, max_length=DEFAULT_MAX_LENGTH, return_tensors='pt', add_special_tokens=True)
         labels = _create_training_labels(full_encodings['input_ids'], prompts, tokenizer)
         return {'pixel_values': pixel_values, 'input_ids': full_encodings['input_ids'], 'attention_mask': full_encodings['attention_mask'], 'labels': labels, 'questions': questions, 'answers': answers}
     except Exception as e:
         raise DatasetError(f'Failed to collate batch: {e}') from e
 
-def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[str], answers: List[str]) -> Tuple[List[str], List[str]]:
+def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[str], answers: List[str], tokenizer: Any) -> Tuple[List[str], List[str]]:
     """
     Create chat formatted texts ensuring proper image-latent-text ordering.
     Fix: Ensure latent reasoning happens after image context is established.
+    Updated: Use proper multimodal format with correct number of IMG_CONTEXT tokens.
     """
+    from .constants import IMG_CONTEXT_TOKEN
+    
     full_texts = []
     prompts = []
+    
+    # Determine the number of image context tokens needed
+    # This should match what the model's extract_feature() produces
+    # For InternVL3-1B-Pretrained, this is typically 256
+    num_image_tokens = 256  # Default, should be overridden by model configuration
+    
+    # Try to get the actual number from tokenizer if it has special attributes
+    if hasattr(tokenizer, 'model') and hasattr(tokenizer.model, 'num_image_token'):
+        num_image_tokens = tokenizer.model.num_image_token
+    
+    # Create the proper multimodal format: <img><IMG_CONTEXT>×N</img>
+    img_context = IMG_CONTEXT_TOKEN * num_image_tokens
+    multimodal_image_token = f'<img>{img_context}</img>'
+    
     for i, (question, answer) in enumerate(zip(questions, answers)):
         assistant_part = _build_assistant_response(batch[i], answer)
-        # IMAGE_TOKEN is placed before the question to establish visual context first
-        prompt = f'<|im_start|>user\n{IMAGE_TOKEN}\n{question}<|im_end|><|im_start|>assistant\n'
+        # Use proper multimodal format instead of just IMAGE_TOKEN
+        prompt = f'<|im_start|>user\n{multimodal_image_token}\n{question}<|im_end|><|im_start|>assistant\n'
         full_text = f'{prompt}{assistant_part}'
         full_texts.append(full_text)
         prompts.append(prompt)
