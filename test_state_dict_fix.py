@@ -11,11 +11,11 @@ import torch
 import logging
 from pathlib import Path
 
-# Add the multicoco directory to the path
-sys.path.insert(0, str(Path(__file__).parent / "multicoco"))
+# Add the parent directory to the path so we can import multicoco as a package
+sys.path.insert(0, str(Path(__file__).parent))
 
-from latent_wrapper import LatentWrapper
-from config import ExperimentConfig, ModelConfig
+from multicoco.latent_wrapper import LatentWrapper
+from multicoco.config import ExperimentConfig, ModelConfig
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
