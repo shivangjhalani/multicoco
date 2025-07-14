@@ -14,7 +14,7 @@ def apply_fix_to_latent_wrapper():
     """Apply the shared memory fix to LatentWrapper"""
     print("Applying shared memory fix to LatentWrapper...")
     
-    latent_wrapper_path = Path("/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco/multicoco/latent_wrapper.py")
+    latent_wrapper_path = Path("./multicoco/latent_wrapper.py")
     
     if not latent_wrapper_path.exists():
         print(f"Error: LatentWrapper file not found at {latent_wrapper_path}")
