@@ -28,8 +28,8 @@ class LatentWrapper(nn.Module):
         self.tokenizer = tokenizer
         self.enable_norm_logging = enable_norm_logging
         self.latent_id = tokenizer.convert_tokens_to_ids('<|latent|>')
-        self.start_id = tokenizer.convert_tokens_to_ids('<|start_latent|>')
-        self.end_id = tokenizer.convert_tokens_to_ids('<|end_latent|>')
+        self.start_id = tokenizer.convert_tokens_to_ids('<|start-latent|>')
+        self.end_id = tokenizer.convert_tokens_to_ids('<|end-latent|>')
         
         # Fix: Ensure img_context_token_id is properly set
         if not hasattr(base_model, 'img_context_token_id') or base_model.img_context_token_id is None:
