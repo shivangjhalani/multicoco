@@ -1,0 +1,91 @@
+2025-07-14 10:26:39,877 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-coconut-multistage_20250714-102639
+2025-07-14 10:26:39,947 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 10:26:39,947 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-14 10:26:39,948 - __main__ - INFO - Adding latent special tokens: ['<|start_latent|>', '<|latent|>', '<|end_latent|>']
+2025-07-14 10:26:39,948 - __main__ - INFO - Loading from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 10:26:40,672 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 10:26:40,673 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 10:26:40,673 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 10:26:40,673 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 10:26:40,675 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 10:26:40,675 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 10:26:40,675 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 10:26:40,675 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 10:26:40,676 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 10:26:40,676 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 10:26:42,369 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 10:26:42,370 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 10:26:44,284 - multicoco.model - INFO - Added 3 special tokens: ['<|start_latent|>', '<|latent|>', '<|end_latent|>']
+2025-07-14 10:26:44,566 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 10:26:44,567 - multicoco.model - INFO - Resizing embeddings from 151674 to 151677 for 3 new tokens
+2025-07-14 10:26:53,893 - multicoco.model - INFO - MultiCoCo model initialized with 938198400 parameters
+2025-07-14 10:26:53,915 - __main__ - INFO - Loading checkpoint from safetensors: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 10:26:53,969 - __main__ - WARNING - Vocabulary size mismatch: checkpoint=151674, current=151677
+2025-07-14 10:26:53,969 - __main__ - INFO - Handling vocabulary size mismatch by resizing embeddings...
+2025-07-14 10:26:59,294 - __main__ - INFO - Temporarily resized model embeddings to 151674 to match checkpoint
+2025-07-14 10:27:10,110 - __main__ - INFO - Resized model embeddings back to current vocab size: 151677
+2025-07-14 10:27:10,110 - __main__ - INFO - New token embeddings will be randomly initialized
+2025-07-14 10:27:10,110 - __main__ - INFO - Successfully loaded model weights from checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 10:27:14,339 - __main__ - INFO - Model initialized from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 10:27:14,339 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 10:27:14,339 - __main__ - INFO - Mode: coconut_train, CoCoNut: True
+2025-07-14 10:27:14,422 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 10:27:14,422 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-14 10:27:14,423 - __main__ - INFO - Training dataset: 20 samples
+2025-07-14 10:27:14,425 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 10:27:14,425 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 10:27:14,425 - __main__ - INFO - Evaluation dataset: 20 samples
+2025-07-14 10:27:14,425 - __main__ - INFO - Starting CoCoNut multi-stage training...
+2025-07-14 10:27:16,382 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 10:27:16,383 - __main__ - INFO - Trainer created successfully
+2025-07-14 10:27:16,383 - multicoco.trainer - INFO - Starting CoCoNut multi-stage training with stage transitions
+2025-07-14 10:27:16,383 - multicoco.trainer - INFO - Training state initialized for epoch-based training
+2025-07-14 10:27:16,384 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-14 10:27:16,384 - multicoco.trainer - INFO -   Steps per epoch: 1
+2025-07-14 10:27:16,384 - multicoco.trainer - INFO -   Total epochs: 24
+2025-07-14 10:27:16,384 - multicoco.trainer - INFO -   Total steps: 24
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=24
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=24
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Transitioning to CoCoNut stage 0
+2025-07-14 10:27:16,403 - multicoco.trainer - INFO - Dataset sample before curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 10:27:16,403 - multicoco.data - INFO - Applying progressive curriculum for stage 0
+2025-07-14 10:27:16,403 - multicoco.data - INFO - Creating progressive latent dataset for stage 0
+2025-07-14 10:27:16,404 - multicoco.data - INFO - Dataset updated with 20 curriculum samples
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Dataset sample after curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Applied progressive curriculum for stage 0 - Dataset size: 20
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Dataloader will be refreshed for updated curriculum
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Resetting optimizer and scheduler for new stage
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=24
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=24
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 10:27:16,404 - multicoco.trainer - INFO - Reset optimizer and scheduler with 24 remaining training steps
+2025-07-14 10:27:16,405 - multicoco.trainer - INFO - Epoch 1/24 - CoCoNut Stage 0/6 (Stage Epoch 1/3)
+2025-07-14 10:27:16,405 - multicoco.trainer - INFO - 
+Starting Epoch 1/24
+2025-07-14 10:27:23,352 - multicoco.trainer - INFO - Epoch 1 training complete. Average loss: 0.6979
+2025-07-14 10:27:23,670 - multicoco.trainer - INFO - Running evaluation after epoch 1...
+2025-07-14 10:27:52,155 - multicoco.trainer - INFO - Latency Metrics: Avg=1.3854s, Min=0.6493s, Max=2.2787s, Total=27.71s
+2025-07-14 10:27:52,156 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.65, 'eval_num_samples': 20, 'eval_correct': 13, 'eval/avg_latency_sec': 1.3854346513748168, 'eval/min_latency_sec': 0.6493310928344727, 'eval/max_latency_sec': 2.278723955154419, 'eval/total_eval_time_sec': 27.708693027496338}
+2025-07-14 10:27:52,156 - multicoco.trainer - INFO - Logging 20 per-sample evaluation details to file...
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO - 
+EPOCH 1 SUMMARY
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO - Epoch time: 73.31s
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval_accuracy: 0.6500
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval_num_samples: 20.0000
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval_correct: 13.0000
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval/avg_latency_sec: 1.3854
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval/min_latency_sec: 0.6493
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval/max_latency_sec: 2.2787
+2025-07-14 10:28:29,715 - multicoco.trainer - INFO -   eval/total_eval_time_sec: 27.7087
+2025-07-14 10:28:29,976 - multicoco.trainer - INFO - Epoch 2/24 - CoCoNut Stage 0/6 (Stage Epoch 2/3)
+2025-07-14 10:28:29,976 - multicoco.trainer - INFO - 
+Starting Epoch 2/24
+2025-07-14 10:28:31,321 - __main__ - INFO - MultiCoCo runner cleanup complete

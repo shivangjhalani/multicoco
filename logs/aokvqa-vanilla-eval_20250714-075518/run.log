@@ -1,0 +1,111 @@
+2025-07-14 07:55:18,770 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-vanilla-eval_20250714-075518
+2025-07-14 07:55:18,829 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 07:55:18,829 - __main__ - INFO - MultiCoCoRunner initialized for evaluation
+2025-07-14 07:55:18,829 - __main__ - INFO - VANILLA evaluation - no latent tokens added
+2025-07-14 07:55:18,829 - __main__ - INFO - Loading base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-14 07:55:18,831 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): huggingface.co:443
+2025-07-14 07:55:19,069 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 07:55:19,074 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 07:55:19,297 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/configuration_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 07:55:19,303 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 07:55:19,537 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 07:55:19,545 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 07:55:19,548 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 07:55:19,548 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 07:55:19,548 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 07:55:19,548 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 07:55:19,550 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 07:55:19,550 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 07:55:19,550 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 07:55:19,551 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 07:55:19,551 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 07:55:19,551 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 07:55:20,351 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 07:55:20,358 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 07:55:21,126 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/modeling_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 07:55:21,131 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 07:55:21,170 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 07:55:21,170 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 07:55:21,933 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/generation_config.json HTTP/1.1" 307 0
+2025-07-14 07:55:21,938 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/generation_config.json HTTP/1.1" 200 0
+2025-07-14 07:55:22,198 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/custom_generate/generate.py HTTP/1.1" 404 0
+2025-07-14 07:55:22,427 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/tokenizer_config.json HTTP/1.1" 307 0
+2025-07-14 07:55:22,432 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer_config.json HTTP/1.1" 200 0
+2025-07-14 07:55:22,666 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/models/OpenGVLab/InternVL3-1B-Pretrained/tree/main/additional_chat_templates?recursive=False&expand=False HTTP/1.1" 404 64
+2025-07-14 07:55:23,108 - multicoco.model - INFO - No special tokens added - using base tokenizer vocabulary
+2025-07-14 07:55:23,339 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/preprocessor_config.json HTTP/1.1" 307 0
+2025-07-14 07:55:23,344 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/preprocessor_config.json HTTP/1.1" 200 0
+2025-07-14 07:55:23,385 - multicoco.model - DEBUG - Text embedding dim: 896
+2025-07-14 07:55:23,386 - multicoco.model - DEBUG - Vision hidden size: 1024
+2025-07-14 07:55:23,386 - multicoco.model - DEBUG - Vision image size: 448
+2025-07-14 07:55:23,386 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 07:55:23,386 - multicoco.model - INFO - No embedding resize needed - tokenizer size 151674 matches model vocab size 151674
+2025-07-14 07:55:23,387 - multicoco.model - INFO - MultiCoCo model initialized with 938193024 parameters
+2025-07-14 07:55:23,388 - __main__ - INFO - Model initialized from base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-14 07:55:23,388 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 07:55:23,388 - __main__ - INFO - Mode: eval_only, CoCoNut: False
+2025-07-14 07:55:23,390 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 07:55:23,390 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 07:55:23,391 - __main__ - INFO - Evaluation dataset: 20 samples
+2025-07-14 07:55:23,391 - __main__ - INFO - Starting evaluation only...
+2025-07-14 07:55:25,148 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 07:55:25,148 - __main__ - INFO - Trainer created successfully
+2025-07-14 07:55:25,148 - __main__ - INFO - Starting evaluation...
+2025-07-14 07:55:25,432 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': False, 'num_beams': 3, 'temperature': 0.7, 'top_p': 1.0, 'top_k': 50}
+2025-07-14 07:55:25,433 - multicoco.trainer - DEBUG - Sample 0: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:25,433 - multicoco.trainer - DEBUG - Sample 0: question = What is in the motorcyclist's mouth? The choices a...
+2025-07-14 07:55:26,460 - multicoco.trainer - DEBUG - Sample 1: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:26,460 - multicoco.trainer - DEBUG - Sample 1: question = Which number birthday is probably being celebrated...
+2025-07-14 07:55:26,666 - multicoco.trainer - DEBUG - Sample 2: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:26,666 - multicoco.trainer - DEBUG - Sample 2: question = What best describes the pool of water? The choices...
+2025-07-14 07:55:26,881 - multicoco.trainer - DEBUG - Sample 3: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:26,881 - multicoco.trainer - DEBUG - Sample 3: question = What is the white substance on top of the cupcakes...
+2025-07-14 07:55:27,739 - multicoco.trainer - DEBUG - Sample 4: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:27,739 - multicoco.trainer - DEBUG - Sample 4: question = What type of device is sitting next to the laptop?...
+2025-07-14 07:55:27,973 - multicoco.trainer - DEBUG - Sample 5: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:27,973 - multicoco.trainer - DEBUG - Sample 5: question = The thing on the animal to the left's head is simi...
+2025-07-14 07:55:28,177 - multicoco.trainer - DEBUG - Sample 6: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:28,178 - multicoco.trainer - DEBUG - Sample 6: question = What is the appliance the woman is holding used fo...
+2025-07-14 07:55:28,819 - multicoco.trainer - DEBUG - Sample 7: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:28,819 - multicoco.trainer - DEBUG - Sample 7: question = What is the descriptive word for this surface? The...
+2025-07-14 07:55:29,023 - multicoco.trainer - DEBUG - Sample 8: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:29,023 - multicoco.trainer - DEBUG - Sample 8: question = What is the person on the left doing with their bo...
+2025-07-14 07:55:29,296 - multicoco.trainer - DEBUG - Sample 9: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:29,296 - multicoco.trainer - DEBUG - Sample 9: question = What type of pants is the man on the right wearing...
+2025-07-14 07:55:29,578 - multicoco.trainer - DEBUG - Sample 10: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:29,578 - multicoco.trainer - DEBUG - Sample 10: question = What country do these planes belong to? The choice...
+2025-07-14 07:55:29,815 - multicoco.trainer - DEBUG - Sample 11: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:29,815 - multicoco.trainer - DEBUG - Sample 11: question = What interests the child most here? The choices ar...
+2025-07-14 07:55:30,021 - multicoco.trainer - DEBUG - Sample 12: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:30,022 - multicoco.trainer - DEBUG - Sample 12: question = What kind of fruit is cut in half and darker than ...
+2025-07-14 07:55:30,800 - multicoco.trainer - DEBUG - Sample 13: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:30,800 - multicoco.trainer - DEBUG - Sample 13: question = What item on the desk could help with a cold? The ...
+2025-07-14 07:55:31,046 - multicoco.trainer - DEBUG - Sample 14: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:31,046 - multicoco.trainer - DEBUG - Sample 14: question = What flag is represented on the wall? The choices ...
+2025-07-14 07:55:31,286 - multicoco.trainer - DEBUG - Sample 15: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:31,286 - multicoco.trainer - DEBUG - Sample 15: question = What is located on the shelves? The choices are 0 ...
+2025-07-14 07:55:31,719 - multicoco.trainer - DEBUG - Sample 16: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:31,719 - multicoco.trainer - DEBUG - Sample 16: question = What period of the day does this photo reflect? Th...
+2025-07-14 07:55:31,927 - multicoco.trainer - DEBUG - Sample 17: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:31,927 - multicoco.trainer - DEBUG - Sample 17: question = What activity does the cat appear most likely to d...
+2025-07-14 07:55:32,129 - multicoco.trainer - DEBUG - Sample 18: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:32,129 - multicoco.trainer - DEBUG - Sample 18: question = What event is this most likely? The choices are 0 ...
+2025-07-14 07:55:32,333 - multicoco.trainer - DEBUG - Sample 19: pixel_values shape = torch.Size([1, 3, 448, 448])
+2025-07-14 07:55:32,333 - multicoco.trainer - DEBUG - Sample 19: question = What is the outside of the cake made of? The choic...
+2025-07-14 07:55:32,831 - multicoco.trainer - INFO - Latency Metrics: Avg=0.3699s, Min=0.2016s, Max=1.0274s, Total=7.40s
+2025-07-14 07:55:32,831 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.65, 'eval_num_samples': 20, 'eval_correct': 13, 'eval/avg_latency_sec': 0.3698891043663025, 'eval/min_latency_sec': 0.20159029960632324, 'eval/max_latency_sec': 1.0274467468261719, 'eval/total_eval_time_sec': 7.39778208732605}
+2025-07-14 07:55:32,831 - multicoco.trainer - INFO - Logging 20 per-sample evaluation details to file...
+2025-07-14 07:55:32,832 - multicoco.trainer - DEBUG - Completed logging per-sample evaluation details
+2025-07-14 07:55:32,832 - __main__ - INFO - 
+==================================================
+2025-07-14 07:55:32,832 - __main__ - INFO - EVALUATION SUMMARY
+2025-07-14 07:55:32,832 - __main__ - INFO - ==================================================
+2025-07-14 07:55:32,832 - __main__ - INFO -   eval_accuracy: 0.6500
+2025-07-14 07:55:32,833 - __main__ - INFO -   eval_num_samples: 20.0000
+2025-07-14 07:55:32,833 - __main__ - INFO -   eval_correct: 13.0000
+2025-07-14 07:55:32,833 - __main__ - INFO -   eval/avg_latency_sec: 0.3699
+2025-07-14 07:55:32,833 - __main__ - INFO -   eval/min_latency_sec: 0.2016
+2025-07-14 07:55:32,833 - __main__ - INFO -   eval/max_latency_sec: 1.0274
+2025-07-14 07:55:32,833 - __main__ - INFO -   eval/total_eval_time_sec: 7.3978
+2025-07-14 07:55:32,833 - __main__ - INFO - ==================================================
+2025-07-14 07:55:32,833 - __main__ - INFO - MultiCoCo runner cleanup complete

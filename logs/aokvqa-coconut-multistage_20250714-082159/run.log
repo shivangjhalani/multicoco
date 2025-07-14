@@ -1,0 +1,224 @@
+2025-07-14 08:21:59,873 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-coconut-multistage_20250714-082159
+2025-07-14 08:21:59,936 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 08:21:59,936 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-14 08:21:59,936 - __main__ - INFO - Adding latent special tokens: ['<|end_latent|>', '<|start_latent|>', '<|latent|>']
+2025-07-14 08:21:59,936 - __main__ - INFO - Loading from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 08:21:59,940 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): huggingface.co:443
+2025-07-14 08:22:00,189 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 08:22:00,195 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 08:22:00,421 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/configuration_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 08:22:00,426 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 08:22:00,659 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 08:22:00,666 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 08:22:00,669 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 08:22:00,669 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 08:22:00,669 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 08:22:00,669 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 08:22:00,671 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 08:22:00,671 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 08:22:00,671 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 08:22:00,671 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 08:22:00,672 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 08:22:00,672 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 08:22:01,549 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 08:22:01,555 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 08:22:02,334 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/modeling_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 08:22:02,339 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 08:22:02,378 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 08:22:02,378 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 08:22:03,155 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/generation_config.json HTTP/1.1" 307 0
+2025-07-14 08:22:03,159 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/generation_config.json HTTP/1.1" 200 0
+2025-07-14 08:22:03,381 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/custom_generate/generate.py HTTP/1.1" 404 0
+2025-07-14 08:22:03,624 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/tokenizer_config.json HTTP/1.1" 307 0
+2025-07-14 08:22:03,629 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer_config.json HTTP/1.1" 200 0
+2025-07-14 08:22:04,043 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/models/OpenGVLab/InternVL3-1B-Pretrained/tree/main/additional_chat_templates?recursive=False&expand=False HTTP/1.1" 404 64
+2025-07-14 08:22:04,472 - multicoco.model - INFO - Added 3 special tokens: ['<|end_latent|>', '<|start_latent|>', '<|latent|>']
+2025-07-14 08:22:04,701 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/preprocessor_config.json HTTP/1.1" 307 0
+2025-07-14 08:22:04,706 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/preprocessor_config.json HTTP/1.1" 200 0
+2025-07-14 08:22:04,747 - multicoco.model - DEBUG - Text embedding dim: 896
+2025-07-14 08:22:04,748 - multicoco.model - DEBUG - Vision hidden size: 1024
+2025-07-14 08:22:04,748 - multicoco.model - DEBUG - Vision image size: 448
+2025-07-14 08:22:04,748 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 08:22:04,748 - multicoco.model - INFO - Resizing embeddings from 151674 to 151677 for 3 new tokens
+2025-07-14 08:22:13,178 - multicoco.model - INFO - MultiCoCo model initialized with 938198400 parameters
+2025-07-14 08:22:13,199 - __main__ - INFO - Loading checkpoint from safetensors: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 08:22:13,252 - __main__ - WARNING - Vocabulary size mismatch: checkpoint=151674, current=151677
+2025-07-14 08:22:13,253 - __main__ - INFO - Handling vocabulary size mismatch by resizing embeddings...
+2025-07-14 08:22:18,483 - __main__ - INFO - Temporarily resized model embeddings to 151674 to match checkpoint
+2025-07-14 08:22:28,508 - __main__ - INFO - Resized model embeddings back to current vocab size: 151677
+2025-07-14 08:22:28,508 - __main__ - INFO - New token embeddings will be randomly initialized
+2025-07-14 08:22:28,508 - __main__ - INFO - Successfully loaded model weights from checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 08:22:28,661 - multicoco.latent_wrapper - DEBUG - Set model.img_context_token_id to 151667 for <IMG_CONTEXT>
+2025-07-14 08:22:28,661 - multicoco.latent_wrapper - DEBUG - Model type: <class 'multicoco.model.MultiCoCo'>
+2025-07-14 08:22:28,662 - multicoco.latent_wrapper - DEBUG - Model attributes: ['T_destination', 'add_module', 'apply', 'bfloat16', 'buffers', 'call_super_init', 'children', 'compile', 'cpu', 'cuda', 'device', 'double', 'dump_patches', 'eos_token_id', 'eval', 'extra_repr', 'float', 'forward', 'generate', 'get_buffer', 'get_extra_state', 'get_input_embeddings', 'get_parameter', 'get_submodule', 'half', 'image_processor', 'img_context_token_id', 'ipu', 'load_state_dict', 'model', 'modules', 'mtia', 'named_buffers', 'named_children', 'named_modules', 'named_parameters', 'parameters', 'register_backward_hook', 'register_buffer', 'register_forward_hook', 'register_forward_pre_hook', 'register_full_backward_hook', 'register_full_backward_pre_hook', 'register_load_state_dict_post_hook', 'register_load_state_dict_pre_hook', 'register_module', 'register_parameter', 'register_state_dict_post_hook', 'register_state_dict_pre_hook', 'requires_grad_', 'set_extra_state', 'set_submodule', 'share_memory', 'smart_apply', 'state_dict', 'to', 'to_empty', 'tokenizer', 'train', 'training', 'type', 'xpu', 'zero_grad']
+2025-07-14 08:22:28,662 - multicoco.latent_wrapper - DEBUG - Found embedding at: model.model.language_model.model.embed_tokens
+2025-07-14 08:22:32,690 - __main__ - INFO - Model initialized from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 08:22:32,691 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 08:22:32,691 - __main__ - INFO - Mode: coconut_train, CoCoNut: True
+2025-07-14 08:22:32,737 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 08:22:32,738 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-14 08:22:32,738 - __main__ - INFO - Training dataset: 20 samples
+2025-07-14 08:22:32,740 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 08:22:32,740 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 08:22:32,740 - __main__ - INFO - Evaluation dataset: 20 samples
+2025-07-14 08:22:32,740 - __main__ - INFO - Starting CoCoNut multi-stage training...
+2025-07-14 08:22:34,556 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 08:22:34,557 - __main__ - INFO - Trainer created successfully
+2025-07-14 08:22:34,557 - multicoco.trainer - INFO - Starting CoCoNut multi-stage training with stage transitions
+2025-07-14 08:22:34,557 - multicoco.trainer - INFO - Training state initialized for epoch-based training
+2025-07-14 08:22:34,557 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-14 08:22:34,557 - multicoco.trainer - INFO -   Steps per epoch: 1
+2025-07-14 08:22:34,557 - multicoco.trainer - INFO -   Total epochs: 24
+2025-07-14 08:22:34,558 - multicoco.trainer - INFO -   Total steps: 24
+2025-07-14 08:22:34,575 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=24
+2025-07-14 08:22:34,575 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 08:22:34,575 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=24
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Transitioning to CoCoNut stage 0
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Dataset sample before curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 08:22:34,576 - multicoco.data - INFO - Applying progressive curriculum for stage 0
+2025-07-14 08:22:34,576 - multicoco.data - INFO - Creating progressive latent dataset for stage 0
+2025-07-14 08:22:34,576 - multicoco.data - INFO - Dataset updated with 20 curriculum samples
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Dataset sample after curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Applied progressive curriculum for stage 0 - Dataset size: 20
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Dataloader will be refreshed for updated curriculum
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Resetting optimizer and scheduler for new stage
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=24
+2025-07-14 08:22:34,576 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 08:22:34,577 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=24
+2025-07-14 08:22:34,577 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 08:22:34,577 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 08:22:34,577 - multicoco.trainer - INFO - Reset optimizer and scheduler with 24 remaining training steps
+2025-07-14 08:22:34,577 - multicoco.trainer - INFO - Epoch 1/24 - CoCoNut Stage 0/6 (Stage Epoch 1/3)
+2025-07-14 08:22:34,577 - multicoco.trainer - INFO - 
+Starting Epoch 1/24
+2025-07-14 08:22:40,726 - multicoco.trainer - DEBUG - Current LR: 2e-08 (full float: 2e-08)
+2025-07-14 08:22:41,387 - multicoco.trainer - INFO - Epoch 1 training complete. Average loss: 0.6979
+2025-07-14 08:22:41,678 - multicoco.trainer - INFO - Running evaluation after epoch 1...
+2025-07-14 08:22:41,678 - multicoco.trainer - DEBUG - Epoch evaluation logger configured for epoch 1
+2025-07-14 08:22:42,138 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,139 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,139 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 335])
+2025-07-14 08:22:42,139 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,139 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,344 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,345 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,345 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 355])
+2025-07-14 08:22:42,345 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,345 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,434 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,435 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,435 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 320])
+2025-07-14 08:22:42,435 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,435 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,522 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,522 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,523 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 336])
+2025-07-14 08:22:42,523 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,523 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,614 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,614 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,614 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 357])
+2025-07-14 08:22:42,614 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,614 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,702 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,703 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,703 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 343])
+2025-07-14 08:22:42,703 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,703 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,791 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,792 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,792 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 342])
+2025-07-14 08:22:42,792 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,792 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,897 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,898 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,898 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 348])
+2025-07-14 08:22:42,898 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,898 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:42,992 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:42,992 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:42,992 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 346])
+2025-07-14 08:22:42,992 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:42,993 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,090 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,091 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,091 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 357])
+2025-07-14 08:22:43,091 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,091 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,181 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,181 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,181 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 343])
+2025-07-14 08:22:43,181 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,181 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,271 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,272 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,272 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 326])
+2025-07-14 08:22:43,272 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,272 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,361 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,361 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,361 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 329])
+2025-07-14 08:22:43,361 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,361 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,448 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,448 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,448 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 373])
+2025-07-14 08:22:43,448 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,448 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,539 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,539 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,539 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 340])
+2025-07-14 08:22:43,539 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,539 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,628 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,628 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,628 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 323])
+2025-07-14 08:22:43,628 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,628 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,718 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,722 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,722 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 334])
+2025-07-14 08:22:43,722 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,722 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,812 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,813 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,813 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 358])
+2025-07-14 08:22:43,813 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,813 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:43,903 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:43,903 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:43,903 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 332])
+2025-07-14 08:22:43,903 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:43,903 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:44,095 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 08:22:44,096 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 08:22:44,096 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([1, 350])
+2025-07-14 08:22:44,096 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([1, 3, 448, 448])
+2025-07-14 08:22:44,096 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 08:22:44,178 - multicoco.trainer - INFO - Latency Metrics: Avg=0.0866s, Min=0.0782s, Max=0.1899s, Total=1.73s
+2025-07-14 08:22:44,178 - multicoco.trainer - INFO - EVAL METRICS: {'eval_accuracy': 0.0, 'eval_num_samples': 20, 'eval_correct': 0, 'eval/avg_latency_sec': 0.08655664920806885, 'eval/min_latency_sec': 0.07820558547973633, 'eval/max_latency_sec': 0.18993186950683594, 'eval/total_eval_time_sec': 1.731132984161377}
+2025-07-14 08:22:44,178 - multicoco.trainer - INFO - Logging 20 per-sample evaluation details to file...
+2025-07-14 08:22:44,179 - multicoco.trainer - DEBUG - Completed logging per-sample evaluation details
+2025-07-14 08:22:50,155 - multicoco.trainer - DEBUG - Saved tokenizer info to checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1/tokenizer_info.json
+2025-07-14 08:22:59,256 - multicoco.trainer - DEBUG - Saved optimizer state to checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1/optimizer.pt
+2025-07-14 08:22:59,257 - multicoco.trainer - DEBUG - Saved scheduler state to checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1/scheduler.pt
+2025-07-14 08:22:59,257 - multicoco.trainer - DEBUG - Saved training state to checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1/training_state.pt
+2025-07-14 08:22:59,257 - multicoco.trainer - INFO - Checkpoint saved with metrics: checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO - 
+EPOCH 1 SUMMARY
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO - Checkpoint: checkpoints/aokvqa_coconut_aokvqa-coconut-multistage/epoch-1
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO - Epoch time: 24.68s
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO - Evaluation metrics:
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval_accuracy: 0.0000
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval_num_samples: 20.0000
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval_correct: 0.0000
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval/avg_latency_sec: 0.0866
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval/min_latency_sec: 0.0782
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval/max_latency_sec: 0.1899
+2025-07-14 08:22:59,258 - multicoco.trainer - INFO -   eval/total_eval_time_sec: 1.7311
+2025-07-14 08:22:59,542 - multicoco.trainer - INFO - Epoch 2/24 - CoCoNut Stage 0/6 (Stage Epoch 2/3)
+2025-07-14 08:22:59,543 - multicoco.trainer - INFO - 
+Starting Epoch 2/24
+2025-07-14 08:23:01,172 - __main__ - INFO - MultiCoCo runner cleanup complete
