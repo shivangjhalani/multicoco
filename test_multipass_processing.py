@@ -37,9 +37,17 @@ def create_mock_model():
             self.hidden_size = hidden_size
             self.img_context_token_id = 32000  # Mock image context token ID
             
-        def forward(self, inputs_embeds=None, attention_mask=None, past_key_values=None, 
+        def forward(self, input_ids=None, inputs_embeds=None, attention_mask=None, past_key_values=None, 
                    output_hidden_states=False, use_cache=False, **kwargs):
-            batch_size, seq_len, hidden_size = inputs_embeds.shape
+            # Handle both input_ids and inputs_embeds
+            if inputs_embeds is not None:
+                batch_size, seq_len, hidden_size = inputs_embeds.shape
+            elif input_ids is not None:
+                # Convert input_ids to embeddings
+                inputs_embeds = self.embed_tokens(input_ids)
+                batch_size, seq_len, hidden_size = inputs_embeds.shape
+            else:
+                raise ValueError("Either input_ids or inputs_embeds must be provided")
             
             # Mock hidden states (just return the inputs with some transformation)
             hidden_states = inputs_embeds + 0.1 * torch.randn_like(inputs_embeds)
