@@ -803,7 +803,9 @@ class LatentWrapper(nn.Module):
                 # This follows original coconut.py pattern: hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
                 for pos in range(start + 1, end):  # Skip start/end markers, only process actual latent tokens
                     if pos < inputs_embeds.shape[1]:
-                        source_pos = pos - 1  # Individual source position for each token
+                        # FIXED: Calculate adjusted source position for multimodal sequences
+                        # This accounts for image tokens that are present in input_ids but not in hidden states
+                        source_pos = self._calculate_adjusted_source_pos(pos, input_ids, batch_idx)
                         
                         if source_pos < last_hidden.shape[1] and source_pos >= 0:
                             try:
@@ -1340,3 +1342,42 @@ class LatentWrapper(nn.Module):
         ])
         
         return updated_embeds
+
+    def _calculate_adjusted_source_pos(self, token_idx: int, input_ids: torch.Tensor, batch_idx: int = 0) -> int:
+        """
+        Calculate the adjusted source position for latent token injection in multimodal sequences.
+        
+        In multimodal scenarios, image tokens (<IMG_CONTEXT>) may be present in the sequence.
+        This method counts image tokens before the given position to adjust the source position
+        calculation correctly for latent token injection.
+        
+        Args:
+            token_idx: Current token index in the sequence
+            input_ids: Full input sequence tensor
+            batch_idx: Batch index to process (default: 0)
+            
+        Returns:
+            Adjusted source position accounting for image tokens
+        """
+        # Get the IMG_CONTEXT token ID
+        img_context_token_id = getattr(self.base_model, 'img_context_token_id', None)
+        if img_context_token_id is None:
+            # Fallback: try to get from tokenizer
+            img_context_token_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+        
+        # If no image token ID found, use simple calculation
+        if img_context_token_id is None or img_context_token_id == self.tokenizer.unk_token_id:
+            return token_idx - 1
+            
+        # Count image tokens before the current position
+        sequence = input_ids[batch_idx, :token_idx]  # Get sequence up to current position
+        image_tokens_before = (sequence == img_context_token_id).sum().item()
+        
+        # Adjust source position: each image token represents an expanded sequence
+        # that doesn't have a corresponding position in the hidden states
+        adjusted_source_pos = token_idx - 1 - image_tokens_before
+        
+        logger.debug(f"Position adjustment: token_idx={token_idx}, image_tokens_before={image_tokens_before}, "
+                    f"adjusted_source_pos={adjusted_source_pos}")
+        
+        return max(0, adjusted_source_pos)  # Ensure non-negative position
