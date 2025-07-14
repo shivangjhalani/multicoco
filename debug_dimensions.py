@@ -44,21 +44,36 @@ def debug_internvl_dimensions():
     # Test vision processing
     print("\n=== Vision Processing Debug ===")
     with torch.no_grad():
-        # Extract vision features using model's method
-        print("Calling model.extract_feature(pixel_values)...")
-        vision_features = model.extract_feature(dummy_image)
-        print(f"Vision features shape: {vision_features.shape}")
-        print(f"Vision features dtype: {vision_features.dtype}")
-        
-        # Test vision model directly
-        print("\nCalling vision_model directly...")
-        vision_outputs = model.vision_model(dummy_image, output_hidden_states=True)
-        raw_vision = vision_outputs.last_hidden_state
-        print(f"Raw vision output shape: {raw_vision.shape}")
-        
-        # Test mlp1 projector
-        print("\nTesting mlp1 projector...")
-        # The extract_feature method should handle the projection
+        try:
+            # Skip the potentially hanging extract_feature for now
+            print("Skipping model.extract_feature() - testing vision_model directly...")
+            
+            # Test vision model directly first
+            print("Calling vision_model directly...")
+            vision_outputs = model.vision_model(dummy_image, output_hidden_states=True)
+            raw_vision = vision_outputs.last_hidden_state
+            print(f"Raw vision output shape: {raw_vision.shape}")
+            
+            # Test mlp1 projector manually
+            print("\nTesting mlp1 projector manually...")
+            if hasattr(model, 'mlp1'):
+                print(f"MLP1 input expected: {model.mlp1[0].normalized_shape}")
+                # Flatten vision features for MLP1
+                B, L, C = raw_vision.shape
+                # Vision model output needs to be flattened and projected
+                flattened_vision = raw_vision.view(B, -1)  # Flatten spatial dimensions
+                print(f"Flattened vision shape: {flattened_vision.shape}")
+                
+                # The mlp1 expects 4096 input, but we have different dimensions
+                # This explains the dimension mismatch!
+                print(f"MLP1 expected input: 4096, got: {flattened_vision.shape[-1]}")
+            else:
+                print("No mlp1 found in model")
+                
+        except Exception as e:
+            print(f"Error in vision processing: {e}")
+            import traceback
+            traceback.print_exc()
         
     # Test language model embeddings
     print("\n=== Language Model Debug ===")
