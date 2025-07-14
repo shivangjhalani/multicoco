@@ -151,5 +151,100 @@ def debug_internvl_dimensions():
             import traceback
             traceback.print_exc()
 
+def test_exact_failing_scenario():
+    """Test the exact scenario that's failing in the unit test"""
+    print("\n=== Tracing Test Failure ===")
+    
+    try:
+        print("Initializing MultiCoCo model...")
+        from multicoco.model import MultiCoCo
+        from multicoco.latent_wrapper import LatentWrapper
+        from multicoco.constants import COCONUT_SPECIAL_TOKENS
+        
+        # Initialize the exact same way as the test
+        model = MultiCoCo(
+            model_id='OpenGVLab/InternVL3-1B-Pretrained',
+            special_tokens=COCONUT_SPECIAL_TOKENS,
+            torch_dtype='bfloat16'
+        )
+        
+        print("Initializing LatentWrapper...")
+        latent_model = LatentWrapper(model, model.tokenizer, enable_norm_logging=False)
+        
+        # Test the exact input that's failing
+        test_prompt = "Question: What is 2+2? <|start-latent|> <|latent|> <|latent|> <|end-latent|> Answer: 4"
+        input_ids = model.tokenizer.encode(test_prompt, return_tensors="pt")
+        print(f"Test input_ids shape: {input_ids.shape}")
+        
+        # Debug token by token
+        tokens = model.tokenizer.convert_ids_to_tokens(input_ids[0])
+        print(f"Test tokens: {tokens}")
+        
+        # Test embeddings
+        embeddings = latent_model.embedding(input_ids)
+        print(f"Embeddings shape: {embeddings.shape}")
+        print(f"Embeddings last dim: {embeddings.shape[-1]}")
+        
+        print("\n=== Testing First Pass (where error likely occurs) ===")
+        spans = latent_model._extract_latent_spans(input_ids)
+        print(f"Latent spans: {spans}")
+        
+        print("Getting first pass hidden states...")
+        try:
+            hidden_states = latent_model._first_pass_hidden_states(input_ids, None, None)
+            print(f"Hidden states shape: {hidden_states.shape}")
+            print(f"Hidden states last dim: {hidden_states.shape[-1]}")
+            
+            print("\n=== Testing Direct Assignment ===")
+            inputs_embeds = latent_model.embedding(input_ids).clone()
+            print(f"inputs_embeds shape: {inputs_embeds.shape}")
+            
+            # Test the exact assignment that's failing
+            batch_idx = 0
+            start, end = spans[0][0]  # First span
+            pos = start + 1  # First latent token position
+            source_pos = pos - 1
+            
+            print(f"Trying to assign hidden_states[{batch_idx}, {source_pos}] to inputs_embeds[{batch_idx}, {pos}]")
+            print(f"Source shape: {hidden_states[batch_idx, source_pos].shape}")
+            print(f"Target shape: {inputs_embeds[batch_idx, pos].shape}")
+            
+            if hidden_states[batch_idx, source_pos].shape == inputs_embeds[batch_idx, pos].shape:
+                print("✅ Shapes match, assignment should work")
+                inputs_embeds[batch_idx, pos] = hidden_states[batch_idx, source_pos]
+                print("Assignment successful!")
+            else:
+                print("❌ Shape mismatch found!")
+                
+        except Exception as e:
+            print(f"❌ Error in first pass: {e}")
+            import traceback
+            traceback.print_exc()
+            
+        print("\n=== Testing Full Forward Pass ===")
+        try:
+            # Try the full forward pass that's actually failing
+            with torch.no_grad():
+                outputs = latent_model.forward(
+                    input_ids=input_ids,
+                    attention_mask=None,
+                    pixel_values=None,
+                    labels=input_ids.clone()
+                )
+            print("✅ Full forward pass successful!")
+            print(f"Output logits shape: {outputs['logits'].shape}")
+            
+        except Exception as e:
+            print(f"❌ Error in full forward pass: {e}")
+            import traceback
+            traceback.print_exc()
+            print("\n🔍 This is likely where the 2048 vs 896 error is coming from!")
+            
+    except Exception as e:
+        print(f"❌ Error in test setup: {e}")
+        import traceback
+        traceback.print_exc()
+
 if __name__ == "__main__":
-    debug_internvl_dimensions()
+    # debug_internvl_dimensions()
+    test_exact_failing_scenario()
