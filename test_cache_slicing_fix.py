@@ -36,13 +36,24 @@ def test_cache_slicing():
         class MockModel:
             def parameters(self):
                 return [torch.tensor([1.0])]
+                
+            def get_input_embeddings(self):
+                # Return a simple embedding layer
+                return torch.nn.Embedding(1000, 64)
         
         mock_model = MockModel()
+        # Set img_context_token_id on the model to avoid the missing attribute issue
+        mock_model.img_context_token_id = 103
         
         # Create a mock tokenizer
         class MockTokenizer:
+            def __init__(self):
+                self.unk_token_id = 0
+                self.pad_token_id = 1
+                self.eos_token_id = 2
+                
             def convert_tokens_to_ids(self, token):
-                return {'<|latent|>': 50257, '<|start_latent|>': 50258, '<|end_latent|>': 50259}.get(token, 0)
+                return {'<|latent|>': 50257, '<|start_latent|>': 50258, '<|end_latent|>': 50259, '<IMG_CONTEXT>': 103}.get(token, 0)
         
         mock_tokenizer = MockTokenizer()
         wrapper = LatentWrapper(mock_model, mock_tokenizer)
