@@ -1,6 +1,6 @@
 import contextlib
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import torch
 from torch import nn
 from transformers import AutoConfig, AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
@@ -52,13 +52,20 @@ class MultiCoCo(nn.Module):
         image_processor = AutoImageProcessor.from_pretrained(image_processor_id or model_id, trust_remote_code=True, use_fast=True)
         return (model, tokenizer, image_processor)
 
-    def _create_model(self, model_id: str, config_id: Optional[str], torch_dtype: str, trust_remote_code: bool, low_cpu_mem_usage: bool) -> nn.Module:
+    def _create_model(self, model_id: str, config_id: Optional[str], torch_dtype: Union[str, torch.dtype], trust_remote_code: bool, low_cpu_mem_usage: bool) -> nn.Module:
         config = AutoConfig.from_pretrained(config_id or model_id, trust_remote_code=trust_remote_code)
         config.attn_implementation = 'sdpa'
-        dtype_map = {'bfloat16': torch.bfloat16, 'float16': torch.float16, 'float32': torch.float32}
-        if torch_dtype not in dtype_map:
-            raise ModelInitializationError(f'Unsupported dtype: {torch_dtype}')
-        dtype = dtype_map[torch_dtype]
+        
+        # Handle both string and torch.dtype inputs
+        if isinstance(torch_dtype, str):
+            dtype_map = {'bfloat16': torch.bfloat16, 'float16': torch.float16, 'float32': torch.float32}
+            if torch_dtype not in dtype_map:
+                raise ModelInitializationError(f'Unsupported dtype: {torch_dtype}')
+            dtype = dtype_map[torch_dtype]
+        else:
+            # torch_dtype is already a torch.dtype
+            dtype = torch_dtype
+            
         return AutoModelForCausalLM.from_pretrained(model_id, config=config, torch_dtype=dtype, low_cpu_mem_usage=low_cpu_mem_usage, trust_remote_code=trust_remote_code)
 
     def _create_tokenizer(self, tokenizer_id: str, special_tokens: List[str]) -> AutoTokenizer:
