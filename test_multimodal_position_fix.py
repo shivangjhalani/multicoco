@@ -143,10 +143,31 @@ def test_edge_cases():
     print(f"✓ Negative position handling: {adjusted_pos}")
     
     # Test case: No img_context_token_id (should fall back to simple calculation)
-    model.img_context_token_id = None
-    wrapper2 = LatentWrapper(model, tokenizer)
+    # Create a new model without img_context_token_id and tokenizer that doesn't recognize IMG_CONTEXT
+    class MockModelNoImgToken:
+        def __init__(self):
+            # Explicitly don't set img_context_token_id
+            pass
+        def get_input_embeddings(self):
+            return MockEmbedding()
+    
+    class MockTokenizerNoImgToken:
+        def __init__(self):
+            self.unk_token_id = 0
+        def convert_tokens_to_ids(self, token):
+            token_map = {
+                '<|latent|>': 32000,
+                '<|start_latent|>': 32002,
+                '<|end_latent|>': 32003,
+                # Don't include IMG_CONTEXT - it should return unk_token_id
+            }
+            return token_map.get(token, self.unk_token_id)
+    
+    model_no_img = MockModelNoImgToken()
+    tokenizer_no_img = MockTokenizerNoImgToken()
+    wrapper3 = LatentWrapper(model_no_img, tokenizer_no_img)
     input_ids = torch.tensor([[1, 32001, 32001, 32002, 32000]])
-    adjusted_pos = wrapper2._calculate_adjusted_source_pos(4, input_ids, 0)
+    adjusted_pos = wrapper3._calculate_adjusted_source_pos(4, input_ids, 0)
     expected_pos = 3  # Simple calculation: 4 - 1
     assert adjusted_pos == expected_pos, f"Expected {expected_pos}, got {adjusted_pos}"
     print(f"✓ Fallback to simple calculation: {adjusted_pos}")

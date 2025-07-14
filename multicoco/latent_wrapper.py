@@ -1359,14 +1359,20 @@ class LatentWrapper(nn.Module):
         Returns:
             Adjusted source position accounting for image tokens
         """
-        # Get the IMG_CONTEXT token ID
+        # Get the IMG_CONTEXT token ID from base model first
         img_context_token_id = getattr(self.base_model, 'img_context_token_id', None)
-        if img_context_token_id is None:
-            # Fallback: try to get from tokenizer
-            img_context_token_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
         
-        # If no image token ID found, use simple calculation
-        if img_context_token_id is None or img_context_token_id == self.tokenizer.unk_token_id:
+        # If model doesn't have img_context_token_id, try tokenizer but only if it's valid
+        if img_context_token_id is None:
+            potential_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+            # Only use it if it's a valid token (not unknown token)
+            if potential_id != self.tokenizer.unk_token_id:
+                img_context_token_id = potential_id
+        
+        # If still no valid image token ID found, use simple calculation
+        if img_context_token_id is None:
+            logger.debug(f"Position adjustment: token_idx={token_idx}, no image tokens (fallback), "
+                        f"adjusted_source_pos={token_idx - 1}")
             return token_idx - 1
             
         # Count image tokens before the current position
