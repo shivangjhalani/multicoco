@@ -126,6 +126,23 @@ class MultiCoCo(nn.Module):
     def get_input_embeddings(self) -> nn.Module:
         return self.model.get_input_embeddings()
 
+    def __getattr__(self, name: str):
+        """
+        Forward unknown attributes to the underlying model.
+        This allows LatentWrapper to access model-specific attributes like:
+        - extract_feature()
+        - dtype
+        - conv_template
+        - config.downsample_ratio
+        - num_image_token
+        - img_context_token_id
+        etc.
+        """
+        try:
+            return getattr(self.model, name)
+        except AttributeError:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}' and neither does the underlying model")
+
     @property
     def device(self):
         return next(self.parameters()).device
