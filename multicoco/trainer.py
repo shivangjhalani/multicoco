@@ -742,7 +742,8 @@ class CoCoTrainer(Trainer):
             # Calculate remaining training steps for the new stage
             train_dataloader = self.get_train_dataloader()
             steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
-            remaining_epochs = int(self.args.num_train_epochs) - (self.state.epoch if hasattr(self.state, 'epoch') else 0)
+            current_epoch = getattr(self.state, 'epoch', None) or 0
+            remaining_epochs = int(self.args.num_train_epochs) - current_epoch
             remaining_steps = steps_per_epoch * max(1, remaining_epochs)
             
             # Recreate both optimizer and scheduler for the new stage

@@ -1007,8 +1007,14 @@ class LatentWrapper(nn.Module):
             return image_embeds
         
         if pixel_values is not None:
-            # Use the model's extract_feature method which handles the full vision pipeline
-            return self.base_model.extract_feature(pixel_values.to(dtype=self.base_model.dtype))
+            # Check if this is a multimodal model that supports vision
+            if hasattr(self.base_model, 'extract_feature'):
+                # Use the model's extract_feature method which handles the full vision pipeline
+                return self.base_model.extract_feature(pixel_values.to(dtype=self.base_model.dtype))
+            else:
+                # For text-only models, return None (no vision processing)
+                logger.warning("Vision inputs provided but model doesn't support vision processing. Ignoring pixel_values.")
+                return None
         
         return None
 
