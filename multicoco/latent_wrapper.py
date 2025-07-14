@@ -1443,7 +1443,7 @@ class LatentWrapper(nn.Module):
         Validate KV cache structure and dimensions.
         
         Args:
-            kv_cache: KV cache to validate
+            kv_cache: KV cache to validate (can be list/tuple or DynamicCache)
             expected_layers: Expected number of transformer layers (optional)
             
         Returns:
@@ -1453,38 +1453,60 @@ class LatentWrapper(nn.Module):
             return False
             
         try:
-            # Check if cache is a list/tuple of (key, value) pairs
-            if not isinstance(kv_cache, (list, tuple)):
-                logger.warning(f"KV cache should be list/tuple, got {type(kv_cache)}")
-                return False
-                
-            if len(kv_cache) == 0:
-                logger.warning("Empty KV cache")
-                return False
-                
-            # Validate each layer
-            for i, (k, v) in enumerate(kv_cache):
-                if not isinstance(k, torch.Tensor) or not isinstance(v, torch.Tensor):
-                    logger.warning(f"Layer {i}: Expected tensors, got key={type(k)}, value={type(v)}")
+            # Handle new DynamicCache format from transformers >= 4.36
+            if hasattr(kv_cache, 'key_cache') and hasattr(kv_cache, 'value_cache'):
+                # DynamicCache format
+                if not kv_cache.key_cache or not kv_cache.value_cache:
+                    logger.debug("Empty DynamicCache")
                     return False
                     
-                # Check tensor dimensions (should be 4D: [batch, heads, seq_len, head_dim])
-                if k.dim() != 4 or v.dim() != 4:
-                    logger.warning(f"Layer {i}: Expected 4D tensors, got key={k.dim()}D, value={v.dim()}D")
-                    return False
-                    
-                # Check that key and value have compatible shapes
-                if k.shape[:3] != v.shape[:3]:  # batch, heads, seq_len should match
-                    logger.warning(f"Layer {i}: Key and value shape mismatch - key={k.shape}, value={v.shape}")
-                    return False
-                    
-            if expected_layers is not None and len(kv_cache) != expected_layers:
-                logger.warning(f"Expected {expected_layers} layers, got {len(kv_cache)}")
-                return False
-                
-            logger.debug(f"KV cache validation passed: {len(kv_cache)} layers")
-            return True
+                # Convert to legacy format for validation
+                legacy_cache = []
+                for i in range(len(kv_cache.key_cache)):
+                    if i < len(kv_cache.value_cache):
+                        legacy_cache.append((kv_cache.key_cache[i], kv_cache.value_cache[i]))
+                    else:
+                        logger.warning(f"Key-value cache length mismatch at layer {i}")
+                        return False
+                        
+                return self._validate_legacy_kv_cache(legacy_cache, expected_layers)
             
+            # Handle legacy tuple/list format
+            elif isinstance(kv_cache, (list, tuple)):
+                return self._validate_legacy_kv_cache(kv_cache, expected_layers)
+            else:
+                logger.warning(f"KV cache should be list/tuple or DynamicCache, got {type(kv_cache)}")
+                return False
+                
         except Exception as e:
-            logger.error(f"Error validating KV cache: {e}")
+            logger.warning(f"KV cache validation failed: {e}")
             return False
+            
+    def _validate_legacy_kv_cache(self, kv_cache, expected_layers: Optional[int] = None) -> bool:
+        """Validate legacy KV cache format (list/tuple of key-value pairs)"""
+        if len(kv_cache) == 0:
+            logger.debug("Empty KV cache")
+            return False
+            
+        # Validate each layer
+        for i, (k, v) in enumerate(kv_cache):
+            if not isinstance(k, torch.Tensor) or not isinstance(v, torch.Tensor):
+                logger.warning(f"Layer {i}: Expected tensors, got key={type(k)}, value={type(v)}")
+                return False
+                
+            # Check tensor dimensions (should be 4D: [batch, heads, seq_len, head_dim])
+            if k.dim() != 4 or v.dim() != 4:
+                logger.warning(f"Layer {i}: Expected 4D tensors, got key={k.dim()}D, value={v.dim()}D")
+                return False
+                
+            # Check that key and value have compatible shapes
+            if k.shape[:3] != v.shape[:3]:  # batch, heads, seq_len should match
+                logger.warning(f"Layer {i}: Key and value shape mismatch - key={k.shape}, value={v.shape}")
+                return False
+                
+        if expected_layers is not None and len(kv_cache) != expected_layers:
+            logger.warning(f"Expected {expected_layers} layers, got {len(kv_cache)}")
+            return False
+            
+        logger.debug(f"KV cache validation passed: {len(kv_cache)} layers")
+        return True
