@@ -162,7 +162,7 @@ Simple test to verify the shared memory fix works.
 """
 
 import sys
-sys.path.append('/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco')
+sys.path.append('.')
 
 def test_no_shared_memory():
     """Test that embeddings no longer share memory"""
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     test_no_shared_memory()
 '''
     
-    test_script_path = Path("/home/shivang/shivang/projs/cdsaml/kaggle/scratch/multicoco/test_fix.py")
+    test_script_path = Path("./test_fix.py")
     with open(test_script_path, 'w') as f:
         f.write(test_script_content)
     
