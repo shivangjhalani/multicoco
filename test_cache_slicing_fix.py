@@ -38,7 +38,14 @@ def test_cache_slicing():
                 return [torch.tensor([1.0])]
         
         mock_model = MockModel()
-        wrapper = LatentWrapper(mock_model)
+        
+        # Create a mock tokenizer
+        class MockTokenizer:
+            def convert_tokens_to_ids(self, token):
+                return {'<|latent|>': 50257, '<|start_latent|>': 50258, '<|end_latent|>': 50259}.get(token, 0)
+        
+        mock_tokenizer = MockTokenizer()
+        wrapper = LatentWrapper(mock_model, mock_tokenizer)
         
         # Test 1: Legacy cache format
         print("\n--- Test 1: Legacy cache format ---")
