@@ -116,7 +116,7 @@ def _create_chat_formatted_texts(batch: List[Dict[str, Any]], questions: List[st
     full_texts = []
     prompts = []
     
-    # CRITICAL FIX: Get the actual number of image tokens instead of hardcoding 256
+    # FIX: Get the actual number of image tokens instead of hardcoding 256
     # This prevents the severe image token count mismatch that causes assertion failures
     # or silent truncation of visual information
     num_image_tokens = get_tokenizer_image_token_count(tokenizer, fallback=256)

@@ -7,7 +7,7 @@ seed: 42
 
 # Training Configuration
 batch_size: 8
-eval_batch_size: 1  # Reduced to 1 to avoid InternVL shape mismatch during CoCoNut evaluation
+eval_batch_size: 16
 gradient_accumulation_steps: 2
 eval_accumulation_steps: 1
 learning_rate: 1.0e-5
@@ -39,7 +39,7 @@ generation:
 bf16: true
 fp16: false
 model_name: "OpenGVLab/InternVL3-1B-Pretrained"
-torch_compile: false
+torch_compile: true
 use_flash_attention_2: false
 # gradient_checkpointing: true
 gradient_checkpointing_kwargs: {"use_reentrant": false}
@@ -53,8 +53,8 @@ train_data_path: "data/aokvqa_train.json"
 # Logging Configuration
 logging:
   log_dir: "logs/"
-  log_level: "INFO"
-  use_wandb: false
+  log_level: "DEBUG"
+  use_wandb: true
   run_name: null
   log_to_file: true
   console_output: true
