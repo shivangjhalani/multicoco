@@ -657,19 +657,25 @@ class LatentWrapper(nn.Module):
         spans = self._extract_latent_spans(input_ids)
         if not any(spans):
             # No latent tokens, use standard forward
-            # Ensure we have valid inputs for the base model
+            # Ensure we have valid inputs for the base model and correct device placement
+            device = next(self.base_model.parameters()).device
+            
             if input_ids is None:
                 # This can happen during testing with empty sequences
                 if image_embeds is not None:
                     # Use image embeddings to create minimal input
                     batch_size = image_embeds.shape[0]
-                    device = image_embeds.device
                     # Create a minimal input sequence (just one token per sample)
                     input_ids = torch.full((batch_size, 1), self.tokenizer.pad_token_id or self.tokenizer.eos_token_id, device=device)
                     if attention_mask is None:
                         attention_mask = torch.ones_like(input_ids)
                 else:
                     raise ValueError("Either input_ids or image_embeds must be provided")
+            else:
+                # Ensure input_ids is on the correct device
+                input_ids = input_ids.to(device)
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(device)
             
             return self.base_model(input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, labels=labels, **kwargs)
         
@@ -705,6 +711,12 @@ class LatentWrapper(nn.Module):
         max_n_latents = max([len(l) for l in latent_lists]) if latent_lists else 0
         
         # Initialize inputs_embeds and compute range
+        # Ensure input_ids is on the same device as the model
+        device = next(self.base_model.parameters()).device
+        input_ids = input_ids.to(device)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(device)
+        
         inputs_embeds = self.embedding(input_ids)
         
         # If we have image embeddings, prepare multimodal inputs
