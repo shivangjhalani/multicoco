@@ -535,6 +535,10 @@ class CoCoTrainer(Trainer):
         if not eval_logger.hasHandlers():
             logger.warning('evaluation_details logger has no handlers configured. Per-sample logs may not be written to file.')
             return
+        
+        # OPTIMIZATION: Batch JSON serialization and logging instead of individual calls
+        # This significantly reduces I/O overhead from N individual writes to 1 batch write
+        batch_details = []
         for i in range(len(questions)):
             details = {
                 'question': questions[i], 
@@ -547,7 +551,23 @@ class CoCoTrainer(Trainer):
             # Add latency if available
             if latencies and i < len(latencies):
                 details['latency_sec'] = latencies[i]
-            eval_logger.info(json.dumps(details))
+            batch_details.append(details)
+        
+        # Batch serialize and log all samples at once
+        import json
+        try:
+            # Single JSON serialization for all samples
+            batch_json = '\n'.join(json.dumps(details) for details in batch_details)
+            # Single logging call instead of N individual calls
+            eval_logger.info(batch_json)
+        except Exception as e:
+            logger.warning(f'Failed to batch log evaluation details: {e}')
+            # Fallback to individual logging if batch fails
+            for details in batch_details:
+                try:
+                    eval_logger.info(json.dumps(details))
+                except Exception as inner_e:
+                    logger.warning(f'Failed to log individual sample: {inner_e}')
 
     def _generate_batch_predictions_with_details(self, batch: Dict[str, Any], max_new_tokens: int) -> Tuple[List[str], List[str], List[int], List[float]]:
         import time

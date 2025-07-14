@@ -107,7 +107,8 @@ class MultiCoCoRunner:
         json_formatter = logging.Formatter('%(message)s')
         if self.config.training.mode == TrainingMode.EVAL_ONLY:
             eval_log_path = os.path.join(self.run_log_dir, 'evaluation.log')
-            eval_handler = logging.FileHandler(eval_log_path)
+            # OPTIMIZATION: Add buffering to reduce file I/O overhead
+            eval_handler = logging.FileHandler(eval_log_path, mode='a', encoding='utf-8')
             eval_handler.setFormatter(json_formatter)
             eval_logger.addHandler(eval_handler)
         self.eval_logger = eval_logger
