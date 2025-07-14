@@ -140,7 +140,14 @@ class LatentWrapper(nn.Module):
         """
         # Get text embeddings if not provided
         if inputs_embeds is None:
-            inputs_embeds = self.base_model.model.language_model.get_input_embeddings()(input_ids)
+            # For InternVLChatModel, access language_model directly (no intermediate 'model' attribute)
+            if hasattr(self.base_model, 'language_model'):
+                inputs_embeds = self.base_model.language_model.get_input_embeddings()(input_ids)
+            elif hasattr(self.base_model, 'model') and hasattr(self.base_model.model, 'language_model'):
+                inputs_embeds = self.base_model.model.language_model.get_input_embeddings()(input_ids)
+            else:
+                # Fallback: try to get embeddings from the model directly
+                inputs_embeds = self.base_model.get_input_embeddings()(input_ids)
         
         # If no image embeddings, return text embeddings as-is
         if image_embeds is None:
@@ -150,7 +157,8 @@ class LatentWrapper(nn.Module):
         input_embeds = inputs_embeds.clone()
         
         # Get image context token ID (this should be set by the model during chat/batch_chat)
-        img_context_token_id = getattr(self.base_model.model, 'img_context_token_id', None)
+        # For InternVLChatModel, access img_context_token_id directly
+        img_context_token_id = getattr(self.base_model, 'img_context_token_id', None)
         if img_context_token_id is None:
             # Try to get it from tokenizer if available
             if hasattr(self, 'tokenizer'):
