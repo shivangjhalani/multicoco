@@ -138,6 +138,10 @@ class MultiCoCo(nn.Module):
         - img_context_token_id
         etc.
         """
+        # Avoid infinite recursion during initialization
+        if name == 'model' or not hasattr(self, 'model'):
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        
         try:
             return getattr(self.model, name)
         except AttributeError:
