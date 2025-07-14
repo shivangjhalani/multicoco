@@ -1,0 +1,42 @@
+2025-07-14 06:36:34,917 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-coconut-multistage_20250714-063634
+2025-07-14 06:36:34,987 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 06:36:34,987 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-14 06:36:34,987 - __main__ - INFO - Adding latent special tokens: ['<|start_latent|>', '<|latent|>', '<|end_latent|>']
+2025-07-14 06:36:34,987 - __main__ - INFO - Loading from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 06:36:35,734 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:36:35,734 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:36:35,734 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:36:35,734 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 06:36:35,736 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 06:36:35,736 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 06:36:35,737 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:36:35,737 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 06:36:35,737 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:36:35,737 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 06:36:37,391 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 06:36:37,391 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:36:39,635 - multicoco.model - INFO - Added 3 special tokens: ['<|start_latent|>', '<|latent|>', '<|end_latent|>']
+2025-07-14 06:36:39,915 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 06:36:39,916 - multicoco.model - INFO - Resizing embeddings from 151674 to 151677 for 3 new tokens
+2025-07-14 06:36:48,091 - multicoco.model - INFO - MultiCoCo model initialized with 938198400 parameters
+2025-07-14 06:36:48,112 - __main__ - INFO - Loading checkpoint from safetensors: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 06:36:48,165 - __main__ - WARNING - Vocabulary size mismatch: checkpoint=151674, current=151677
+2025-07-14 06:36:48,165 - __main__ - INFO - Handling vocabulary size mismatch by resizing embeddings...
+2025-07-14 06:36:53,341 - __main__ - INFO - Temporarily resized model embeddings to 151674 to match checkpoint
+2025-07-14 06:37:02,994 - __main__ - INFO - Resized model embeddings back to current vocab size: 151677
+2025-07-14 06:37:02,994 - __main__ - INFO - New token embeddings will be randomly initialized
+2025-07-14 06:37:02,994 - __main__ - INFO - Successfully loaded model weights from checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 06:37:03,150 - __main__ - INFO - Model initialized from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 06:37:03,150 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 06:37:03,150 - __main__ - INFO - Mode: coconut_train, CoCoNut: True
+2025-07-14 06:37:03,197 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 06:37:03,197 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-14 06:37:03,197 - __main__ - INFO - Training dataset: 20 samples
+2025-07-14 06:37:03,200 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 06:37:03,200 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 06:37:03,200 - __main__ - INFO - Evaluation dataset: 20 samples
+2025-07-14 06:37:03,200 - __main__ - INFO - Starting CoCoNut multi-stage training...
+2025-07-14 06:37:03,201 - __main__ - ERROR - Pipeline failed: Trainer creation failed: --load_best_model_at_end requires the save and eval strategy to match, but found
+- Evaluation strategy: epoch
+- Save strategy: no
+2025-07-14 06:37:03,201 - __main__ - INFO - MultiCoCo runner cleanup complete

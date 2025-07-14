@@ -1,0 +1,46 @@
+2025-07-14 06:34:08,217 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-cot-stage0_20250714-063408
+2025-07-14 06:34:08,277 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 06:34:08,278 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-14 06:34:08,278 - __main__ - INFO - CoT training phase - no latent tokens added
+2025-07-14 06:34:08,278 - __main__ - INFO - Loading base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-14 06:34:09,008 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:34:09,009 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:34:09,009 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:34:09,009 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 06:34:09,011 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 06:34:09,011 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 06:34:09,011 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:34:09,011 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 06:34:09,011 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:34:09,012 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 06:34:10,635 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 06:34:10,635 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:34:12,502 - multicoco.model - INFO - No special tokens added - using base tokenizer vocabulary
+2025-07-14 06:34:12,782 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 06:34:12,782 - multicoco.model - INFO - No embedding resize needed - tokenizer size 151674 matches model vocab size 151674
+2025-07-14 06:34:12,784 - multicoco.model - INFO - MultiCoCo model initialized with 938193024 parameters
+2025-07-14 06:34:12,784 - __main__ - INFO - Model initialized from base model: OpenGVLab/InternVL3-1B-Pretrained
+2025-07-14 06:34:12,784 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 06:34:12,784 - __main__ - INFO - Mode: cot_train, CoCoNut: False
+2025-07-14 06:34:12,820 - multicoco.data - INFO - Loaded 17056 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-14 06:34:12,821 - __main__ - INFO - Training dataset: 17056 samples
+2025-07-14 06:34:12,823 - multicoco.data - INFO - Loaded 1145 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 06:34:12,823 - __main__ - INFO - Evaluation dataset: 1145 samples
+2025-07-14 06:34:12,823 - __main__ - INFO - Starting CoT training...
+2025-07-14 06:34:12,823 - __main__ - WARNING - Conflicting configuration detected: skip_eval_during_training=True but load_best_model_at_end=True. Cannot load best model without evaluations. Consider setting load_best_model_at_end=False.
+2025-07-14 06:34:14,528 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 06:34:14,529 - __main__ - INFO - Trainer created successfully
+2025-07-14 06:34:14,529 - __main__ - INFO - Starting training...
+2025-07-14 06:34:14,529 - multicoco.trainer - INFO - Training state initialized for epoch-based training
+2025-07-14 06:34:14,529 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-14 06:34:14,529 - multicoco.trainer - INFO -   Steps per epoch: 533
+2025-07-14 06:34:14,529 - multicoco.trainer - INFO -   Total epochs: 8
+2025-07-14 06:34:14,529 - multicoco.trainer - INFO -   Total steps: 4264
+2025-07-14 06:34:14,546 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=4264
+2025-07-14 06:34:14,546 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 06:34:14,546 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=4264
+2025-07-14 06:34:14,546 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 06:34:14,546 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 06:34:14,546 - multicoco.trainer - INFO - 
+Starting Epoch 1/8
+2025-07-14 06:34:22,980 - __main__ - INFO - MultiCoCo runner cleanup complete

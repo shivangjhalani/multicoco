@@ -1,0 +1,103 @@
+2025-07-14 06:40:42,053 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-coconut-multistage_20250714-064042
+2025-07-14 06:40:42,113 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 06:40:42,113 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-14 06:40:42,113 - __main__ - INFO - Adding latent special tokens: ['<|latent|>', '<|end_latent|>', '<|start_latent|>']
+2025-07-14 06:40:42,114 - __main__ - INFO - Loading from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 06:40:42,117 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): huggingface.co:443
+2025-07-14 06:40:42,368 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 06:40:42,419 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 06:40:42,655 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/configuration_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 06:40:42,661 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 06:40:42,895 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 06:40:42,902 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 06:40:42,905 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:40:42,905 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:40:42,905 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:40:42,905 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 06:40:42,907 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 06:40:42,907 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 06:40:42,908 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:40:42,908 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 06:40:42,908 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:40:42,908 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 06:40:43,740 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 06:40:43,746 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 06:40:44,502 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/modeling_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 06:40:44,507 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 06:40:44,784 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 06:40:44,784 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:40:45,381 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/generation_config.json HTTP/1.1" 307 0
+2025-07-14 06:40:45,387 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/generation_config.json HTTP/1.1" 200 0
+2025-07-14 06:40:45,611 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/custom_generate/generate.py HTTP/1.1" 404 0
+2025-07-14 06:40:45,833 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/tokenizer_config.json HTTP/1.1" 307 0
+2025-07-14 06:40:45,839 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer_config.json HTTP/1.1" 200 0
+2025-07-14 06:40:46,066 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/models/OpenGVLab/InternVL3-1B-Pretrained/tree/main/additional_chat_templates?recursive=False&expand=False HTTP/1.1" 404 64
+2025-07-14 06:40:46,498 - multicoco.model - INFO - Added 3 special tokens: ['<|latent|>', '<|end_latent|>', '<|start_latent|>']
+2025-07-14 06:40:46,730 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/preprocessor_config.json HTTP/1.1" 307 0
+2025-07-14 06:40:46,735 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/preprocessor_config.json HTTP/1.1" 200 0
+2025-07-14 06:40:46,777 - multicoco.model - DEBUG - Text embedding dim: 896
+2025-07-14 06:40:46,778 - multicoco.model - DEBUG - Vision hidden size: 1024
+2025-07-14 06:40:46,778 - multicoco.model - DEBUG - Vision image size: 448
+2025-07-14 06:40:46,778 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 06:40:46,778 - multicoco.model - INFO - Resizing embeddings from 151674 to 151677 for 3 new tokens
+2025-07-14 06:40:56,207 - multicoco.model - INFO - MultiCoCo model initialized with 938198400 parameters
+2025-07-14 06:40:56,298 - __main__ - INFO - Loading checkpoint from safetensors: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 06:40:56,347 - __main__ - WARNING - Vocabulary size mismatch: checkpoint=151674, current=151677
+2025-07-14 06:40:56,348 - __main__ - INFO - Handling vocabulary size mismatch by resizing embeddings...
+2025-07-14 06:41:01,691 - __main__ - INFO - Temporarily resized model embeddings to 151674 to match checkpoint
+2025-07-14 06:41:12,983 - __main__ - INFO - Resized model embeddings back to current vocab size: 151677
+2025-07-14 06:41:12,984 - __main__ - INFO - New token embeddings will be randomly initialized
+2025-07-14 06:41:12,984 - __main__ - INFO - Successfully loaded model weights from checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 06:41:13,133 - __main__ - INFO - Model initialized from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 06:41:13,133 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 06:41:13,133 - __main__ - INFO - Mode: coconut_train, CoCoNut: True
+2025-07-14 06:41:13,181 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 06:41:13,181 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-14 06:41:13,181 - __main__ - INFO - Training dataset: 20 samples
+2025-07-14 06:41:13,183 - multicoco.data - INFO - Limited dataset to 20 samples for testing
+2025-07-14 06:41:13,184 - multicoco.data - INFO - Loaded 20 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 06:41:13,184 - __main__ - INFO - Evaluation dataset: 20 samples
+2025-07-14 06:41:13,184 - __main__ - INFO - Starting CoCoNut multi-stage training...
+2025-07-14 06:41:14,925 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 06:41:14,926 - __main__ - INFO - Trainer created successfully
+2025-07-14 06:41:14,926 - multicoco.trainer - INFO - Starting CoCoNut multi-stage training with stage transitions
+2025-07-14 06:41:14,926 - multicoco.trainer - INFO - Training state initialized for epoch-based training
+2025-07-14 06:41:14,926 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-14 06:41:14,927 - multicoco.trainer - INFO -   Steps per epoch: 1
+2025-07-14 06:41:14,927 - multicoco.trainer - INFO -   Total epochs: 24
+2025-07-14 06:41:14,927 - multicoco.trainer - INFO -   Total steps: 24
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=24
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=24
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Transitioning to CoCoNut stage 0
+2025-07-14 06:41:14,945 - multicoco.trainer - INFO - Dataset sample before curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 06:41:14,945 - multicoco.data - INFO - Applying progressive curriculum for stage 0
+2025-07-14 06:41:14,945 - multicoco.data - INFO - Creating progressive latent dataset for stage 0
+2025-07-14 06:41:14,945 - multicoco.data - INFO - Dataset updated with 20 curriculum samples
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Dataset sample after curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Applied progressive curriculum for stage 0 - Dataset size: 20
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Dataloader will be refreshed for updated curriculum
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Resetting optimizer and scheduler for new stage
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=24
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=24
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 06:41:14,946 - multicoco.trainer - INFO - Reset optimizer and scheduler with 24 remaining training steps
+2025-07-14 06:41:14,947 - multicoco.trainer - INFO - Epoch 1/24 - CoCoNut Stage 0/6 (Stage Epoch 1/3)
+2025-07-14 06:41:14,947 - multicoco.trainer - INFO - 
+Starting Epoch 1/24
+2025-07-14 06:41:18,495 - multicoco.trainer - DEBUG - Current LR: 2e-08 (full float: 2e-08)
+2025-07-14 06:41:18,825 - multicoco.trainer - INFO - Epoch 1 training complete. Average loss: 0.6784
+2025-07-14 06:41:19,137 - multicoco.trainer - INFO - Running evaluation after epoch 1...
+2025-07-14 06:41:19,137 - multicoco.trainer - DEBUG - Epoch evaluation logger configured for epoch 1
+2025-07-14 06:41:19,688 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 06:41:19,691 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 06:41:19,691 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([16, 116])
+2025-07-14 06:41:19,691 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([16, 3, 448, 448])
+2025-07-14 06:41:19,691 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 06:41:20,056 - multicoco.latent_wrapper - ERROR - LatentWrapper.generate: Base model delegation failed: shape mismatch: value tensor of shape [4096, 896] cannot be broadcast to indexing result of shape [16, 896]
+2025-07-14 06:41:20,057 - multicoco.latent_wrapper - ERROR - LatentWrapper.generate: This suggests the issue is in the base model, not LatentWrapper
+2025-07-14 06:41:20,143 - __main__ - INFO - MultiCoCo runner cleanup complete

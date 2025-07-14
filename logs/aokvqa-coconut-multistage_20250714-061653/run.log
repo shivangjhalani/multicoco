@@ -1,0 +1,231 @@
+2025-07-14 06:16:53,806 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-coconut-multistage_20250714-061653
+2025-07-14 06:16:53,863 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
+2025-07-14 06:16:53,864 - __main__ - INFO - MultiCoCoRunner initialized for training
+2025-07-14 06:16:53,864 - __main__ - INFO - Adding latent special tokens: ['<|latent|>', '<|start_latent|>', '<|end_latent|>']
+2025-07-14 06:16:53,864 - __main__ - INFO - Loading from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 06:16:53,866 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): huggingface.co:443
+2025-07-14 06:16:54,245 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 06:16:54,252 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 06:16:54,253 - filelock - DEBUG - Attempting to acquire lock 135064375497808 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1c77ddc6cbd0268f256f2539cde6dde9fec91c18.lock
+2025-07-14 06:16:54,253 - filelock - DEBUG - Lock 135064375497808 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1c77ddc6cbd0268f256f2539cde6dde9fec91c18.lock
+2025-07-14 06:16:54,258 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 None
+2025-07-14 06:16:54,261 - filelock - DEBUG - Attempting to release lock 135064375497808 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1c77ddc6cbd0268f256f2539cde6dde9fec91c18.lock
+2025-07-14 06:16:54,261 - filelock - DEBUG - Lock 135064375497808 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1c77ddc6cbd0268f256f2539cde6dde9fec91c18.lock
+2025-07-14 06:16:54,494 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/configuration_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 06:16:54,500 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 06:16:54,501 - filelock - DEBUG - Attempting to acquire lock 135064375501744 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/502772cc6e24e6d1fbc5bf91ce76c9b234101eaf.lock
+2025-07-14 06:16:54,502 - filelock - DEBUG - Lock 135064375501744 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/502772cc6e24e6d1fbc5bf91ce76c9b234101eaf.lock
+2025-07-14 06:16:54,508 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_internvl_chat.py HTTP/1.1" 200 None
+2025-07-14 06:16:54,510 - filelock - DEBUG - Attempting to release lock 135064375501744 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/502772cc6e24e6d1fbc5bf91ce76c9b234101eaf.lock
+2025-07-14 06:16:54,510 - filelock - DEBUG - Lock 135064375501744 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/502772cc6e24e6d1fbc5bf91ce76c9b234101eaf.lock
+2025-07-14 06:16:54,753 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/configuration_intern_vit.py HTTP/1.1" 307 0
+2025-07-14 06:16:54,760 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_intern_vit.py HTTP/1.1" 200 0
+2025-07-14 06:16:54,761 - filelock - DEBUG - Attempting to acquire lock 135064376278464 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7e630c456eb9cf350e55bf850c3ff72f445a7e17.lock
+2025-07-14 06:16:54,762 - filelock - DEBUG - Lock 135064376278464 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7e630c456eb9cf350e55bf850c3ff72f445a7e17.lock
+2025-07-14 06:16:54,768 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/configuration_intern_vit.py HTTP/1.1" 200 None
+2025-07-14 06:16:54,770 - filelock - DEBUG - Attempting to release lock 135064376278464 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7e630c456eb9cf350e55bf850c3ff72f445a7e17.lock
+2025-07-14 06:16:54,770 - filelock - DEBUG - Lock 135064376278464 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7e630c456eb9cf350e55bf850c3ff72f445a7e17.lock
+2025-07-14 06:16:55,029 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/config.json HTTP/1.1" 307 0
+2025-07-14 06:16:55,036 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/config.json HTTP/1.1" 200 0
+2025-07-14 06:16:55,039 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:16:55,040 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:16:55,040 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:16:55,040 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 12
+2025-07-14 06:16:55,042 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_config is None. Initializing the InternVisionConfig with default values.
+2025-07-14 06:16:55,042 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - llm_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).
+2025-07-14 06:16:55,042 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - vision_select_layer: -1
+2025-07-14 06:16:55,042 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - ps_version: v1
+2025-07-14 06:16:55,043 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - min_dynamic_patch: 1
+2025-07-14 06:16:55,043 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.configuration_internvl_chat - INFO - max_dynamic_patch: 6
+2025-07-14 06:16:55,046 - multicoco.model - INFO - NEW APPROACH: Using InternVL's native dynamic architecture
+2025-07-14 06:16:55,046 - multicoco.model - INFO - This allows InternVL to work as designed and makes our CoCoNut logic more robust
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Native dynamic_image_size: True
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Native max_dynamic_patch: 12
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Native min_dynamic_patch: 1
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Native use_thumbnail: True
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Using native vision_config for optimal InternVL performance
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Vision image_size = 448
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Vision patch_size = 14
+2025-07-14 06:16:55,046 - multicoco.model - INFO - Final InternVL configuration (using native settings):
+2025-07-14 06:16:55,047 - multicoco.model - INFO -   dynamic_image_size = True
+2025-07-14 06:16:55,047 - multicoco.model - INFO -   max_dynamic_patch = 12
+2025-07-14 06:16:55,047 - multicoco.model - INFO -   min_dynamic_patch = 1
+2025-07-14 06:16:55,047 - multicoco.model - INFO -   use_thumbnail = True
+2025-07-14 06:16:55,047 - multicoco.model - INFO -   downsample_ratio = 0.5
+2025-07-14 06:16:55,047 - multicoco.model - INFO - This approach should eliminate shape mismatches by using InternVL as designed
+2025-07-14 06:16:55,854 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 06:16:55,860 - git.cmd - DEBUG - Popen(['git', 'version'], cwd=/home/ubuntu/multicoco, stdin=None, shell=False, universal_newlines=False)
+2025-07-14 06:16:56,876 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/modeling_internvl_chat.py HTTP/1.1" 307 0
+2025-07-14 06:16:56,883 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_internvl_chat.py HTTP/1.1" 200 0
+2025-07-14 06:16:56,884 - filelock - DEBUG - Attempting to acquire lock 135064052203088 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ccf2ab9cc83283f41aafb611d379c4cc50614132.lock
+2025-07-14 06:16:56,884 - filelock - DEBUG - Lock 135064052203088 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ccf2ab9cc83283f41aafb611d379c4cc50614132.lock
+2025-07-14 06:16:56,889 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_internvl_chat.py HTTP/1.1" 200 None
+2025-07-14 06:16:56,903 - filelock - DEBUG - Attempting to release lock 135064052203088 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ccf2ab9cc83283f41aafb611d379c4cc50614132.lock
+2025-07-14 06:16:56,904 - filelock - DEBUG - Lock 135064052203088 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ccf2ab9cc83283f41aafb611d379c4cc50614132.lock
+2025-07-14 06:16:57,367 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/conversation.py HTTP/1.1" 307 0
+2025-07-14 06:16:57,374 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/conversation.py HTTP/1.1" 200 0
+2025-07-14 06:16:57,375 - filelock - DEBUG - Attempting to acquire lock 135064067384576 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/5a771766f21ce3aeeb99b286fb8d188b0038a547.lock
+2025-07-14 06:16:57,375 - filelock - DEBUG - Lock 135064067384576 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/5a771766f21ce3aeeb99b286fb8d188b0038a547.lock
+2025-07-14 06:16:57,380 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/conversation.py HTTP/1.1" 200 None
+2025-07-14 06:16:57,382 - filelock - DEBUG - Attempting to release lock 135064067384576 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/5a771766f21ce3aeeb99b286fb8d188b0038a547.lock
+2025-07-14 06:16:57,382 - filelock - DEBUG - Lock 135064067384576 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/5a771766f21ce3aeeb99b286fb8d188b0038a547.lock
+2025-07-14 06:16:57,617 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/modeling_intern_vit.py HTTP/1.1" 307 0
+2025-07-14 06:16:57,647 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_intern_vit.py HTTP/1.1" 200 0
+2025-07-14 06:16:57,648 - filelock - DEBUG - Attempting to acquire lock 135064052461008 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/eb4aef44ddace5782035f0316de3834563b1c8dd.lock
+2025-07-14 06:16:57,649 - filelock - DEBUG - Lock 135064052461008 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/eb4aef44ddace5782035f0316de3834563b1c8dd.lock
+2025-07-14 06:16:57,671 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/modeling_intern_vit.py HTTP/1.1" 200 None
+2025-07-14 06:16:57,683 - filelock - DEBUG - Attempting to release lock 135064052461008 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/eb4aef44ddace5782035f0316de3834563b1c8dd.lock
+2025-07-14 06:16:57,683 - filelock - DEBUG - Lock 135064052461008 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/eb4aef44ddace5782035f0316de3834563b1c8dd.lock
+2025-07-14 06:16:58,046 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/model.safetensors HTTP/1.1" 302 0
+2025-07-14 06:16:58,047 - filelock - DEBUG - Attempting to acquire lock 135064050810944 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7adea535b30522f579ec786184931d0493c8a6636e98c485f95ae14184c82aed.lock
+2025-07-14 06:16:58,048 - filelock - DEBUG - Lock 135064050810944 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7adea535b30522f579ec786184931d0493c8a6636e98c485f95ae14184c82aed.lock
+2025-07-14 06:16:58,050 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): cdn-lfs-us-1.hf.co:443
+2025-07-14 06:16:58,076 - urllib3.connectionpool - DEBUG - https://cdn-lfs-us-1.hf.co:443 "GET /repos/a3/0e/a30edc9de64da11ee3085971601c288cb995997ed848c76c6fd0aac2fb772e03/7adea535b30522f579ec786184931d0493c8a6636e98c485f95ae14184c82aed?response-content-disposition=inline%3B+filename*%3DUTF-8%27%27model.safetensors%3B+filename%3D%22model.safetensors%22%3B&Expires=1752477417&Policy=eyJTdGF0ZW1lbnQiOlt7IkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc1MjQ3NzQxN319LCJSZXNvdXJjZSI6Imh0dHBzOi8vY2RuLWxmcy11cy0xLmhmLmNvL3JlcG9zL2EzLzBlL2EzMGVkYzlkZTY0ZGExMWVlMzA4NTk3MTYwMWMyODhjYjk5NTk5N2VkODQ4Yzc2YzZmZDBhYWMyZmI3NzJlMDMvN2FkZWE1MzViMzA1MjJmNTc5ZWM3ODYxODQ5MzFkMDQ5M2M4YTY2MzZlOThjNDg1Zjk1YWUxNDE4NGM4MmFlZD9yZXNwb25zZS1jb250ZW50LWRpc3Bvc2l0aW9uPSoifV19&Signature=OXQH46GrmNS7HfgxoNrLNV2ixnDsRm1e56sLkySr5yn16YjSsL~xgSy9As2g8GM6Depv6DcNs09TcY0G8p8dGlyA-c-lo5xv3DiP7z97B996sdSir16OQRJ0aturcQRcyDZwf7vYavEA-9UAvnSnE1eTPU1LsDKuhrTLkjfB9a82bVSCjjadcLYIivCm6~NQykFowEELR9DTv~GTWRJJEQRaA2Cem9Da1dxhBDN3W23kcHDgx~0N9OfBtJfCIklpIjKEk5yJuDpXum9A63kO2ioGPGIV-Cww~q8M7Gl7fuxcxLgkgIljuDHqbK4McEJBiOx0p3lvFzqfBHZn2wAx-A__&Key-Pair-Id=K24J24Z295AEI9 HTTP/1.1" 200 1876463472
+2025-07-14 06:17:17,072 - filelock - DEBUG - Attempting to release lock 135064050810944 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7adea535b30522f579ec786184931d0493c8a6636e98c485f95ae14184c82aed.lock
+2025-07-14 06:17:17,072 - filelock - DEBUG - Lock 135064050810944 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/7adea535b30522f579ec786184931d0493c8a6636e98c485f95ae14184c82aed.lock
+2025-07-14 06:17:17,088 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - num_image_token: 256
+2025-07-14 06:17:17,088 - transformers_modules.OpenGVLab.InternVL3-1B-Pretrained.d3292416b2ecc894c0f4009a6dae424fbf164249.modeling_internvl_chat - INFO - ps_version: v2
+2025-07-14 06:17:17,678 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/generation_config.json HTTP/1.1" 307 0
+2025-07-14 06:17:17,683 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/generation_config.json HTTP/1.1" 200 0
+2025-07-14 06:17:17,684 - filelock - DEBUG - Attempting to acquire lock 135064050817424 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/b71a65b12d4af002b6c35fa35653ac92a12a0ea0.lock
+2025-07-14 06:17:17,685 - filelock - DEBUG - Lock 135064050817424 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/b71a65b12d4af002b6c35fa35653ac92a12a0ea0.lock
+2025-07-14 06:17:17,690 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/generation_config.json HTTP/1.1" 200 69
+2025-07-14 06:17:17,692 - filelock - DEBUG - Attempting to release lock 135064050817424 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/b71a65b12d4af002b6c35fa35653ac92a12a0ea0.lock
+2025-07-14 06:17:17,692 - filelock - DEBUG - Lock 135064050817424 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/b71a65b12d4af002b6c35fa35653ac92a12a0ea0.lock
+2025-07-14 06:17:17,982 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/custom_generate/generate.py HTTP/1.1" 404 0
+2025-07-14 06:17:18,212 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/tokenizer_config.json HTTP/1.1" 307 0
+2025-07-14 06:17:18,218 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer_config.json HTTP/1.1" 200 0
+2025-07-14 06:17:18,219 - filelock - DEBUG - Attempting to acquire lock 135064050820592 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/212358168f498b6af2760fc7ef7053472f9100fa.lock
+2025-07-14 06:17:18,220 - filelock - DEBUG - Lock 135064050820592 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/212358168f498b6af2760fc7ef7053472f9100fa.lock
+2025-07-14 06:17:18,225 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer_config.json HTTP/1.1" 200 None
+2025-07-14 06:17:18,228 - filelock - DEBUG - Attempting to release lock 135064050820592 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/212358168f498b6af2760fc7ef7053472f9100fa.lock
+2025-07-14 06:17:18,228 - filelock - DEBUG - Lock 135064050820592 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/212358168f498b6af2760fc7ef7053472f9100fa.lock
+2025-07-14 06:17:18,494 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/models/OpenGVLab/InternVL3-1B-Pretrained/tree/main/additional_chat_templates?recursive=False&expand=False HTTP/1.1" 404 64
+2025-07-14 06:17:18,721 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/vocab.json HTTP/1.1" 307 0
+2025-07-14 06:17:18,729 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/vocab.json HTTP/1.1" 200 0
+2025-07-14 06:17:18,731 - filelock - DEBUG - Attempting to acquire lock 135064052519920 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/6bce3a0a3866c4791a74d83d78f6824c3af64ec3.lock
+2025-07-14 06:17:18,732 - filelock - DEBUG - Lock 135064052519920 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/6bce3a0a3866c4791a74d83d78f6824c3af64ec3.lock
+2025-07-14 06:17:18,738 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/vocab.json HTTP/1.1" 200 None
+2025-07-14 06:17:19,071 - filelock - DEBUG - Attempting to release lock 135064052519920 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/6bce3a0a3866c4791a74d83d78f6824c3af64ec3.lock
+2025-07-14 06:17:19,071 - filelock - DEBUG - Lock 135064052519920 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/6bce3a0a3866c4791a74d83d78f6824c3af64ec3.lock
+2025-07-14 06:17:19,299 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/merges.txt HTTP/1.1" 307 0
+2025-07-14 06:17:19,306 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/merges.txt HTTP/1.1" 200 0
+2025-07-14 06:17:19,308 - filelock - DEBUG - Attempting to acquire lock 135064052517856 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/31349551d90c7606f325fe0f11bbb8bd5fa0d7c7.lock
+2025-07-14 06:17:19,309 - filelock - DEBUG - Lock 135064052517856 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/31349551d90c7606f325fe0f11bbb8bd5fa0d7c7.lock
+2025-07-14 06:17:19,316 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/merges.txt HTTP/1.1" 200 None
+2025-07-14 06:17:19,352 - filelock - DEBUG - Attempting to release lock 135064052517856 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/31349551d90c7606f325fe0f11bbb8bd5fa0d7c7.lock
+2025-07-14 06:17:19,352 - filelock - DEBUG - Lock 135064052517856 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/31349551d90c7606f325fe0f11bbb8bd5fa0d7c7.lock
+2025-07-14 06:17:19,595 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/tokenizer.json HTTP/1.1" 307 0
+2025-07-14 06:17:19,601 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer.json HTTP/1.1" 200 0
+2025-07-14 06:17:19,603 - filelock - DEBUG - Attempting to acquire lock 135064052522272 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1b4f039248a420730cd195d6d6a1a9cc713a7f14.lock
+2025-07-14 06:17:19,603 - filelock - DEBUG - Lock 135064052522272 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1b4f039248a420730cd195d6d6a1a9cc713a7f14.lock
+2025-07-14 06:17:19,610 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/tokenizer.json HTTP/1.1" 200 None
+2025-07-14 06:17:19,692 - filelock - DEBUG - Attempting to release lock 135064052522272 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1b4f039248a420730cd195d6d6a1a9cc713a7f14.lock
+2025-07-14 06:17:19,692 - filelock - DEBUG - Lock 135064052522272 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/1b4f039248a420730cd195d6d6a1a9cc713a7f14.lock
+2025-07-14 06:17:19,923 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/added_tokens.json HTTP/1.1" 307 0
+2025-07-14 06:17:19,928 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/added_tokens.json HTTP/1.1" 200 0
+2025-07-14 06:17:19,929 - filelock - DEBUG - Attempting to acquire lock 135064052521552 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dd972e4080e791eab591742c1168ee7fd6279146.lock
+2025-07-14 06:17:19,929 - filelock - DEBUG - Lock 135064052521552 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dd972e4080e791eab591742c1168ee7fd6279146.lock
+2025-07-14 06:17:19,936 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/added_tokens.json HTTP/1.1" 200 790
+2025-07-14 06:17:19,937 - filelock - DEBUG - Attempting to release lock 135064052521552 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dd972e4080e791eab591742c1168ee7fd6279146.lock
+2025-07-14 06:17:19,938 - filelock - DEBUG - Lock 135064052521552 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dd972e4080e791eab591742c1168ee7fd6279146.lock
+2025-07-14 06:17:20,164 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/special_tokens_map.json HTTP/1.1" 307 0
+2025-07-14 06:17:20,171 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/special_tokens_map.json HTTP/1.1" 200 0
+2025-07-14 06:17:20,173 - filelock - DEBUG - Attempting to acquire lock 135064052519584 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ac23c0aaa2434523c494330aeb79c58395378103.lock
+2025-07-14 06:17:20,173 - filelock - DEBUG - Lock 135064052519584 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ac23c0aaa2434523c494330aeb79c58395378103.lock
+2025-07-14 06:17:20,179 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/special_tokens_map.json HTTP/1.1" 200 613
+2025-07-14 06:17:20,182 - filelock - DEBUG - Attempting to release lock 135064052519584 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ac23c0aaa2434523c494330aeb79c58395378103.lock
+2025-07-14 06:17:20,182 - filelock - DEBUG - Lock 135064052519584 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/ac23c0aaa2434523c494330aeb79c58395378103.lock
+2025-07-14 06:17:20,411 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/chat_template.jinja HTTP/1.1" 404 0
+2025-07-14 06:17:20,896 - multicoco.model - INFO - Added 3 special tokens: ['<|latent|>', '<|start_latent|>', '<|end_latent|>']
+2025-07-14 06:17:21,139 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /OpenGVLab/InternVL3-1B-Pretrained/resolve/main/preprocessor_config.json HTTP/1.1" 307 0
+2025-07-14 06:17:21,145 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/preprocessor_config.json HTTP/1.1" 200 0
+2025-07-14 06:17:21,145 - filelock - DEBUG - Attempting to acquire lock 135064052521840 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dfd7e50d9d4e67cd679b16b337b419a0c6cfa849.lock
+2025-07-14 06:17:21,146 - filelock - DEBUG - Lock 135064052521840 acquired on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dfd7e50d9d4e67cd679b16b337b419a0c6cfa849.lock
+2025-07-14 06:17:21,151 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/resolve-cache/models/OpenGVLab/InternVL3-1B-Pretrained/d3292416b2ecc894c0f4009a6dae424fbf164249/preprocessor_config.json HTTP/1.1" 200 287
+2025-07-14 06:17:21,152 - filelock - DEBUG - Attempting to release lock 135064052521840 on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dfd7e50d9d4e67cd679b16b337b419a0c6cfa849.lock
+2025-07-14 06:17:21,152 - filelock - DEBUG - Lock 135064052521840 released on /home/ubuntu/.cache/huggingface/hub/.locks/models--OpenGVLab--InternVL3-1B-Pretrained/dfd7e50d9d4e67cd679b16b337b419a0c6cfa849.lock
+2025-07-14 06:17:21,199 - multicoco.model - DEBUG - Text embedding dim: 896
+2025-07-14 06:17:21,199 - multicoco.model - DEBUG - Vision hidden size: 1024
+2025-07-14 06:17:21,199 - multicoco.model - DEBUG - Vision image size: 448
+2025-07-14 06:17:21,200 - multicoco.model - INFO - Vision-text dimension mismatch: vision=1024, text=896. Using projector.
+2025-07-14 06:17:21,200 - multicoco.model - INFO - Resizing embeddings from 151674 to 151677 for 3 new tokens
+2025-07-14 06:17:29,619 - multicoco.model - INFO - MultiCoCo model initialized with 938198400 parameters
+2025-07-14 06:17:29,694 - __main__ - INFO - Loading checkpoint from safetensors: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 06:17:29,744 - __main__ - WARNING - Vocabulary size mismatch: checkpoint=151674, current=151677
+2025-07-14 06:17:29,745 - __main__ - INFO - This is expected when loading CoT checkpoint for CoCoNut training (latent tokens added)
+2025-07-14 06:17:29,745 - __main__ - DEBUG - Skipping model.language_model.lm_head.weight due to vocab size mismatch: 151674 vs 151677
+2025-07-14 06:17:29,745 - __main__ - DEBUG - Skipping model.language_model.model.embed_tokens.weight due to vocab size mismatch: 151674 vs 151677
+2025-07-14 06:17:29,745 - __main__ - INFO - Filtered state dict to exclude embedding weights. Loading 635/637 keys.
+2025-07-14 06:17:31,091 - __main__ - INFO - Intentionally skipped 2 embedding-related keys due to vocab size mismatch
+2025-07-14 06:17:31,091 - __main__ - INFO - New latent token embeddings will use existing random initialization
+2025-07-14 06:17:31,091 - __main__ - INFO - Manually loading embedding weights: checkpoint_size=151674, current_size=151677
+2025-07-14 06:17:31,280 - __main__ - INFO - Initializing 3 new latent token embeddings
+2025-07-14 06:17:31,281 - __main__ - INFO - Successfully loaded embeddings with proper latent token initialization
+2025-07-14 06:17:31,281 - __main__ - WARNING - ['model.language_model.model.embed_tokens.weight', 'model.language_model.lm_head.weight']
+2025-07-14 06:17:31,281 - __main__ - INFO - Successfully loaded model weights from checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8/model.safetensors
+2025-07-14 06:17:31,401 - __main__ - INFO - Model initialized from checkpoint: checkpoints/aokvqa_cot_aokvqa-cot-stage0/epoch-8
+2025-07-14 06:17:31,402 - __main__ - INFO - Dtype: bfloat16, BF16: True, FP16: False
+2025-07-14 06:17:31,402 - __main__ - INFO - Mode: coconut_train, CoCoNut: True
+2025-07-14 06:17:31,451 - multicoco.data - INFO - Limited dataset to 32 samples for testing
+2025-07-14 06:17:31,451 - multicoco.data - INFO - Loaded 32 samples from /home/ubuntu/multicoco/data/aokvqa_train.json
+2025-07-14 06:17:31,451 - __main__ - INFO - Training dataset: 32 samples
+2025-07-14 06:17:31,453 - multicoco.data - INFO - Limited dataset to 32 samples for testing
+2025-07-14 06:17:31,453 - multicoco.data - INFO - Loaded 32 samples from /home/ubuntu/multicoco/data/aokvqa_validation.json
+2025-07-14 06:17:31,454 - __main__ - INFO - Evaluation dataset: 32 samples
+2025-07-14 06:17:31,454 - __main__ - INFO - Starting CoCoNut multi-stage training...
+2025-07-14 06:17:33,195 - multicoco.trainer - INFO - CoCoTrainer initialized.
+2025-07-14 06:17:33,195 - __main__ - INFO - Trainer created successfully
+2025-07-14 06:17:33,195 - multicoco.trainer - INFO - Starting CoCoNut multi-stage training with stage transitions
+2025-07-14 06:17:33,195 - multicoco.trainer - INFO - Training state initialized for epoch-based training
+2025-07-14 06:17:33,196 - multicoco.trainer - INFO - Starting epoch-based training:
+2025-07-14 06:17:33,196 - multicoco.trainer - INFO -   Steps per epoch: 4
+2025-07-14 06:17:33,196 - multicoco.trainer - INFO -   Total epochs: 24
+2025-07-14 06:17:33,196 - multicoco.trainer - INFO -   Total steps: 96
+2025-07-14 06:17:33,213 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=96
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=96
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Transitioning to CoCoNut stage 0
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Dataset sample before curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 06:17:33,214 - multicoco.data - INFO - Applying progressive curriculum for stage 0
+2025-07-14 06:17:33,214 - multicoco.data - INFO - Creating progressive latent dataset for stage 0
+2025-07-14 06:17:33,214 - multicoco.data - INFO - Dataset updated with 32 curriculum samples
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Dataset sample after curriculum update (stage 0): steps=['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.', 'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.', 'He looks to be waiting for a paid ride to pick him up.']
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Applied progressive curriculum for stage 0 - Dataset size: 32
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Dataloader will be refreshed for updated curriculum
+2025-07-14 06:17:33,214 - multicoco.trainer - INFO - Resetting optimizer and scheduler for new stage
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Created cosine scheduler with warmup_steps=500, total_steps=96
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Optimizer created with initial LR: 0.0
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Scheduler: LambdaLR, num_training_steps=96
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Warmup steps: 500
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Gradient clipping enabled with max_grad_norm: 1.0
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Reset optimizer and scheduler with 96 remaining training steps
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - Epoch 1/24 - CoCoNut Stage 0/6 (Stage Epoch 1/3)
+2025-07-14 06:17:33,215 - multicoco.trainer - INFO - 
+Starting Epoch 1/24
+2025-07-14 06:17:36,687 - multicoco.trainer - DEBUG - Current LR: 2e-08 (full float: 2e-08)
+2025-07-14 06:17:37,992 - multicoco.trainer - DEBUG - Current LR: 4e-08 (full float: 4e-08)
+2025-07-14 06:17:39,340 - multicoco.trainer - DEBUG - Current LR: 6.000000000000001e-08 (full float: 6.000000000000001e-08)
+2025-07-14 06:17:40,715 - multicoco.trainer - DEBUG - Current LR: 8e-08 (full float: 8e-08)
+2025-07-14 06:17:40,724 - multicoco.trainer - INFO - Epoch 1 training complete. Average loss: 3.2383
+2025-07-14 06:17:41,302 - multicoco.trainer - INFO - Running evaluation after epoch 1...
+2025-07-14 06:17:41,302 - multicoco.trainer - DEBUG - Epoch evaluation logger configured for epoch 1
+2025-07-14 06:17:41,951 - multicoco.trainer - DEBUG - Using generation config: {'max_new_tokens': 256, 'do_sample': True, 'num_beams': 1, 'temperature': 0.8, 'top_p': 0.9, 'top_k': 50}
+2025-07-14 06:17:41,953 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: has_latent_spans=False
+2025-07-14 06:17:41,953 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: input_ids.shape=torch.Size([16, 373])
+2025-07-14 06:17:41,954 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: pixel_values.shape=torch.Size([16, 3, 448, 448])
+2025-07-14 06:17:41,954 - multicoco.latent_wrapper - DEBUG - LatentWrapper.generate: No latent spans detected, delegating to base model
+2025-07-14 06:17:41,954 - multicoco.model - DEBUG - generate() called with:
+2025-07-14 06:17:41,954 - multicoco.model - DEBUG -   pixel_values shape: torch.Size([16, 3, 448, 448])
+2025-07-14 06:17:41,954 - multicoco.model - DEBUG -   input_ids shape: torch.Size([16, 373])
+2025-07-14 06:17:41,954 - multicoco.model - DEBUG -   attention_mask shape: torch.Size([16, 373])
+2025-07-14 06:17:41,954 - multicoco.model - DEBUG -   kwargs: ['pad_token_id', 'max_new_tokens', 'do_sample', 'num_beams', 'temperature', 'top_p', 'top_k']
+2025-07-14 06:17:42,325 - multicoco.model - ERROR - Error in model.generate(): shape mismatch: value tensor of shape [4096, 896] cannot be broadcast to indexing result of shape [16, 896]
+2025-07-14 06:17:42,325 - multicoco.model - ERROR - Error type: <class 'RuntimeError'>
+2025-07-14 06:17:42,325 - multicoco.model - ERROR - Final tensor shapes:
+2025-07-14 06:17:42,325 - multicoco.model - ERROR -   pixel_values: torch.Size([16, 3, 448, 448])
+2025-07-14 06:17:42,325 - multicoco.model - ERROR -   input_ids: torch.Size([16, 373])
+2025-07-14 06:17:42,326 - multicoco.model - ERROR -   attention_mask: torch.Size([16, 373])
+2025-07-14 06:17:42,424 - __main__ - INFO - MultiCoCo runner cleanup complete

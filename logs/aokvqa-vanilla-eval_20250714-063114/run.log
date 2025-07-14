@@ -1,0 +1,2 @@
+2025-07-14 06:31:14,557 - __main__ - INFO - Logging initialized. Output saved to: logs/aokvqa-vanilla-eval_20250714-063114
+2025-07-14 06:31:14,620 - __main__ - INFO - CUDA available with 1 devices (deterministic mode)
