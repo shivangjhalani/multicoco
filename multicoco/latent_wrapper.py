@@ -122,6 +122,74 @@ class LatentWrapper(nn.Module):
         logger.info("Using original embedding layer to maintain consistent embedding space across CoCoNut passes")
         return original_embedding
 
+    def _prepare_inputs_for_multimodal_internvl(self, input_ids: torch.Tensor, image_embeds: Optional[torch.Tensor] = None, inputs_embeds: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Prepare multimodal inputs for InternVL3-1B models.
+        
+        InternVL3-1B doesn't have a prepare_inputs_for_multimodal method like some other multimodal models.
+        Instead, it manually combines text and image embeddings in its forward method.
+        This method replicates that behavior for compatibility with the CoCoNut framework.
+        
+        Args:
+            input_ids: Token IDs for text input
+            image_embeds: Optional image embeddings to inject
+            inputs_embeds: Optional pre-computed text embeddings (if None, computed from input_ids)
+            
+        Returns:
+            Combined embeddings with image tokens replaced by image embeddings
+        """
+        # Get text embeddings if not provided
+        if inputs_embeds is None:
+            inputs_embeds = self.base_model.model.language_model.get_input_embeddings()(input_ids)
+        
+        # If no image embeddings, return text embeddings as-is
+        if image_embeds is None:
+            return inputs_embeds
+        
+        # Clone to avoid modifying original embeddings
+        input_embeds = inputs_embeds.clone()
+        
+        # Get image context token ID (this should be set by the model during chat/batch_chat)
+        img_context_token_id = getattr(self.base_model.model, 'img_context_token_id', None)
+        if img_context_token_id is None:
+            # Try to get it from tokenizer if available
+            if hasattr(self, 'tokenizer'):
+                img_context_token_id = self.tokenizer.convert_tokens_to_ids('<IMG_CONTEXT>')
+            else:
+                logger.warning("img_context_token_id not found, image embeddings will not be injected")
+                return input_embeds
+        
+        # Reshape for processing (following InternVL3-1B pattern)
+        B, N, C = input_embeds.shape
+        input_embeds_flat = input_embeds.reshape(B * N, C)
+        input_ids_flat = input_ids.reshape(B * N)
+        
+        # Find positions where image tokens should be replaced
+        selected = (input_ids_flat == img_context_token_id)
+        
+        if selected.sum() > 0:
+            # Ensure image embeddings are on the correct device and have correct shape
+            image_embeds = image_embeds.to(input_embeds.device).to(input_embeds.dtype)
+            vit_embeds_flat = image_embeds.reshape(-1, C)
+            
+            # Replace image token positions with image embeddings
+            # Handle potential size mismatches gracefully
+            n_selected = selected.sum()
+            n_available = vit_embeds_flat.shape[0]
+            
+            if n_selected <= n_available:
+                input_embeds_flat[selected] = vit_embeds_flat[:n_selected]
+            else:
+                # If we need more embeddings than available, repeat the last ones
+                input_embeds_flat[selected] = vit_embeds_flat[:n_selected] if n_available >= n_selected else torch.cat([
+                    vit_embeds_flat,
+                    vit_embeds_flat[-1:].repeat(n_selected - n_available, 1)
+                ])
+                logger.warning(f"Image embedding size mismatch: needed {n_selected}, available {n_available}")
+        
+        # Reshape back to original dimensions
+        return input_embeds_flat.reshape(B, N, C)
+
     @property
     def image_processor(self):
         """Expose the underlying model's image_processor for compatibility with data collators"""
@@ -753,9 +821,10 @@ class LatentWrapper(nn.Module):
             if self.enable_norm_logging and hasattr(self.base_model.model, 'img_context_token_id'):
                 img_token_positions = self._get_image_token_positions(input_ids)
             
-            first_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+            # InternVL3-1B doesn't have prepare_inputs_for_multimodal method
+            # Instead, we manually prepare multimodal embeddings
+            first_pass_embeds = self._prepare_inputs_for_multimodal_internvl(
                 input_ids=input_ids,
-                pixel_values=None,
                 image_embeds=image_embeds
             )
             first_out = self.base_model.model.language_model(
@@ -928,9 +997,10 @@ class LatentWrapper(nn.Module):
 
     def _second_pass_forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], inputs_embeds: torch.Tensor, image_embeds: Optional[torch.Tensor], labels: Optional[torch.Tensor]) -> dict:
         """Second pass with modified embeddings containing injected hidden states"""
-        second_pass_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+        # InternVL3-1B doesn't have prepare_inputs_for_multimodal method
+        # Instead, we manually prepare multimodal embeddings
+        second_pass_embeds = self._prepare_inputs_for_multimodal_internvl(
             input_ids=input_ids,
-            pixel_values=None,
             image_embeds=image_embeds,
             inputs_embeds=inputs_embeds
         )
@@ -971,9 +1041,8 @@ class LatentWrapper(nn.Module):
             
             # Apply multimodal processing to final embeddings
             if image_embeds is not None:
-                processed_embeds = self.base_model.model.prepare_inputs_for_multimodal(
+                processed_embeds = self._prepare_inputs_for_multimodal_internvl(
                     input_ids=input_ids,
-                    pixel_values=None,
                     image_embeds=image_embeds,
                     inputs_embeds=processed_embeds
                 )
