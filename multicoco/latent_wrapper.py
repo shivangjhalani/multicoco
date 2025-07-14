@@ -55,27 +55,67 @@ class LatentWrapper(nn.Module):
         # because both self.embedding and base_model embedding referred to the same tensor
         
         original_embedding = None
+        
+        # Debug: Print model structure to understand the actual hierarchy
+        logger.debug(f"Model type: {type(model)}")
+        logger.debug(f"Model attributes: {[attr for attr in dir(model) if not attr.startswith('_')]}")
+        
+        # Try different possible structures for InternVL3
         if hasattr(model, 'language_model') and hasattr(model.language_model, 'model'):
             # InternVL3 structure: model.language_model.model.embed_tokens
-            original_embedding = model.language_model.model.embed_tokens
+            if hasattr(model.language_model.model, 'embed_tokens'):
+                original_embedding = model.language_model.model.embed_tokens
+                logger.debug("Found embedding at: model.language_model.model.embed_tokens")
+        elif hasattr(model, 'language_model') and hasattr(model.language_model, 'embed_tokens'):
+            # Direct language model embedding: model.language_model.embed_tokens
+            original_embedding = model.language_model.embed_tokens
+            logger.debug("Found embedding at: model.language_model.embed_tokens")
         elif hasattr(model, 'model') and hasattr(model.model, 'language_model'):
-            # InternVL structure: model.model.language_model.model.embed_tokens
-            original_embedding = model.model.language_model.model.embed_tokens
+            # Alternative structure: model.model.language_model.model.embed_tokens
+            if hasattr(model.model.language_model, 'model') and hasattr(model.model.language_model.model, 'embed_tokens'):
+                original_embedding = model.model.language_model.model.embed_tokens
+                logger.debug("Found embedding at: model.model.language_model.model.embed_tokens")
+            elif hasattr(model.model.language_model, 'embed_tokens'):
+                original_embedding = model.model.language_model.embed_tokens
+                logger.debug("Found embedding at: model.model.language_model.embed_tokens")
         elif hasattr(model, 'model') and hasattr(model.model, 'embed_tokens'):
             # Direct access: model.model.embed_tokens  
             original_embedding = model.model.embed_tokens
+            logger.debug("Found embedding at: model.model.embed_tokens")
         elif hasattr(model, 'get_input_embeddings'):
             # Fallback: use get_input_embeddings method
             original_embedding = model.get_input_embeddings()
+            logger.debug("Found embedding using: model.get_input_embeddings()")
         else:
-            # Last resort: try to find embed_tokens attribute
-            for attr_name in ['embed_tokens', 'embeddings', 'word_embeddings']:
-                if hasattr(model, attr_name):
-                    original_embedding = getattr(model, attr_name)
-                    break
+            # Last resort: try to find embed_tokens attribute recursively
+            def find_embedding_recursive(obj, path="model"):
+                for attr_name in ['embed_tokens', 'embeddings', 'word_embeddings']:
+                    if hasattr(obj, attr_name):
+                        embedding = getattr(obj, attr_name)
+                        if hasattr(embedding, 'weight') and hasattr(embedding, 'num_embeddings'):
+                            logger.debug(f"Found embedding at: {path}.{attr_name}")
+                            return embedding
+                
+                # Recursively search common sub-attributes
+                for sub_attr in ['model', 'language_model', 'llm', 'transformer']:
+                    if hasattr(obj, sub_attr):
+                        result = find_embedding_recursive(getattr(obj, sub_attr), f"{path}.{sub_attr}")
+                        if result is not None:
+                            return result
+                return None
+            
+            original_embedding = find_embedding_recursive(model)
             
             if original_embedding is None:
-                raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
+                # Final attempt: check if the model itself is an embedding layer
+                if hasattr(model, 'weight') and hasattr(model, 'num_embeddings'):
+                    original_embedding = model
+                    logger.debug("Found embedding: model itself is embedding layer")
+                else:
+                    # Print available attributes for debugging
+                    attrs = [attr for attr in dir(model) if not attr.startswith('_') and not callable(getattr(model, attr, None))]
+                    logger.error(f"Could not find embedding layer. Available attributes: {attrs}")
+                    raise AttributeError(f"Could not find embedding layer in model: {type(model)}")
         
         # Create independent copy to avoid shared memory issues
         new_embedding = nn.Embedding(
