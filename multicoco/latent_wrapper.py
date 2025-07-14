@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 import torch
 import torch.nn as nn
 from typing import List, Optional, Tuple, Dict
@@ -631,10 +632,10 @@ class LatentWrapper(nn.Module):
         """
         Forward pass implementing proper CoCoNut sequential latent processing.
         
-        Key improvement: Instead of using the same hidden state for all latent tokens in a span,
-        this implementation processes latent tokens sequentially to allow reasoning evolution.
+        SIMPLIFIED: Now follows the elegant original CoCoNut two-pass algorithm:
+        1. First pass: get hidden states for the original sequence  
+        2. Second pass: replace latent token embeddings with sequential hidden states
         """
-        import time
         start_time = time.time()
         
         spans = self._extract_latent_spans(input_ids)
@@ -649,7 +650,7 @@ class LatentWrapper(nn.Module):
         # CoCoNut algorithm with sequential latent processing
         image_embeds = self._compute_vision_embeddings(pixel_values, image_embeds)
         
-        # Instead of the old two-pass approach, use sequential processing for latent spans
+        # Two-pass approach following original CoCoNut
         result = self._sequential_latent_forward(input_ids, attention_mask, image_embeds, labels, spans, **kwargs)
         
         # Track timing for efficiency metrics
@@ -673,116 +674,24 @@ class LatentWrapper(nn.Module):
         
     def _build_modified_embeddings_sequential(self, input_ids: torch.Tensor, spans: List[List[Tuple[int, int]]], last_hidden: torch.Tensor) -> torch.Tensor:
         """
-        Build modified embeddings with sequential latent processing.
-        Fix: Each latent token gets the hidden state from the previous position (not repeated).
-        Fix: Handle dimension mismatch between hidden states and embeddings with proper projection.
+        Build modified embeddings with sequential latent processing following original CoCoNut algorithm.
+        
+        SIMPLIFIED: This now implements the elegant original CoCoNut approach:
+        For each latent token position, replace embedding with hidden_states[batch_idx, token_idx - 1].
+        No projection layers, no complex shape handling, just the proven simple algorithm.
         """
         inputs_embeds = self.embedding(input_ids).clone()
         
-        logger.debug(f"inputs_embeds shape: {inputs_embeds.shape}")
-        logger.debug(f"last_hidden shape: {last_hidden.shape}")
-        logger.debug(f"Number of latent spans: {sum(len(span_pairs) for span_pairs in spans)}")
-        
-        # Check if we need projection between hidden states and embeddings
-        hidden_dim = last_hidden.shape[-1]
-        embed_dim = inputs_embeds.shape[-1]
-        needs_projection = hidden_dim != embed_dim
-        
-        if needs_projection:
-            logger.info(f"Dimension mismatch detected: hidden_dim={hidden_dim}, embed_dim={embed_dim}")
-            logger.info("Creating projection layer for latent injection")
-            
-            # Create or get projection layer
-            if not hasattr(self, '_hidden_to_embed_proj'):
-                self._hidden_to_embed_proj = nn.Linear(hidden_dim, embed_dim, bias=False)
-                # Initialize with small weights to preserve stability
-                nn.init.normal_(self._hidden_to_embed_proj.weight, std=0.02)
-                # Move to same device as model
-                self._hidden_to_embed_proj = self._hidden_to_embed_proj.to(
-                    device=last_hidden.device, 
-                    dtype=last_hidden.dtype
-                )
-                logger.info(f"Created projection layer: {hidden_dim} -> {embed_dim}")
-            
-            # Ensure projection layer is on correct device
-            if self._hidden_to_embed_proj.weight.device != last_hidden.device:
-                self._hidden_to_embed_proj = self._hidden_to_embed_proj.to(
-                    device=last_hidden.device, 
-                    dtype=last_hidden.dtype
-                )
-        
+        # Simple sequential injection following original CoCoNut algorithm
         for batch_idx, span_pairs in enumerate(spans):
             for start, end in span_pairs:
-                if start == 0:
-                    continue  # Skip if latent span starts at position 0
-                
-                # Sequential injection: each latent token gets the hidden state from the previous position
-                for pos in range(start + 1, end):  # Skip start/end markers, only process actual latent tokens
-                    # Each latent token gets hidden state from the immediately previous position
+                # Skip start/end markers, only process actual latent tokens
+                for pos in range(start + 1, end):
+                    # Each latent token gets hidden state from previous position (original CoCoNut algorithm)
                     source_pos = pos - 1
-                    if source_pos < last_hidden.shape[1] and pos < inputs_embeds.shape[1]:
-                        try:
-                            # Extract hidden state with robust shape handling
-                            hidden_state = last_hidden[batch_idx, source_pos]
-                            
-                            logger.debug(f"Extracted hidden_state shape: {hidden_state.shape}, expected 1D with dim {hidden_dim}")
-                            
-                            # Handle unexpected shapes more robustly
-                            if hidden_state.dim() == 0:
-                                # Scalar - shouldn't happen but handle it
-                                logger.error(f"Got scalar hidden state at pos {pos}, skipping injection")
-                                continue
-                            elif hidden_state.dim() == 1:
-                                # Expected case: 1D vector of hidden states
-                                if hidden_state.shape[0] != hidden_dim:
-                                    logger.error(f"Hidden state size {hidden_state.shape[0]} doesn't match expected {hidden_dim}, skipping injection")
-                                    continue
-                            elif hidden_state.dim() == 2:
-                                # Unexpected 2D tensor - flatten or take first row
-                                logger.warning(f"Got 2D hidden state {hidden_state.shape}, flattening")
-                                if hidden_state.shape[0] == 1:
-                                    # Shape [1, hidden_dim] - squeeze out the first dimension
-                                    hidden_state = hidden_state.squeeze(0)
-                                elif hidden_state.shape[1] == 1:
-                                    # Shape [hidden_dim, 1] - squeeze out the second dimension
-                                    hidden_state = hidden_state.squeeze(1)
-                                else:
-                                    # Complex 2D shape - this shouldn't happen, skip injection
-                                    logger.error(f"Cannot handle 2D hidden state shape {hidden_state.shape}, skipping injection")
-                                    continue
-                            else:
-                                # Higher dimensional tensor - definitely shouldn't happen
-                                logger.error(f"Got {hidden_state.dim()}D hidden state {hidden_state.shape}, skipping injection")
-                                continue
-                            
-                            # Ensure we now have a 1D tensor
-                            if hidden_state.dim() != 1:
-                                logger.error(f"After reshaping, hidden state is still not 1D: {hidden_state.shape}, skipping injection")
-                                continue
-                            
-                            # Apply projection if needed
-                            if needs_projection:
-                                hidden_state = self._hidden_to_embed_proj(hidden_state.unsqueeze(0)).squeeze(0)
-                            
-                            # Final validation before assignment
-                            target_embedding = inputs_embeds[batch_idx, pos]
-                            if hidden_state.shape != target_embedding.shape:
-                                logger.error(f"Shape mismatch: hidden_state.shape={hidden_state.shape}, target_embedding.shape={target_embedding.shape}, skipping injection")
-                                continue
-                            
-                            # Safe assignment
-                            inputs_embeds[batch_idx, pos] = hidden_state
-                            
-                        except Exception as e:
-                            logger.error(f"Error injecting latent token at pos {pos}: {e}")
-                            logger.error(f"  last_hidden shape: {last_hidden.shape}")
-                            logger.error(f"  batch_idx: {batch_idx}, source_pos: {source_pos}")
-                            logger.error(f"  hidden_state shape: {hidden_state.shape if 'hidden_state' in locals() else 'not extracted'}")
-                            logger.error(f"  target embedding shape: {inputs_embeds[batch_idx, pos].shape}")
-                            # Skip this injection and continue
-                            continue
-                    else:
-                        logger.warning(f"Index out of bounds: source_pos={source_pos}, pos={pos}, last_hidden.shape[1]={last_hidden.shape[1]}, inputs_embeds.shape[1]={inputs_embeds.shape[1]}")
+                    if source_pos >= 0 and source_pos < last_hidden.shape[1] and pos < inputs_embeds.shape[1]:
+                        # Direct assignment - let PyTorch handle any dimension conversion naturally
+                        inputs_embeds[batch_idx, pos] = last_hidden[batch_idx, source_pos]
         
         return inputs_embeds
 
@@ -1175,9 +1084,6 @@ class LatentWrapper(nn.Module):
         # Delegate to base model's save_pretrained but with proper state_dict handling
         self.base_model.save_pretrained(save_directory, **kwargs)
         
-        # Save any LatentWrapper-specific parameters separately if needed
-        import os
-        latent_wrapper_path = os.path.join(save_directory, "latent_wrapper_extra.bin")
-        if hasattr(self, '_hidden_to_embed_proj'):
-            torch.save({"projection_layer": self._hidden_to_embed_proj.state_dict()}, latent_wrapper_path)
-            logger.info(f"Saved LatentWrapper projection layer to {latent_wrapper_path}")
+        # Original CoCoNut doesn't require saving extra parameters
+        # LatentWrapper now uses the simple original algorithm without projection layers
+        logger.info("LatentWrapper uses simplified algorithm - no extra parameters to save")
