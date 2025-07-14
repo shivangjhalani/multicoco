@@ -146,39 +146,26 @@ class MultiCoCo(nn.Module):
         - img_context_token_id
         etc.
         """
-        # Debug output
-        print(f"🔍 __getattr__ called for: {name}")
-        print(f"🔍 __dict__ keys: {list(self.__dict__.keys())}")
-        print(f"🔍 _modules keys: {list(getattr(self, '_modules', {}).keys())}")
-        
-        # Prevent infinite recursion by checking if we're looking for 'model'
-        if name == 'model':
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-        
         # Check if model exists in either __dict__ or _modules (PyTorch submodules)
         # PyTorch automatically registers nn.Module assignments as submodules in _modules
         model_obj = None
         if 'model' in self.__dict__ and self.__dict__['model'] is not None:
             model_obj = self.__dict__['model']
-            print(f"🔍 Found model in __dict__: {type(model_obj)}")
         elif hasattr(self, '_modules') and 'model' in self._modules and self._modules['model'] is not None:
             model_obj = self._modules['model']
-            print(f"🔍 Found model in _modules: {type(model_obj)}")
-        else:
-            print(f"🔍 Model not found in either location")
+        
+        # For 'model' attribute specifically, return it directly if found in _modules
+        if name == 'model' and model_obj is not None:
+            return model_obj
         
         # If model is not initialized yet, just raise AttributeError normally
         if model_obj is None:
-            print(f"🔍 Raising AttributeError for {name}")
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         
         # Forward the attribute to the underlying model
         try:
-            result = getattr(model_obj, name)
-            print(f"🔍 Successfully forwarded {name} to model")
-            return result
+            return getattr(model_obj, name)
         except AttributeError:
-            print(f"🔍 Model doesn't have attribute {name}")
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     @property
